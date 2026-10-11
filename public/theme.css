@@ -115,10 +115,12 @@ html[data-color-scheme="dark"] #remove.icon-btn:hover:not(:disabled) {
   color: #fff;
 }
 html[data-color-scheme="dark"] .win-btn.close:hover { background: #494a50; color: #fff; }
-html[data-color-scheme="dark"] #log {
+html[data-color-scheme="dark"] #log,
+html[data-color-scheme="dark"] .notice-detail {
   background: #202024;
   color: #dddde0;
 }
+html[data-color-scheme="dark"] .notice-detail { scrollbar-color: #77787d transparent; }
 html[data-color-scheme="dark"] .progress { background: #4a4b50; }
 html[data-color-scheme="dark"] .ask { background: rgba(12, 12, 16, .75); }
 html[data-color-scheme="dark"] .ask-risk { background: #393a40; color: #f0f0f2; }

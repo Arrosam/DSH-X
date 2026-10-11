@@ -982,6 +982,27 @@
       scrollbar-width: thin;
       scrollbar-color: #c3d3ee transparent;
     }
+    /* 启动失败时 dsh 自己打印的那段输出：和日志框一个长相，框内滚动、可以选中复制 */
+    #notice.has-detail .ask-card { width: min(680px, 100%); }
+    .notice-detail {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: 46vh;
+      margin: 12px 0 0;
+      overflow: auto;
+      padding: 11px 13px;
+      background: #f7faff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: #3f5478;
+      font: 12px/1.5 ui-monospace, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      scrollbar-width: thin;
+      scrollbar-color: #c3d3ee transparent;
+    }
+    .notice-detail[hidden], #noticeCopy[hidden] { display: none; }
+    .hint .hint-fail { color: var(--danger); }
     /* 托盘退出后：浏览器不一定会让脚本关标签页，那就换一张干净的告别页 */
     .gone {
       position: fixed;
@@ -1320,7 +1341,9 @@
     <div class="ask-card" role="alertdialog" aria-modal="true" aria-labelledby="noticeTitle">
       <h2 class="ask-title" id="noticeTitle" data-i18n="操作失败">操作失败</h2>
       <p class="notice-text" id="noticeText"></p>
+      <pre class="notice-detail" id="noticeDetail" hidden></pre>
       <div class="ask-actions">
+        <button type="button" class="ghost" id="noticeCopy" hidden></button>
         <button type="button" class="primary" id="noticeOk" data-i18n="确定">确定</button>
       </div>
     </div>
@@ -1472,6 +1495,14 @@
   "上次启动自动禁用了：{names}（认为没问题可在上面重新打开）。": "Disabled at the last start: {names} (turn them back on here if that was wrong).",
   "启动时自动禁用了：{names}（插件页可恢复）": "Disabled at start: {names} (restore them on the Plugins page)",
   "⚠ 页面自检：{failed}/{total} 个插件包加载失败": "⚠ Page self-check: {failed}/{total} client plugin bundles failed to load",
+  "启动失败": "Start failed",
+  "{version} 启动失败": "{version} failed to start",
+  "{version} 启动超时": "{version} timed out while starting",
+  "{text}（退出码 {code}）": "{text} (exit code {code})",
+  "{text}，以下是 dsh 退出前的输出：": "{text}. Output from dsh before it exited:",
+  "查看错误信息": "Show error",
+  "复制": "Copy",
+  "已复制": "Copied",
   "{name} 已{state}{changed}。": "{name} {state}.{changed}",
   "正在{act} {name}…": "{act} {name}…",
   "下载失败：{message}。可以从 GitHub 的发布页手动下载安装包。": "Download failed: {message}. You can grab the installer from the GitHub release page.",
@@ -1684,10 +1715,54 @@
     const noticeEl = document.getElementById('notice')
     const noticeTitleEl = document.getElementById('noticeTitle')
     const noticeTextEl = document.getElementById('noticeText')
-    function notify(message, title = t('操作失败')) {
+    const noticeDetailEl = document.getElementById('noticeDetail')
+    const noticeCopyEl = document.getElementById('noticeCopy')
+    function notify(message, title = t('操作失败'), detail = '') {
       noticeTitleEl.textContent = title
       noticeTextEl.textContent = message == null ? '' : String(message)
+      noticeDetailEl.textContent = detail
+      noticeDetailEl.hidden = !detail
+      noticeCopyEl.hidden = !detail
+      noticeCopyEl.textContent = t('复制')
+      noticeEl.classList.toggle('has-detail', Boolean(detail))
       noticeEl.hidden = false
+      // 报错一般在输出的最后几行，打开就停在底部
+      noticeDetailEl.scrollTop = noticeDetailEl.scrollHeight
+    }
+    noticeCopyEl.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(`${noticeTextEl.textContent}\n\n${noticeDetailEl.textContent}`)
+      } catch {
+        // 剪贴板接口不给用时退回「选中再复制」
+        const range = document.createRange()
+        range.selectNodeContents(noticeDetailEl)
+        const selection = getSelection()
+        selection.removeAllRanges()
+        selection.addRange(range)
+        document.execCommand('copy')
+      }
+      noticeCopyEl.textContent = t('已复制')
+    }
+
+    /** 启动失败的那句话。服务端给的是中文原文，认得出的两种换成界面语言，再补上退出码。 */
+    function failureText(failure) {
+      const known = /^(\S+) 启动(失败|超时)$/.exec(failure.message || '')
+      const text = known
+        ? t(known[2] === '超时' ? '{version} 启动超时' : '{version} 启动失败', { version: known[1] })
+        : failure.message || t('启动失败')
+      const code = failure.exit?.code
+      return code == null ? text : t('{text}（退出码 {code}）', { text, code })
+    }
+    /** 把 dsh 退出前的输出摆出来：原因基本都在这段里，光一句「启动失败」看不出来。 */
+    function showFailure(failure) {
+      const output = (failure.tail || []).join('\n')
+      const text = failureText(failure)
+      notify(output ? t('{text}，以下是 dsh 退出前的输出：', { text }) : text, t('启动失败'), output)
+    }
+    /** 启动这条线上的报错出口：带着 dsh 输出的走 showFailure，其余照旧只显示一句话。 */
+    function notifyError(error) {
+      if (error?.failure) showFailure(error.failure)
+      else notify(error.message)
     }
     document.getElementById('noticeOk').onclick = () => { noticeEl.hidden = true }
     document.addEventListener('keydown', (event) => {
@@ -1717,7 +1792,12 @@
       body: JSON.stringify(body),
     }).then(async (res) => {
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || res.statusText)
+      if (!res.ok) {
+        const error = new Error(data.error || res.statusText)
+        // 启动失败时服务端会把 dsh 的输出尾巴一起带回来（见 showFailure）
+        if (data.failure) error.failure = data.failure
+        throw error
+      }
       return data
     })
 
@@ -2103,6 +2183,14 @@
         setMainAction('stop', t('停止'))
         return
       }
+      // 上次启动没成：原因的入口留在提示行上。托盘里点的启动失败时没有页面在等结果，
+      // 能看到原因的只有这里。
+      const failure = state.failure
+      if (failure && failure.version === version && have.has(version) && !live) {
+        hintEl.innerHTML = `<span class="hint-fail">${escapeHtml(failureText(failure))}</span> · <a href="#" role="button" data-failure>${escapeHtml(t('查看错误信息'))}</a>`
+        setMainAction('play', t('启动'))
+        return
+      }
       if (!version) {
         hintEl.textContent = remote.versions?.length ? t('读不到远程版本。') : t('正在读取版本…')
         setMainAction('play', t('启动'))
@@ -2182,7 +2270,7 @@
       try {
         await startVersion(version)
       } catch (error) {
-        notify(error.message)
+        notifyError(error)
       }
     }
     restartEl.onclick = async () => {
@@ -2196,7 +2284,7 @@
       } catch (error) {
         action = ''
         render()
-        notify(error.message)
+        notifyError(error)
       }
     }
     /** 升级到最新版：正在跑就先停掉，装完再按原样拉起来。 */
@@ -2225,7 +2313,7 @@
       } catch (error) {
         action = ''
         render()
-        notify(error.message)
+        notifyError(error)
       }
     }
     updateEl.onclick = () => {
@@ -2253,6 +2341,11 @@
         render()
       }
     }
+    hintEl.addEventListener('click', (event) => {
+      if (!event.target.closest('[data-failure]')) return
+      event.preventDefault()
+      if (state.failure) showFailure(state.failure)
+    })
     document.getElementById('clear').onclick = () => { logEl.textContent = '' }
     document.getElementById('exportLogs').onclick = async () => {
       try {
@@ -2308,7 +2401,7 @@
         action = ''
         launchRequested = false
         render()
-        notify(error.message)
+        notifyError(error)
       })
     }
 
@@ -2329,6 +2422,7 @@
         running,
         autoFix: data.autoFix ?? null,
         health: data.health ?? null,
+        failure: data.failure ?? null,
         loaded: true,
       }
       if (data.progress) installProgress = data.progress
