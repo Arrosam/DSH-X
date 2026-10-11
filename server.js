@@ -275,6 +275,37 @@ function redact(text, secrets = []) {
   return out.replace(/\b(sk|ak)-[A-Za-z0-9_-]{8,}/g, '$1-***')
 }
 
+/** 失败信息里单行输出的上限：node 报错会把出错的那行源码原样打出来，压缩过的包一行能有几百 KB。 */
+const FAILURE_LINE_MAX = 2000
+
+/** 终端颜色之类的转义序列：页面不解析它们，原样显示就是一串 [90m 乱码。 */
+const ANSI_RE = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
+
+/**
+ * 给界面看的启动失败信息：光一句「启动失败」看不出原因，得把 dsh 退出前的输出带上。
+ * 尾巴是子进程的原始输出，没经过 pushLog，所以在这里打码。
+ */
+export function publicFailure(failure, secrets = secretValues) {
+  if (!failure) return null
+  return {
+    at: failure.at,
+    version: failure.version,
+    profile: failure.profile ?? null,
+    home: failure.home ?? null,
+    message: redact(failure.message, secrets),
+    exit: failure.exit || null,
+    tail: (failure.tail || []).map((line) => {
+      const text = redact(line, secrets).replace(ANSI_RE, '')
+      return text.length > FAILURE_LINE_MAX ? `${text.slice(0, FAILURE_LINE_MAX)}…` : text
+    }),
+  }
+}
+
+/** 记着的那次失败是不是这个「版本 × profile」在当前 dsh 目录下的。 */
+function failureIsFor(version, profile) {
+  return Boolean(lastFailure) && lastFailure.version === version && lastFailure.profile === profile && lastFailure.home === homeDir()
+}
+
 function versionDir(version) {
   return join(DATA, 'versions', version)
 }
@@ -922,6 +953,7 @@ async function snapshotDefault() {
     })(),
     autoFix: autoFixForHome(),
     health: lastHealth,
+    failure: publicFailure(lastFailure),
     dataDir: DATA,
     progress: installProgress,
     pluginProgress: pluginProgress ? { ...pluginProgress, name: pluginProgressName, profile: pluginProgressProfile } : null,
@@ -3442,6 +3474,7 @@ async function bootOnce(ver, prof) {
       pushLog(`固定端口 ${pinned} 没拿到，这次落在 ${result.url}`)
     }
     lastHealth = null
+    if (failureIsFor(ver, prof)) lastFailure = null
     await emitState()
     void selfCheckPage(result.url, ver)
     return result
@@ -3450,6 +3483,8 @@ async function bootOnce(ver, prof) {
     const failure = {
       at: Date.now(),
       version: ver,
+      profile: prof,
+      home: homeDir(),
       message: conflict || (error instanceof Error ? error.message : String(error)),
       exit: proc.exit,
       tail: (proc.tail || []).slice(-120),
@@ -3588,6 +3623,11 @@ async function autoDisableFailedPlugins(error, already, profile = PROFILE_NAME) 
  */
 async function startWithRepair(version, profile = PROFILE_NAME) {
   lastAutoFix = null
+  // 同一个组合上一次的失败到此作废，页面上那条「启动失败」跟着收掉
+  if (failureIsFor(version, profile)) {
+    lastFailure = null
+    await emitState()
+  }
   const autoDisabled = new Set()
   let depsRepaired = false
   let lastError
@@ -3611,6 +3651,18 @@ async function startWithRepair(version, profile = PROFILE_NAME) {
       break
     }
   }
+  // 没走到拉起子进程那一步的失败（未安装、找不到入口）也记下来；托盘里点的启动没有
+  // 页面在等这个请求的结果，只能靠状态把原因带过去
+  lastFailure = lastError?.failure || {
+    at: Date.now(),
+    version: String(version ?? ''),
+    profile,
+    home: homeDir(),
+    message: lastError instanceof Error ? lastError.message : String(lastError),
+    exit: null,
+    tail: [],
+  }
+  await emitState().catch(() => {})
   throw lastError
 }
 
@@ -5258,7 +5310,8 @@ export async function startServer() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       pushLog(`错误: ${message}`)
-      send(res, 500, { error: message })
+      const failure = publicFailure(error?.failure)
+      send(res, 500, failure ? { error: message, failure } : { error: message })
     }
   }
 
