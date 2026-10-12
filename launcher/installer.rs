@@ -152,6 +152,8 @@ mod installer {
                         match validate_dir(message["path"].as_str().unwrap_or("")) {
                             Err(error) => emit(json!({"type":"error","message":error})),
                             Ok(dir) => {
+                                // 旧启动器会用隐藏窗口标记启动安装包；页面就绪后再次显示，兼容这些旧入口。
+                                if automatic { window.set_visible(true); window.set_focus(); }
                                 busy = true; destination = dir.clone(); let work = work.clone(); let engine = engine.clone(); let proxy = proxy.clone(); let desktop = message["desktop"].as_bool().unwrap_or(true);
                                 let arguments = forwarded_engine_args(&dir, desktop, &work, automatic, &args);
                                 thread::spawn(move || {
