@@ -3055,7 +3055,7 @@
       // 能看到原因的只有这里。那个组合又跑起来了就不再提。
       const failure = state.failure
       const failureLive = failure && state.instances.some((item) => item.version === failure.version
-        && item.profile === failure.profile && (item.status === 'running' || item.status === 'starting'))
+        && item.profile === failure.profile && item.home === failure.home && (item.status === 'running' || item.status === 'starting'))
       if (!hintEl.textContent && failure && !failureLive) {
         hintEl.innerHTML = `<span class="hint-fail">${escapeHtml(failureText(failure))}</span> · <button type="button" data-failure>${escapeHtml(t('查看错误信息'))}</button>`
       }

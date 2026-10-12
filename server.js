@@ -3747,6 +3747,8 @@ async function startWithRepair(version, profile = PROFILE_NAME) {
     exit: null,
     tail: [],
   }
+  // 这些失败没经过 bootOnce；同样挂回请求的 Error，让当前页面立即收到自己的失败信息。
+  try { lastError.failure = lastFailure } catch { /* 非 Error 对象仍保留状态里的记录 */ }
   await emitState().catch(() => {})
   throw lastError
 }

@@ -5,6 +5,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
 import { publicFailure } from '../server.js'
@@ -76,6 +77,17 @@ test('主界面留着上次启动失败的入口：托盘里点的启动没有�
   }
 })
 
+test('同版本同 profile 的另一个用户目录运行时，不能隐藏失败目录的错误入口', () => {
+  const start = html.indexOf('      const failure = state.failure')
+  const end = html.indexOf('      if (!hintEl.textContent && failure && !failureLive)', start)
+  assert.ok(start >= 0 && end > start)
+  const failure = { version: '9.9.9', profile: 'web', home: '/failed-home' }
+  for (const home of ['/other-home', failure.home]) {
+    const state = { failure, instances: [{ version: failure.version, profile: failure.profile, home, status: 'running' }] }
+    assert.equal(vm.runInNewContext(html.slice(start, end) + '\nBoolean(failureLive)', { state }), home === failure.home)
+  }
+})
+
 /** 找一个空闲端口：管理页在端口被占时会自己顺延，那样测试就不知道该连哪了。 */
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -144,6 +156,17 @@ test('dsh 起不来时，接口的报错和状态里都带着它退出前的输�
     assert.equal(state.running, null)
     assert.equal(state.failure.version, '9.9.9')
     assert.deepEqual(state.failure.tail, body.failure.tail)
+
+    const missing = await fetch(`${base}/api/start`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ version: '8.8.8' }),
+    })
+    assert.equal(missing.status, 500)
+    const missingBody = await missing.json()
+    assert.equal(missingBody.failure.version, '8.8.8')
+    assert.equal(missingBody.failure.profile, 'web')
+    assert.equal(missingBody.failure.message, '8.8.8 未安装')
+    assert.deepEqual(missingBody.failure.tail, [])
   } finally {
     manager.kill()
   }
