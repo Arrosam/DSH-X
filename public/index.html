@@ -420,21 +420,10 @@
                 <label class="toggle set-row" id="systemPathRow">
                   <span class="set-text">
                     <span class="set-name" data-i18n="把 dsh 加到系统 PATH">把 dsh 加到系统 PATH</span>
-                    <span class="set-desc" data-i18n="在终端直接运行 dsh；请按下方提示完成 PATH 配置。">在终端直接运行 dsh；请按下方提示完成 PATH 配置。</span>
                     <p class="hint" id="systemPathHint"></p>
                   </span>
                   <input type="checkbox" id="systemPath" />
                 </label>
-                <div class="set-row stacked">
-                  <div class="set-text">
-                    <span class="set-name" data-i18n="dsh 用户目录">dsh 用户目录</span>
-                  </div>
-                  <div class="set-control">
-                    <input id="dshHome" type="text" placeholder="默认位置" />
-                    <button class="ghost" id="pickDshHome" type="button" data-i18n="浏览…">浏览…</button>
-                  </div>
-                  <p class="hint" id="dshHomeHint"></p>
-                </div>
                 <div class="set-row stacked">
                   <div class="set-text">
                     <span class="set-name" data-i18n="网络代理">网络代理</span>
@@ -945,10 +934,6 @@
   "请先停止使用此目录的实例": "Stop the instances using this directory first",
   "启动项正在使用此目录，请先修改或删除对应启动项": "Edit or remove the launch entries using this directory first",
   "使用目录：{path}": "Directory: {path}",
-  "数据、插件和 Profile 的位置；留空使用默认目录。": "Location of data, plugins and profiles. Leave blank for the default.",
-  "默认位置：{path}": "Default: {path}",
-  "当前使用：{path}": "In use: {path}",
-  "正在用默认位置：{path}": "Using the default location: {path}",
   "打开 dsh 的方式": "How dsh opens",
   "dsh 页面用哪种窗口打开。": "Which window the dsh page opens in.",
   "浏览器标签页": "Browser tab",
@@ -1078,7 +1063,6 @@
   "已强制启用 host 层技能行（与 agent 预设那份叠加）。dsh 在跑会热加载。": "Host skill rows force-enabled (layered with the agent preset). dsh hot-reloads while running.",
   "已清除覆盖，host 层两行回到模板默认。本地技能不受影响。": "Override cleared; the two host rows are back to the template default. Local skills are unaffected.",
   "把 dsh 加到系统 PATH": "Add dsh to the system PATH",
-  "在终端直接运行 dsh；请按下方提示完成 PATH 配置。": "Run dsh from the terminal; follow the PATH instructions below.",
   "shim 目录：{dir}": "Shim folder: {dir}",
   "请在 shell 配置中手动添加：{command}；保存后重新打开终端。启动器不会修改 shell 配置。": "Add this to your shell configuration: {command}; then reopen the terminal. The launcher does not edit shell configuration.",
   "如曾手动添加，请在 shell 配置中移除添加 {dir} 的 PATH 配置，再重新打开终端。启动器不会修改 shell 配置。": "If you added it manually, remove the PATH entry for {dir} from your shell configuration, then reopen the terminal. The launcher does not edit shell configuration.",
@@ -3821,9 +3805,6 @@
     const pickDirEl = document.getElementById('pickDir')
     const dataDirEl = document.getElementById('dataDir')
     const dataDirHint = document.getElementById('dataDirHint')
-    const dshHomeEl = document.getElementById('dshHome')
-    const dshHomeHint = document.getElementById('dshHomeHint')
-    const pickDshHomeEl = document.getElementById('pickDshHome')
     const systemPathEl = document.getElementById('systemPath')
     const systemPathHint = document.getElementById('systemPathHint')
     let savedSystemPath = false
@@ -3938,15 +3919,6 @@
         dataDirEl.value = String(data.dataDir ?? '')
         dataDirHint.textContent = t('仅用于新安装的版本，已有版本不迁移。', { home: data.dshHome || '~/.dsh' })
       }
-      if ('dshHomeValue' in data) {
-        const value = String(data.dshHomeValue ?? '')
-        const fallback = String(data.dshHomeDefault ?? data.dshHome ?? '~/.dsh')
-        dshHomeEl.value = value
-        dshHomeEl.placeholder = t('默认位置：{path}', { path: fallback })
-        dshHomeHint.textContent = value
-          ? t('当前使用：{path}', { path: value })
-          : t('正在用默认位置：{path}', { path: fallback })
-      }
       if ('systemPath' in data) {
         showSystemPathSettings(data)
       }
@@ -4012,13 +3984,12 @@
     // 比较目录时忽略末尾斜杠：用户常带着 '\' 保存，与 resolve 后的值比会误判成改过
     const normDir = (value) => String(value ?? '').trim().replace(/[\\/]+$/, '')
 
-    // 两个目录输入框共用一套「浏览…」：弹系统对话框拿路径，写回输入框并保存
     async function pickInto(input, hint, key, button) {
       const before = hint.textContent
       button.disabled = true
       hint.textContent = t('在弹出的对话框里选一个目录…')
       try {
-        const data = await post('/api/pick-dir', { initialPath: input.value.trim() || (key === 'dshHome' ? state.dshHome : '') })
+        const data = await post('/api/pick-dir', { initialPath: input.value.trim() })
         if (data.path) {
           input.value = data.path
           queueSetting(key, data.path)
@@ -4033,9 +4004,6 @@
     }
 
     pickDirEl.onclick = () => pickInto(dataDirEl, dataDirHint, 'dataDir', pickDirEl)
-    pickDshHomeEl.onclick = () => pickInto(dshHomeEl, dshHomeHint, 'dshHome', pickDshHomeEl)
-    // dsh 用户目录：留空就是默认位置，所以空值也要照发（服务端按空串处理）
-    dshHomeEl.onchange = () => queueSetting('dshHome', dshHomeEl.value.trim())
 
     async function flushSettings() {
       if (settingSaveRunning || !pendingSettings.size) return

@@ -72,11 +72,10 @@ test('设置改变后自动提交，目录留空时拒绝提交', () => {
   assert.match(html, /const data = await post\('\/api\/settings', patch\)/)
 })
 
-test('读到的设置填进输入框，并说明插件/profile 位置与迁移语义', () => {
+test('读到的设置填进版本目录输入框，并说明迁移语义', () => {
   assert.match(html, /if \('dataDir' in data\) \{[\s\S]*?dataDirEl\.value = String\(data\.dataDir \?\? ''\)/)
-  // 文案走 t()，家目录用 {home} 占位（界面语言切换后同一句话要能换掉）
+  // 迁移提示走 t()，切换界面语言时仍能翻译。
   assert.match(html, /dataDirHint\.textContent = t\('仅用于新安装的版本，已有版本不迁移。'/)
-  assert.match(html, /数据、插件和 Profile 的位置；留空使用默认目录。/)
 })
 
 test('改过目录的保存提示说明立即生效和不迁移', () => {
@@ -126,11 +125,8 @@ test('内联脚本仍能解析', () => {
 })
 
 test('设置页用一个下载源选择统管插件、整合包和启动器更新', () => {
-  assert.match(html, /<input id="dshHome" type="text"/, 'dsh 用户目录是文本框')
-  assert.match(html, /<button class="ghost" id="pickDshHome"[\s\S]{0,120}?浏览…/, 'dsh 用户目录带「浏览…」')
   assert.match(html, /<select id="downloadSource"><\/select>/, '统一下载源下拉选项由服务端给')
   assert.doesNotMatch(html, /<select id="updateSource"/, '不再单独暴露启动器更新源')
-  assert.match(html, /queueSetting\('dshHome'/, 'dsh 用户目录改动即保存')
   assert.match(html, /queueSetting\('downloadSource'/, '统一下载源改动即保存')
   assert.match(html, /用于版本、插件、整合包和启动器更新/, '提示明确说明统管范围')
 })

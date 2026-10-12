@@ -1292,14 +1292,15 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .plugin-home-hint { margin: -8px 0 24px; overflow-wrap: anywhere; }
 #pluginHomesDialog .ask-card { --dialog-width: 520px; }
 #pluginHomesDialog .dialog-heading { margin-bottom: 12px; }
-.plugin-homes-list { min-width: 0; }
-.plugin-home-row { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); min-width: 0; }
-.plugin-home-row:last-child { border-bottom: 0; }
-.plugin-home-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
-.plugin-home-folder { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; color: var(--muted); background: var(--accent-soft); }
+.plugin-homes-list { display: grid; gap: 10px; min-width: 0; }
+.plugin-home-row { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 14px; background: color-mix(in srgb, var(--accent-soft) 55%, var(--card)); min-width: 0; transition: background 150ms ease; }
+.plugin-home-row:hover, .plugin-home-row:focus-within { background: color-mix(in srgb, var(--accent-soft) 85%, var(--card)); }
+/* 全局目录没有移除操作，固定三列可让各行的打开与重命名按钮对齐。 */
+.plugin-home-actions { display: grid; grid-template-columns: repeat(3, 36px); align-items: center; gap: 4px; flex: 0 0 auto; }
+.plugin-home-folder { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 11px; color: var(--accent); background: var(--card); }
 .plugin-home-folder svg { width: 19px; height: 19px; }
 .plugin-home-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
-.plugin-home-info strong { font-weight: 600; }
+.plugin-home-info strong { font-size: 14px; font-weight: 600; }
 .plugin-home-info span { color: var(--muted); font-size: 12px; }
 #pluginHomesDialog .plugin-home-action { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 9px; color: var(--muted); background: transparent; transition: background 150ms ease, color 150ms ease, transform 150ms ease; }
 #pluginHomesDialog .plugin-home-action svg { width: 18px; height: 18px; }
@@ -1309,7 +1310,7 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 #pluginHomesDialog .plugin-home-action:disabled { opacity: .4; cursor: default; }
 #pluginHomesDialog .plugin-home-action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 #pluginHomesDialog .dialog-close { flex-basis: 32px; width: 32px; height: 32px; }
-.plugin-homes-actions { display: flex; align-items: center; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.plugin-homes-actions { display: flex; align-items: center; gap: 16px; margin-top: 18px; }
 .plugin-homes-actions .hint { flex: 1; margin: 0; font-size: 12px; line-height: 1.6; }
 #pluginHomesAdd.plugin-home-action { color: var(--text); background: var(--accent-soft); }
 #pluginHomesAdd.plugin-home-action:hover:not(:disabled) { background: var(--accent-dim); }
@@ -1319,6 +1320,8 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
   #pluginPanel .plugin-overview-top .profile-add { margin-left: auto; }
   .plugin-overview-top .plugin-home-bar { order: 1; flex-basis: 100%; }
   .plugin-overview-top .plugin-home-bar .ui-select { width: auto; flex: 1; margin-left: 0; }
+  .plugin-home-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px 12px; align-items: start; padding: 12px; }
+  .plugin-home-actions { grid-column: 2; }
 }
 .pack-detail-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .pack-more { position: relative; }
@@ -1823,10 +1826,11 @@ html .set-row:focus-within { background: transparent; box-shadow: none; }
 .launch-tool-actions svg, .plugin-actions .action-icon svg { width: 18px; height: 18px; }
 .version-manage-card { gap: 12px; }
 .version-manage-card .dialog-heading { margin: 0 0 4px; }
-.version-manage-card .dialog-close { border-color: transparent; background: transparent; color: var(--muted); }
+#versionManageDialog .dialog-close { border: 0; background: transparent; color: var(--muted); }
+#versionManageDialog .dialog-close:hover { background: var(--accent-soft); color: var(--text); }
 #versionManageDialog { z-index: 34; }
 #confirmDialog { z-index: 48; }
-.version-manage-install { flex: 0 0 auto; margin: 0; padding: 0; }
+.version-manage-install { flex: 0 0 auto; margin: 0; padding: 12px; border-radius: 14px; background: color-mix(in srgb, var(--accent-soft) 55%, var(--card)); }
 .version-manage-install-row { display: flex; align-items: center; gap: 8px; }
 .version-manage-install-row .ui-select { flex: 1; min-width: 0; }
 .version-manage-install-row .primary { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 36px; min-width: 36px; height: 36px; margin: 0; padding: 8px; border-radius: 9px; }
@@ -1834,17 +1838,17 @@ html .set-row:focus-within { background: transparent; box-shadow: none; }
 /* 空提示行不占高度，只有安装进度或错误需要额外空间。 */
 #versionManageHint { margin: 0; min-height: 0; font-size: 12px; }
 #versionManageHint:empty { display: none; }
-.version-manage-heading { margin: 2px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; font-weight: 500; color: var(--muted); }
+.version-manage-heading { margin: 6px 0 0; font-size: 12px; font-weight: 500; color: var(--muted); }
 .version-manage-row .version-remove svg { width: 18px; height: 18px; }
 .version-manage-row .version-manage-info span { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.version-manage-list { flex: 1 1 auto; min-height: 0; overflow: auto; scrollbar-width: thin; }
-.version-manage-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 0; border-bottom: 1px solid var(--line); }
-.version-manage-row:last-child { border-bottom: 0; }
+.version-manage-list { display: grid; align-content: start; gap: 10px; flex: 1 1 auto; min-height: 0; overflow: auto; scrollbar-width: thin; }
+.version-manage-row { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--accent-soft) 55%, var(--card)); transition: background 150ms ease; }
+.version-manage-row:hover, .version-manage-row:focus-within { background: color-mix(in srgb, var(--accent-soft) 85%, var(--card)); }
 .version-manage-info { display: flex; flex: 1 1 auto; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
-.version-manage-info strong { overflow: hidden; color: var(--text); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.version-manage-info strong { overflow: hidden; color: var(--text); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .version-manage-info span { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
-.version-manage-row .version-remove { flex: 0 0 auto; width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 6px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); white-space: nowrap; }
-.version-manage-row .version-remove:hover:not(:disabled) { color: var(--danger); background: var(--accent-soft); }
+#versionManageDialog .version-remove { flex: 0 0 auto; width: 36px; min-width: 36px; height: 36px; min-height: 36px; padding: 9px; border: 0; border-radius: 10px; background: var(--card); color: var(--muted); white-space: nowrap; }
+#versionManageDialog .version-remove:hover:not(:disabled) { color: var(--danger); background: var(--accent-soft); }
 .version-manage-empty { margin: 0; padding: 8px 0; font-size: 12px; }
 .profile-dialog-card .dialog-body > label { margin-bottom: 8px; color: var(--muted); font-size: 12px; }
 .profile-dialog-card .dialog-body > input { height: 42px; border-radius: 10px; }
