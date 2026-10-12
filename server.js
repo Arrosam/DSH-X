@@ -674,7 +674,8 @@ export function launchWindowsInstaller(file, logFile, { timeoutMs = 15000 } = {}
     cwd: dirname(file),
     detached: true,
     stdio: 'ignore',
-    windowsHide: true,
+    // GUI 安装器会显示更新进度；隐藏窗口会让用户误以为更新没有开始。
+    windowsHide: false,
   })
   return new Promise((resolve, reject) => {
     let timer

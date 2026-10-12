@@ -82,6 +82,17 @@ mod installer {
         if let Some(dir) = dir { args.push(format!("/DIR={}", dir.display())); args.push(if desktop { "/TASKS=desktopicon".into() } else { "/TASKS=".into() }); }
         args
     }
+    fn automatic_mode(args: &[String]) -> (bool, bool) {
+        let hidden = args.iter().any(|a| a.eq_ignore_ascii_case("/verysilent"));
+        let automatic = hidden || args.iter().any(|a| a.eq_ignore_ascii_case("/silent"));
+        (automatic, hidden)
+    }
+    fn forwarded_engine_args(dir: &Path, desktop: bool, work: &Path, automatic: bool, original: &[String]) -> Vec<String> {
+        // 自动更新沿用 Inno 记录的原安装位置与快捷方式，网页默认值不能覆盖旧安装参数。
+        let mut args = engine_args(if automatic { None } else { Some(dir) }, desktop, work);
+        if automatic { args.extend_from_slice(original); }
+        args
+    }
     fn installed_dir(work: &Path) -> Option<PathBuf> { fs::read_to_string(work.join("directory.txt")).ok().map(|s| PathBuf::from(s.trim_start_matches('\u{feff}').trim())).filter(|p| p.is_absolute()) }
     fn launch_app(dir: &Path) -> std::io::Result<()> { Command::new(dir.join("DSH.exe")).current_dir(dir).spawn().map(|_| ()) }
     fn cleanup_after_exit(dir: &Path, work: &Path, delete_installer: bool) {
@@ -100,9 +111,9 @@ mod installer {
         let work = match private_dir() { Ok(v) => v, Err(e) => { fatal(&e.to_string()); return; } };
         let engine = work.join("DSH-Install-Engine.exe");
         if !preview { if let Err(e) = fs::write(&engine, PAYLOAD) { fatal(&e.to_string()); return; } }
-        // 自动更新和命令行静默安装不初始化 WebView，退出码与安装器保持一致。
-        let silent = args.iter().any(|a| ["/silent", "/verysilent"].contains(&a.to_ascii_lowercase().as_str()));
-        if silent && !preview {
+        // /silent 自动安装但显示网页进度；只有显式 /verysilent 才完全隐藏界面。
+        let (automatic, hidden) = automatic_mode(&args);
+        if hidden && !preview {
             let bridge = engine_args(None, true, &work);
             let result = Command::new(&engine).args(&bridge).args(&args).creation_flags(NO_WINDOW).status();
             let code = result.map(|s| s.code().unwrap_or(1)).unwrap_or(1);
@@ -119,7 +130,7 @@ mod installer {
             .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny).build(&window);
         let view = match view { Ok(v) => v, Err(e) => { if !preview { let _ = Command::new(&engine).args(&args).status(); } else { fatal(&format!("WebView2: {e}")); } return; } };
         let version: Value = serde_json::from_str(include_str!("../package.json")).unwrap_or_default();
-        let config = json!({"preview":preview,"language":language(),"version":version["version"],"path":default_dir(),"reducedMotion":reduced_motion()});
+        let config = json!({"preview":preview,"autoUpdate":automatic,"language":language(),"version":version["version"],"path":default_dir(),"reducedMotion":reduced_motion()});
         // 所有 HTML、脚本和素材内嵌；安装页不监听端口、不从网络加载代码。
         let page = PAGE.replace("__MASCOT__", &format!("data:image/png;base64,{}", base64(ICON)))
             .replace("<script>", &format!("<script>window.__INSTALLER__={};", config.to_string().replace('<', "\\u003c")));
@@ -142,10 +153,11 @@ mod installer {
                             Err(error) => emit(json!({"type":"error","message":error})),
                             Ok(dir) => {
                                 busy = true; destination = dir.clone(); let work = work.clone(); let engine = engine.clone(); let proxy = proxy.clone(); let desktop = message["desktop"].as_bool().unwrap_or(true);
+                                let arguments = forwarded_engine_args(&dir, desktop, &work, automatic, &args);
                                 thread::spawn(move || {
                                     // 重试前清掉上一次的进度/结果，避免把旧成功误认为本次成功。
                                     let _ = fs::remove_file(work.join("progress.txt")); let _ = fs::remove_file(work.join("directory.txt"));
-                                    let result = Command::new(engine).args(engine_args(Some(&dir), desktop, &work)).creation_flags(NO_WINDOW).spawn();
+                                    let result = Command::new(engine).args(arguments).creation_flags(NO_WINDOW).spawn();
                                     match result {
                                         Err(e) => { let _ = proxy.send_event(UiEvent::Error(e.to_string())); }
                                         Ok(mut child) => { let mut last: (String, u32) = (String::new(), 101); loop {
@@ -192,6 +204,20 @@ mod installer {
             assert_eq!(parse_progress("files:abc"), None);
         }
         #[test] fn engine_paths_stay_single_arguments() { let dir = Path::new("C:\\中文 目录\\DSH"); let args = engine_args(Some(dir), false, Path::new("C:\\Temp\\a b")); assert!(args.contains(&"/DIR=C:\\中文 目录\\DSH".into())); assert!(args.contains(&"/TASKS=".into())); assert!(args.contains(&"/WEBUI=1".into())); }
+        #[test] fn silent_shows_progress_and_verysilent_stays_hidden() {
+            assert_eq!(automatic_mode(&[]), (false, false));
+            assert_eq!(automatic_mode(&["/SILENT".into()]), (true, false));
+            assert_eq!(automatic_mode(&["/silent".into(), "/VerySilent".into()]), (true, true));
+        }
+        #[test] fn automatic_update_preserves_install_location_and_log_arguments() {
+            let original = vec!["/silent".into(), "/DIR=C:\\原安装 目录".into(), "/LOG=C:\\Temp\\O'Brien 中文.log".into()];
+            let args = forwarded_engine_args(Path::new("C:\\默认目录"), true, Path::new("C:\\Temp\\桥接"), true, &original);
+            assert!(args.ends_with(&original));
+            assert_eq!(args.iter().filter(|s| s.starts_with("/DIR=")).count(), 1);
+            assert!(!args.iter().any(|s| s.starts_with("/TASKS=")), "沿用原有快捷方式选项");
+            assert!(args.iter().any(|s| s.starts_with("/STATUSFILE=")));
+            assert!(args.iter().any(|s| s.starts_with("/RESULTFILE=")));
+        }
     }
 }
 #[cfg(windows)] fn main() { installer::run(); }
