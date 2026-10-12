@@ -666,18 +666,47 @@ async function downloadSelfUpdate() {
   return { latest: info.latest, file: target }
 }
 
-/** 等某个进程出现在任务列表里（用于确认安装程序真的起来了）。 */
-function waitForProcess(name, timeoutMs) {
-  const deadline = Date.now() + timeoutMs
-  return new Promise((resolve) => {
-    const tick = () => {
-      // tasklist 的提示语是本地化的，所以只认输出里有没有这个进程名
-      const out = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${name}`, '/NH'], { encoding: 'utf8' })
-      if ((out.stdout || '').toLowerCase().includes(name.toLowerCase())) return resolve(true)
-      if (Date.now() > deadline) return resolve(false)
-      setTimeout(tick, 300)
+/** Windows GUI 安装包独立于启动器运行；新日志有内容才说明安装引擎已开始执行。 */
+export function launchWindowsInstaller(file, logFile, { timeoutMs = 15000 } = {}) {
+  // 每次尝试都从空日志开始，不能把上次更新留下的日志当作这次已启动。
+  try { unlinkSync(logFile) } catch (error) { if (error.code !== 'ENOENT') throw error }
+  const child = spawn(file, ['/silent', `/log=${logFile}`], {
+    cwd: dirname(file),
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  })
+  return new Promise((resolve, reject) => {
+    let timer
+    let settled = false
+    const deadline = Date.now() + timeoutMs
+    const finish = (error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      child.removeListener('exit', onExit)
+      child.unref()
+      if (error) reject(error)
+      else resolve({ pid: child.pid, logFile })
     }
-    tick()
+    const hasLog = () => {
+      try { return statSync(logFile).size > 0 } catch { return false }
+    }
+    const onExit = (code, signal) => {
+      if ((code === 0 || code === 3010) && hasLog()) finish()
+      else finish(new Error(`安装程序在开始安装前退出（${signal || `退出码 ${code}`}）。日志：${logFile}`))
+    }
+    const check = () => {
+      if (settled) return
+      if (hasLog()) return finish()
+      if (Date.now() >= deadline) {
+        return finish(new Error(`安装程序尚未开始安装，启动器将保持运行。请检查安装程序是否被挂起或拦截。日志：${logFile}`))
+      }
+      timer = setTimeout(check, 100)
+    }
+    child.once('error', (error) => finish(new Error(`安装程序无法启动：${error.message}。日志：${logFile}`)))
+    child.once('exit', onExit)
+    child.once('spawn', check)
   })
 }
 
@@ -690,9 +719,8 @@ function waitForProcess(name, timeoutMs) {
  * 官方文档写得很清楚，force 只决定关的时候用不用强制，问还是要问。而静默模式下文档明确写着
  * Setup「always close and restart such applications」，也就是直接关、不问。
  *
- * 退场之前会确认安装程序真的起来了：Start-Process 这种走 ShellExecute 的启动方式拿不到子
- * 进程句柄，起没起来只能靠任务列表确认；确认不到就留在原地报错，总比关掉自己又没打开安装程
- * 序、把用户晾在那儿强。
+ * 退场之前等安装引擎写出新日志：进程名出现在任务列表里不代表它已经执行，Suspended 的
+ * 进程也能被 tasklist 找到。没有就绪证据时保留启动器，给用户看到错误和日志位置。
  *
  * 我们自己也退，是为了让 dsh 走正常收尾（而不是被 Restart Manager 直接结束），顺带把浏览器
  * 里开着的页面收掉。
@@ -701,45 +729,11 @@ async function installSelfUpdate() {
   const staged = stagedUpdate
   if (!staged || !existsSync(staged.file)) throw new Error('更新包还没下载好')
   if (IS_MAC) return installMacUpdate(staged)
-  const name = basename(staged.file)
-  const logFile = join(tmpdir(), 'DSH-X-install.log')
-  // 上次的日志留着没用，先清掉，免得 Inno 另起一个带编号的文件名
-  try {
-    unlinkSync(logFile)
-  } catch {
-    // 没有就算了
-  }
-  const quote = (path) => `'${path.replace(/'/g, "''")}'`
-
-  // 这里**不能**加 `detached: true`。Node 在 Windows 上会给 detached 的子进程设
-  // DETACHED_PROCESS，而 powershell.exe 是控制台程序：带着这个标记它起不来，而且不报错、
-  // 不留日志，进程直接从世界上消失——当初那个「等启动器退出再静默安装」的助手就是这么没的
-  // （日志空的、安装目录没动），当时误判成「子进程活不过父进程」，其实是这一步。
-  // 也不需要它：Start-Process 走的是 ShellExecute，安装程序由 PowerShell 创建，而 PowerShell
-  // 随即退出，所以安装程序本来就不隶属于我们，我们退出影响不到它。
-  //
-  // -WindowStyle Hidden 藏的只是 PowerShell 自己的控制台，安装程序自己的进度窗口照常显示。
-  spawn(
-    'powershell',
-    [
-      '-NoProfile',
-      '-WindowStyle',
-      'Hidden',
-      '-Command',
-      `Start-Process -FilePath ${quote(staged.file)} -ArgumentList '/silent /log="${logFile}"'`,
-    ],
-    {
-      stdio: 'ignore',
-      windowsHide: true,
-      // 千万别设 __COMPAT_LAYER（哪怕只是想压掉继承来的兼容层）：新版 Inno 是双进程模型，
-      // 外层 exe 要自己拉起 .tmp 引擎进程，带了这个变量引擎永远起不来——不弹窗、不写日志、
-      // 不报错，就那么挂着（2026-10-04 更新卡死就是这么来的）。安装脚本本来就是
-      // PrivilegesRequired=lowest，装的是用户目录，不需要任何兼容层去压提权。
-    },
-  ).unref()
-
-  if (!(await waitForProcess(name, 8000))) throw new Error('安装程序没能启动')
-  pushLog(`安装程序已启动：${name}`)
+  const logFile = join(tmpdir(), `DSH-X-install-${process.pid}-${randomBytes(6).toString('hex')}.log`)
+  // 直接拉起 GUI 安装包，不再绕 PowerShell / ShellExecute；独立 argv 可原样传递中文、空格和单引号。
+  // 兼容层保持原样，不人为设置 __COMPAT_LAYER，避免干扰 Inno 的双进程引擎。
+  const installer = await launchWindowsInstaller(staged.file, logFile)
+  pushLog(`安装程序已开始安装：${basename(staged.file)}（PID ${installer.pid}），日志：${logFile}`)
   return finishSelfUpdate(staged)
 }
 
@@ -4751,9 +4745,8 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/self/install') {
-    // 第二步：用户点确认之后才走这里。先回页面，再收尾退出，把位子让给助手
+    // 第二步：安装引擎就绪后先响应页面，再收尾退出，避免把用户留在没有启动器的状态。
     try {
-      // 不在这里退出：安装程序会提示关闭正在运行的启动器，它自己会处理
       send(res, 200, await installSelfUpdate())
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
