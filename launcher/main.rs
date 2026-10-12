@@ -15,13 +15,14 @@
 //! dsh 的界面完全不经过浏览器进程。
 //! 「DSH-X 内部标签页」复用主窗口，用多个子 WebView 保留各个实例的页面和输入状态。
 
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, OnceLock};
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use serde_json::Value;
@@ -82,6 +83,12 @@ const WINDOW_MIN_H: f64 = 520.0;
 /// 启动失败那张错误页的窗口尺寸（逻辑像素）
 const ERROR_W: f64 = 560.0;
 const ERROR_H: f64 = 300.0;
+/// 细节是一段 node 输出（而不是一句话）时的高度，给堆栈多留几行
+const ERROR_H_LOG: f64 = 420.0;
+/// node 的 stderr 只留最后这么多行，够装下一条报错加它的堆栈
+const STDERR_TAIL_LINES: usize = 40;
+/// node 退出后，最多再等这么久让 stderr 读到头（进程没了，管道里可能还有最后几行）
+const STDERR_FLUSH_WAIT: Duration = Duration::from_millis(500);
 /// 内嵌 DSH 窗口的尺寸（逻辑像素）：dsh 的界面比管理页宽，首次出现给大一点
 const DSH_WINDOW_W: f64 = 1180.0;
 const DSH_WINDOW_H: f64 = 820.0;
@@ -312,18 +319,19 @@ const ERROR_PAGE: &str = r#"<!doctype html>
          background: #15171c; color: #e7e9ee;
          font: 14px/1.6 "Microsoft YaHei UI", "Segoe UI", sans-serif;
          -webkit-user-select: none; user-select: none; }
-  .card { width: 100%; padding: 26px 28px; background: #1c1f26; border-top: 1px solid #2a2e38; }
+  .card { width: 100%; max-height: 100%; display: flex; flex-direction: column;
+          padding: 26px 28px; background: #1c1f26; border-top: 1px solid #2a2e38; }
   .head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #f2777a;
          box-shadow: 0 0 0 4px rgba(242, 119, 122, .16); }
   h1 { margin: 0; font-size: 15px; font-weight: 600; }
   p { margin: 0 0 14px; color: #b9bec9; }
   pre { margin: 0 0 20px; padding: 10px 12px; background: #14161b; border: 1px solid #262a33;
-        border-radius: 8px; max-height: 150px; overflow: auto; color: #9aa1ad;
+        border-radius: 8px; overflow: auto; color: #9aa1ad;
         font: 12px/1.5 Consolas, "Courier New", monospace; white-space: pre-wrap;
         word-break: break-all; -webkit-user-select: text; user-select: text; }
-  button { border: 0; border-radius: 8px; padding: 9px 20px; background: #3b6cff; color: #fff;
-           font: inherit; font-size: 13px; cursor: pointer; }
+  button { align-self: flex-start; border: 0; border-radius: 8px; padding: 9px 20px;
+           background: #3b6cff; color: #fff; font: inherit; font-size: 13px; cursor: pointer; }
   button:hover { background: #4a78ff; }
 </style></head>
 <body>
@@ -573,9 +581,10 @@ fn open_internal_tab(
 /// 启动失败就把这句话显示在我们自己的窗口里，然后守着它，直到用户点关闭。
 /// 不返回：事件循环跑在这个函数里（一个进程只能有一个事件循环，所以不能另起一个）。
 fn run_error_window(event_loop: EventLoop<UserEvent>, root: &Path, title: &str, message: &str, detail: &str) -> ! {
+    let height = if detail.lines().count() > 2 { ERROR_H_LOG } else { ERROR_H };
     let centered = event_loop.primary_monitor().map(|monitor| {
         let screen = monitor.size();
-        let area = LogicalSize::new(ERROR_W, ERROR_H).to_physical::<u32>(monitor.scale_factor());
+        let area = LogicalSize::new(ERROR_W, height).to_physical::<u32>(monitor.scale_factor());
         PhysicalPosition::new(
             monitor.position().x + (screen.width as i32 - area.width as i32) / 2,
             monitor.position().y + (screen.height as i32 - area.height as i32) / 2,
@@ -585,7 +594,7 @@ fn run_error_window(event_loop: EventLoop<UserEvent>, root: &Path, title: &str, 
         .with_title("DSH-X")
         .with_window_icon(load_window_icon(root))
         .with_decorations(false)
-        .with_inner_size(LogicalSize::new(ERROR_W, ERROR_H));
+        .with_inner_size(LogicalSize::new(ERROR_W, height));
     if let Some(position) = centered {
         window_builder = window_builder.with_position(position);
     }
@@ -648,12 +657,50 @@ fn run_error_window(event_loop: EventLoop<UserEvent>, root: &Path, title: &str, 
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 *control_flow = ControlFlow::Exit;
             }
-            Event::WindowEvent { event: WindowEvent::Destroyed, .. } => {
+            // 只认自己这个窗口：管理服务没起来时主窗口是在这之前才丢掉的，Windows 上 tao 把它的
+            // Destroyed 攒到事件循环跑起来再派发，不分辨的话错误页刚出来就跟着退了
+            Event::WindowEvent { window_id, event: WindowEvent::Destroyed, .. } if window_id == window.id() => {
                 *control_flow = ControlFlow::Exit;
             }
             _ => {}
         }
     })
+}
+
+/// 把 node 的 stderr 一直读到头，只留最后 STDERR_TAIL_LINES 行，启动失败时拿来给用户看。
+///
+/// 按字节读再宽松解码，不用 lines()：这根管道里不保证是 UTF-8（中文 Windows 上有的报错是 GBK），
+/// lines() 碰到一个坏字节就停，之后没人读，管道一满 node 就卡在 console.error 上。
+fn drain_stderr(source: impl Read, tail: &Mutex<VecDeque<String>>) {
+    let mut reader = BufReader::new(source);
+    let mut raw = Vec::new();
+    loop {
+        raw.clear();
+        match reader.read_until(b'\n', &mut raw) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = String::from_utf8_lossy(&raw);
+        let line = line.trim_end();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(mut tail) = tail.lock() {
+            if tail.len() == STDERR_TAIL_LINES {
+                tail.pop_front();
+            }
+            tail.push_back(line.to_string());
+        }
+    }
+}
+
+/// 管理服务没起来时错误页上的那段细节：优先原样给出 node 自己的报错，一行都没抓到才指向
+/// start.js 写的那份日志。
+fn startup_failure_detail(tail: &VecDeque<String>, log: &Path) -> String {
+    if tail.is_empty() {
+        return format!("node 没有留下任何输出，可以看看日志：{}", log.display());
+    }
+    tail.iter().map(String::as_str).collect::<Vec<_>>().join("\n")
 }
 
 /// 配置端口：settings.json 里的 port（设置页可改），读不到/不合法就用默认值。
@@ -753,16 +800,34 @@ fn find_manager_from(first: u16) -> Option<u16> {
     None
 }
 
+/// 等管理页的结果
+#[derive(Debug, PartialEq)]
+enum Startup {
+    Ready(u16),
+    /// node 没等到管理页起来就退出了，带着它的退出码（拿不到就是 None）
+    Exited(Option<i32>),
+    TimedOut,
+}
+
 /// 等管理页起来（启动到 listen 之间有一小段），并把实际端口定下来。
-fn wait_for_manager() -> Option<u16> {
+/// `node_exit` 由等 node 退出的那条线程填：node 一退就不用再等了，端口上不会再有人来 listen。
+fn wait_for_manager(node_exit: &OnceLock<Option<i32>>) -> Startup {
+    wait_for_manager_with(find_manager, node_exit)
+}
+
+fn wait_for_manager_with(find: impl Fn() -> Option<u16>, node_exit: &OnceLock<Option<i32>>) -> Startup {
     let deadline = Instant::now() + PORT_WAIT;
     loop {
-        if let Some(port) = find_manager() {
+        // 先看 node：它已经退了的话，端口上就算有管理页，也是另一个实例的
+        if let Some(code) = node_exit.get() {
+            return Startup::Exited(*code);
+        }
+        if let Some(port) = find() {
             let _ = LIVE_PORT.set(port);
-            return Some(port);
+            return Startup::Ready(port);
         }
         if Instant::now() >= deadline {
-            return None;
+            return Startup::TimedOut;
         }
         thread::sleep(Duration::from_millis(250));
     }
@@ -1000,7 +1065,9 @@ fn main() {
             .current_dir(&root)
             .env("PATH", &path)
             // stdout 走管道：node 用一行约定标记叫我们把窗口叫到前面
-            .stdout(Stdio::piped());
+            .stdout(Stdio::piped())
+            // stderr 也接过来：从桌面启动时没有终端，继承下去的话 node 启动失败时说了什么就没人看得到
+            .stderr(Stdio::piped());
         #[cfg(windows)]
         command.creation_flags(CREATE_NO_WINDOW);
         if app_window {
@@ -1040,11 +1107,29 @@ fn main() {
 
     let node_out = child.stdout.take();
 
+    // node 的报错留个尾巴。这条线程要一直读到 node 退出：没人读的话管道会写满
+    let stderr_tail = Arc::new(Mutex::new(VecDeque::new()));
+    let stderr_reader = child.stderr.take().map(|err| {
+        let tail = Arc::clone(&stderr_tail);
+        thread::spawn(move || drain_stderr(err, &tail))
+    });
+
     // node 退出（含托盘退出）就收摊，窗口跟着关
+    let node_exit = Arc::new(OnceLock::new());
     {
         let proxy = proxy.clone();
+        let node_exit = Arc::clone(&node_exit);
         thread::spawn(move || {
-            let _ = child.wait();
+            let status = child.wait();
+            // 进程没了不等于管道读完了：等一下读 stderr 的线程，把最后几行收齐再报退出。
+            // 不死等——万一还有别的进程攥着这根管道，它永远读不到头
+            if let Some(reader) = stderr_reader {
+                let deadline = Instant::now() + STDERR_FLUSH_WAIT;
+                while !reader.is_finished() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(10));
+                }
+            }
+            let _ = node_exit.set(status.ok().and_then(|status| status.code()));
             let _ = proxy.send_event(UserEvent::Exited);
         });
     }
@@ -1193,7 +1278,33 @@ fn main() {
 
     // 等管理服务起来再导航，否则 webview 会先撞上连接失败（它自己不会重试）。
     // 端口被占用时管理页会顺延，所以这里扫一遍把真正的端口定下来。
-    wait_for_manager();
+    match wait_for_manager(&node_exit) {
+        Startup::Ready(_) | Startup::TimedOut => {}
+        // 端口上是自己的另一个实例：start.js 叫醒它之后特意退 0（见它的 EALREADY 分支），
+        // 这不是故障，跟着安静收摊
+        Startup::Exited(Some(0)) => std::process::exit(0),
+        Startup::Exited(code) => {
+            // 管理服务没起来，主窗口没东西可装了。错误页走 run_error_window 那个单独的小窗口，
+            // 不复用这个 webview：它的 IPC 和导航处理器都是给管理页配的（「关闭」只是隐藏，
+            // 导航只放行管理页）。先藏再丢——Windows 上 tao 的窗口要等消息泵转起来才真正销毁，
+            // 不藏的话空窗口还会留一会儿
+            if let Some(window) = &window {
+                window.set_visible(false);
+            }
+            drop(webview);
+            drop(window);
+            let code = code.map_or_else(|| "未知".to_string(), |code| code.to_string());
+            let log = user_app_dir().unwrap_or_else(|| root.join("data")).join("manager.log");
+            let tail = stderr_tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            run_error_window(
+                event_loop,
+                &root,
+                "dsh 服务进程启动失败",
+                &format!("node 没等管理页起来就退出了（退出码 {code}）。"),
+                &startup_failure_detail(&tail, &log),
+            );
+        }
+    }
 
     // 直接加载，不问服务端：window 参数是个常量，绕一趟 HTTP 只会拖慢启动——而且
     // 那个接口内部要发网络请求，一旦超过读超时就会退化成不带 window 的地址，
@@ -1517,6 +1628,72 @@ mod tests {
         });
 
         assert_eq!(find_manager_from(port - 1), Some(port));
+    }
+
+    #[test]
+    fn stops_waiting_once_node_has_exited() {
+        // node 启动失败退出后，不该再把 PORT_WAIT 等满
+        let node_exit = Arc::new(OnceLock::new());
+        {
+            let node_exit = Arc::clone(&node_exit);
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(300));
+                let _ = node_exit.set(Some(1));
+            });
+        }
+        let started = Instant::now();
+        assert_eq!(wait_for_manager_with(|| None, &node_exit), Startup::Exited(Some(1)));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "kept waiting for {:?} after node exited",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_dead_node_wins_over_a_manager_on_the_port() {
+        // 第二个实例：端口上答话的是另一个实例的管理页，自己的 node 已经退 0，
+        // 不能把那个端口当成自己的
+        let node_exit = OnceLock::new();
+        let _ = node_exit.set(Some(0));
+        assert_eq!(wait_for_manager_with(|| Some(DEFAULT_PORT), &node_exit), Startup::Exited(Some(0)));
+    }
+
+    #[test]
+    fn stderr_tail_keeps_only_the_last_lines() {
+        let output: String = (0..STDERR_TAIL_LINES + 5).map(|index| format!("line {index}\r\n")).collect();
+        let tail = Mutex::new(VecDeque::new());
+        drain_stderr(output.as_bytes(), &tail);
+        let tail = tail.into_inner().expect("tail");
+        assert_eq!(tail.len(), STDERR_TAIL_LINES);
+        assert_eq!(tail.front().map(String::as_str), Some("line 5"));
+        assert_eq!(tail.back(), Some(&format!("line {}", STDERR_TAIL_LINES + 4)));
+    }
+
+    #[test]
+    fn stderr_tail_survives_bytes_that_are_not_utf8() {
+        // 「端口」的 GBK 编码夹在中间：读的线程不能就此停下，后面的行还得收到
+        let mut output = b"first\n".to_vec();
+        output.extend_from_slice(&[0xB6, 0xCB, 0xBF, 0xDA, b'\n']);
+        output.extend_from_slice(b"\nError: listen EADDRINUSE\n    at <anonymous>");
+        let tail = Mutex::new(VecDeque::new());
+        drain_stderr(output.as_slice(), &tail);
+        let tail = tail.into_inner().expect("tail");
+        assert_eq!(tail.len(), 4, "blank lines are skipped: {tail:?}");
+        assert_eq!(tail[0], "first");
+        assert_eq!(tail[2], "Error: listen EADDRINUSE");
+        assert_eq!(tail[3], "    at <anonymous>");
+    }
+
+    #[test]
+    fn startup_failure_detail_prefers_what_node_said() {
+        let log = Path::new("DSH").join("manager.log");
+        let tail = VecDeque::from(["Error: boom".to_string(), "    at <anonymous>".to_string()]);
+        let detail = startup_failure_detail(&tail, &log);
+        assert_eq!(detail, "Error: boom\n    at <anonymous>");
+        // node 的堆栈里有尖括号，进页面前得转义掉
+        assert!(error_page("t", "m", &detail).contains("at &lt;anonymous&gt;"));
+        assert!(startup_failure_detail(&VecDeque::new(), &log).contains("manager.log"));
     }
 
     #[test]
