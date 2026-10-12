@@ -12,7 +12,7 @@
   <a href="README.md">中文</a>
 </p>
 
-A lightweight desktop launcher for DeepSeek Harness: launch entries, multiple instances, versions, plugins, modpacks, MCP and skills.
+DSH-X is a lightweight third-party desktop launcher for DeepSeek Harness: launch entries, multiple instances, versions, plugins, modpacks, MCP and skills.
 
 > [!IMPORTANT]
 > **DSH-X starts DeepSeek Harness's own web page.**  

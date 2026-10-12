@@ -12,7 +12,7 @@
   <a href="README.en.md">English</a>
 </p>
 
-DeepSeek Harness 轻量桌面启动器：启动项与多实例，版本、插件、整合包、MCP 和技能管理。
+DSH-X 是 DeepSeek Harness 的第三方轻量桌面启动器：启动项与多实例，版本、插件、整合包、MCP 和技能管理。
 
 > [!IMPORTANT]
 > **DSH-X 启动的是 DeepSeek Harness 官方原版 Web 页面。**  
