@@ -30,7 +30,7 @@ TAGLINE_COLOR = (107, 125, 156)
 SHADOW_COLOR = (86, 122, 180)
 ICON_SIZE = 320
 TITLE = "DSH-X"
-TAGLINE = "Launches the original DSH Web UI" if EN else "官方原版 Web 启动器"
+TAGLINE = "Third-party desktop launcher for DeepSeek Harness" if EN else "DeepSeek Harness 第三方桌面启动器"
 FONT_ROOT = r"C:\Windows\Fonts" if os.name == "nt" else "/mnt/c/Windows/Fonts"
 TITLE_FONT = os.path.join(FONT_ROOT, "segoeuib.ttf")
 # 中文用 MiSans（拉丁字形一般），英文那段用 Segoe UI
