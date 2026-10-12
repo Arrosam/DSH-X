@@ -1560,6 +1560,28 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
   scrollbar-width: thin;
   scrollbar-color: #c3d3ee transparent;
 }
+/* 启动失败时 dsh 自己打印的那段输出：和日志框一个长相，框内滚动、可以选中复制 */
+#notice.has-detail .ask-card { --dialog-width: 680px; }
+#notice.has-detail .notice-text { flex: 0 0 auto; }
+.notice-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 46vh;
+  margin: 12px 0 0;
+  overflow: auto;
+  padding: 11px 13px;
+  background: #f7faff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: #3f5478;
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: #c3d3ee transparent;
+}
+.notice-detail[hidden], #noticeCopy[hidden] { display: none; }
+.hint .hint-fail { color: var(--danger); }
 /* 托盘退出后：浏览器不一定会让脚本关标签页，那就换一张干净的告别页 */
 .gone {
   position: fixed;
