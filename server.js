@@ -1355,7 +1355,11 @@ async function saveManagerSettings(body) {
     const result = applySystemPath(SYSTEM_PATH)
     systemPathResult = result
     if (!result.ok) pushLog(`系统 PATH 未改：${result.message}`)
-    else if (SYSTEM_PATH) writeDshShims(activeVersion() || '', { dir: result.dir })
+    else if (SYSTEM_PATH) {
+      // 多实例没有唯一的「当前版本」：跟随最近运行的实例，尚未启动时沿用启动默认的安装列表顺序。
+      const version = primaryInstance()?.version || listedVersions(await loadConfig())[0]
+      if (version) writeDshShims(version, { dir: result.dir })
+    }
   }
   if ('dshHome' in body) {
     const next = safeDshHome(stored.dshHome)
