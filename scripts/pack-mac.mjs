@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
 import { chmod, copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -45,6 +46,12 @@ const APP = join(CONTENTS, 'Resources', 'app')
 const ICON_FILE = 'AppIcon.icns'
 const DMG = join(RELEASE, `DSH-X-mac-${ARCH}.dmg`)
 const DMG_VOLUME = 'DSH-X'
+const DMG_BACKGROUND = 'background.tiff'
+const DS_STORE_WAIT_SECONDS = 20
+/** Finder 窗口 bounds 含标题栏，内容区要完整露出背景图就得加上这一截。 */
+const DMG_TITLE_BAR = 28
+/** dmg 窗口布局（点，左上角为原点）：背景图和 Finder 摆图标共用这一份。 */
+const DMG_LAYOUT = { width: 640, height: 440, iconSize: 112, appX: 170, appsX: 470, iconY: 190 }
 // 和 Windows 版一样读 npmmirror；最低系统版本跟 Node 22 官方二进制的要求走
 const MIN_MACOS = '11.0'
 /** iconset 需要的尺寸（每个再配一张 @2x）。 */
@@ -155,17 +162,112 @@ async function assemble(launcher) {
   console.log(`已打包到 ${BUNDLE}`)
 }
 
-/** dmg 里放包本体和一个指向 /Applications 的链接，拖过去就装好了。 */
+/** 背景图（标题、箭头、首次打开指引）：1x + 2x 合成一张多分辨率 tiff，Retina 上不糊。 */
+function buildDmgBackground(dest) {
+  const script = join(ROOT, 'scripts', 'make-dmg-background.swift')
+  const layout = JSON.stringify(DMG_LAYOUT)
+  const pngs = [1, 2].map((scale) => {
+    const png = join(tmpdir(), `dsh-x-dmg-bg-${process.pid}@${scale}x.png`)
+    run('swift', [script, png, String(scale), layout])
+    return png
+  })
+  run('tiffutil', ['-cathidpicheck', ...pngs, '-out', dest])
+  for (const png of pngs) rmSync(png, { force: true })
+}
+
+/** 用 Finder 摆好窗口：图标视图、隐藏工具栏、背景图、两个图标的位置。 */
+function layoutDmgWindow(mount) {
+  const { width, height, iconSize, appX, appsX, iconY } = DMG_LAYOUT
+  // 按挂载路径找卷，不按卷名：机器上可能还挂着旧的同名安装盘
+  const script = `
+    tell application "Finder"
+      tell folder (POSIX file "${mount}" as alias)
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set the bounds of container window to {200, 120, ${200 + width}, ${120 + height + DMG_TITLE_BAR}}
+        set opts to the icon view options of container window
+        set arrangement of opts to not arranged
+        set icon size of opts to ${iconSize}
+        set text size of opts to 13
+        set background picture of opts to (POSIX file "${mount}/.background/${DMG_BACKGROUND}" as alias)
+        set position of item "${MAC_APP_NAME}" of container window to {${appX}, ${iconY}}
+        set position of item "Applications" of container window to {${appsX}, ${iconY}}
+        close
+        -- 重开一次再关：Finder 只在关掉已改过的窗口时落盘 .DS_Store（create-dmg 同样做法）
+        open
+        update without registering applications
+        delay 2
+        close
+      end tell
+    end tell`
+  run('osascript', ['-e', script])
+}
+
+/**
+ * 挂载可写镜像，返回卷设备和挂载点。必须挂在 /Volumes 下（Finder 不给别处的卷写 .DS_Store），
+ * 所以挂载点让 hdiutil 按卷名自己挑。
+ */
+function attachDmg(image) {
+  const result = spawnSync('hdiutil', ['attach', image, '-readwrite', '-noverify', '-noautoopen'], { encoding: 'utf8' })
+  if (result.status !== 0) throw new Error(`hdiutil attach ${image} failed: ${result.stderr}`)
+  const volume = result.stdout.split('\n').map((line) => line.split('\t').map((field) => field.trim()))
+    .find((fields) => fields.at(-1).startsWith('/Volumes/'))
+  if (!volume) throw new Error(`hdiutil attach 没给出挂载点：${result.stdout}`)
+  return { device: volume[0], mount: volume.at(-1) }
+}
+
+/** Finder 关窗后才异步写 .DS_Store；不等它就卸载的话布局会丢。 */
+function waitForFinderLayout(mount) {
+  const store = join(mount, '.DS_Store')
+  for (let i = 0; i < DS_STORE_WAIT_SECONDS; i += 1) {
+    if (existsSync(store)) return
+    run('sleep', ['1'])
+  }
+  throw new Error(`${DS_STORE_WAIT_SECONDS} 秒内 Finder 没写出 .DS_Store`)
+}
+
+/**
+ * dmg 里放包本体和一个指向 /Applications 的链接，拖过去就装好了。
+ * 先做可写镜像、挂上用 Finder 摆窗口（写进卷里的 .DS_Store），再压成只读 UDZO。
+ * 摆窗口要求能控制 Finder（第一次跑会弹「自动化」授权）；没有图形会话时退回朴素布局。
+ */
 function buildDmg() {
   const staging = join(tmpdir(), `dsh-x-dmg-${process.pid}`)
+  const rw = join(tmpdir(), `dsh-x-dmg-${process.pid}-rw.dmg`)
   rmSync(staging, { recursive: true, force: true })
-  run('mkdir', ['-p', staging])
+  run('mkdir', ['-p', join(staging, '.background')])
   run('ditto', [BUNDLE, join(staging, MAC_APP_NAME)])
   run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', join(staging, MAC_APP_NAME)])
   run('ln', ['-s', '/Applications', join(staging, 'Applications')])
-  rmSync(DMG, { force: true })
-  run('hdiutil', ['create', '-volname', DMG_VOLUME, '-srcfolder', staging, '-ov', '-format', 'UDZO', DMG])
+  buildDmgBackground(join(staging, '.background', DMG_BACKGROUND))
+  rmSync(rw, { force: true })
+  // 摆窗口时用一个独一无二的临时卷名：Finder 按卷名认窗口，机器上挂着旧的「DSH-X」安装盘时
+  // 它会把设置写到别的卷上。摆完再改回正式卷名。
+  const buildVolume = `${DMG_VOLUME}-build-${process.pid}`
+  run('hdiutil', ['create', '-volname', buildVolume, '-srcfolder', staging, '-ov', '-format', 'UDRW', rw])
   rmSync(staging, { recursive: true, force: true })
+
+  const { device, mount } = attachDmg(rw)
+  try {
+    layoutDmgWindow(mount)
+    waitForFinderLayout(mount)
+    // 卷图标用应用图标
+    run('cp', [join(CONTENTS, 'Resources', ICON_FILE), join(mount, '.VolumeIcon.icns')])
+    run('SetFile', ['-a', 'C', mount])
+  } catch (error) {
+    console.warn(`dmg 窗口布局失败，用默认布局：${error.message}`)
+  } finally {
+    run('sync', [])
+    run('diskutil', ['rename', device, DMG_VOLUME])
+    // 改名后挂载点跟着变，按设备卸载
+    run('hdiutil', ['detach', device])
+  }
+
+  rmSync(DMG, { force: true })
+  run('hdiutil', ['convert', rw, '-format', 'UDZO', '-imagekey', 'zlib-level=9', '-o', DMG])
+  rmSync(rw, { force: true })
   console.log(`安装包: ${DMG}`)
 }
 
