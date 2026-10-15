@@ -2653,16 +2653,28 @@ const pluginUpdateCache = { at: 0, data: null, profile: '' }
 const PLUGIN_UPDATE_TTL = 60 * 1000
 const PLUGIN_UPDATE_CONCURRENCY = 4
 
-/** 插件命令与启动页自动选择一致：目标 Profile 的运行版本优先，其次已装的最高版本。 */
+/** 固定内核跟随目标启动项；只有 auto 或未绑定的 Profile 才按运行版本、最高已装版本选择。 */
 async function pluginCommandVersion(profile = PROFILE_NAME) {
-  // 配置顺序是安装顺序；装过旧版、或别的 Profile 在运行，都不应把这里切到旧版。
+  const config = await loadConfig()
+  const presets = safeLaunchPresets(loadSettingsSync().launchPresets)
+    .filter((entry) => entry.profile === profile && (entry.dshHome || defaultHome()) === homeDir())
+  const selected = presets.find((entry) => entry.id === launchScope.getStore()?.launchId)
+  const available = (version) => {
+    if (!version) throw new Error('没有可用的 dsh 版本，插件页暂时用不了')
+    // 固定版本缺失时不能偷偷换内核，否则兼容检查和实际启动检查的就不是同一套组件。
+    if (!existsSync(binPath(version))) throw new Error(`DSH ${version} 未安装，请先在版本管理中安装，或修改启动项的内核版本`)
+    return version
+  }
+  if (selected) return available(resolvePresetVersion(selected, homeDir(), config))
+
+  // 设置页只有目录与 Profile，没有启动项 ID；仍优先沿用正在运行的环境。
   const live = liveInstanceList().filter((proc) => proc.profile === profile && proc.home === homeDir())
     .sort((a, b) => cmpVer(parseVer(b.version), parseVer(a.version)))[0]
-  if (live?.version) return live.version
-  const versions = listedVersions(await loadConfig()).filter((ver) => existsSync(binPath(ver)))
-    .sort((a, b) => cmpVer(parseVer(b), parseVer(a)))
-  if (!versions.length) throw new Error('没有可用的 dsh 版本，插件页暂时用不了')
-  return versions[0]
+  if (live?.version) return available(live.version)
+  const versions = [...new Set(presets.map((entry) => resolvePresetVersion(entry, homeDir(), config)))]
+  // 同一个目录/Profile 可以绑定多个内核，不能靠启动项排列顺序猜用户要更新哪一套。
+  if (versions.length > 1) throw new Error(`profile「${profile}」对应多个内核版本，请从要使用的启动项进入插件管理后再更新`)
+  return available(versions[0] || resolvePresetVersion({ version: 'auto', profile }, homeDir(), config))
 }
 
 /**
