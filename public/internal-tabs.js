@@ -286,5 +286,16 @@
     if (root.classList.contains('internal-dsh-active')) selectTab('')
   }, true)
   new ResizeObserver(() => { reportHeight(); scheduleIndicator() }).observe(header)
+  // 原生标签页叠在管理页之上，管理页的弹窗（.ask）会被它盖住、遮罩却挡住了标签栏，弹窗就关不掉了。
+  // 有弹窗开着就让外壳先收起标签页，关完再放回；初值为 null，保证页面重载后先把真实状态同步一次。
+  let overlay = null
+  const syncOverlay = () => {
+    const open = !!document.querySelector('.ask:not([hidden])')
+    if (open === overlay) return
+    overlay = open
+    send({ action: 'overlay', open })
+  }
+  new MutationObserver(syncOverlay).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden'] })
   send('internal-tabs-ready')
+  syncOverlay()
 })()
