@@ -214,8 +214,8 @@ const logs = []
 /**
  * 正在跑的 dsh 实例，一个「版本 × profile」组合一个（多开）。
  *
- * 端口不用抢：启动器给会起 web 的 profile 传 `--port 0`，由系统各挑一个，从 dsh 自己
- * 打印的地址里读回来。数据是共享的——同一个 DSH_HOME，多开的实例看见同一批会话与记忆；
+ * 自动端口首次交给系统挑，之后复用实际就绪地址的端口，保留浏览器权限与站点数据。
+ * 数据是共享的——同一个 DSH_HOME，多开的实例看见同一批会话与记忆；
  * 插件树按 profile 各是各的。同一个组合再点一次启动只会拿回已经在跑的那个。
  */
 const instances = new Map()
@@ -1954,7 +1954,7 @@ function profileBootsWebIn(home, name) {
  * dsh 启动参数。`alongside` = 已经有一个实例在跑（多开），局域网下要另给端口。
  * @param {string} profile 这次启动用的 profile（多开下同一版本可以各用各的）
  * @param {boolean} alongside
- * @param {number} pinned 手工钉死的端口（0 = 没钉，由系统挑）
+ * @param {number} pinned 手工固定或自动记忆的端口（0 = 首次，由系统挑）
  */
 function bootArgs(profile = PROFILE_NAME, alongside = false, pinned = 0) {
   // 不起 web 的 profile（headless / acp / sdk…）不提供 HTTP 服务，也不认这几个 flag：
@@ -1971,17 +1971,58 @@ function bootArgs(profile = PROFILE_NAME, alongside = false, pinned = 0) {
     if (!pinned && !alongside) return [profile, '--no-open', ...EXTRA_ARGS]
     return [profile, '--port', port, '--no-open', ...EXTRA_ARGS]
   }
-  // 默认姿势：钉死回环 + 端口（没钉就 --port 0，让 OS 现挑一个；dsh 会把真实地址
+  // 默认姿势：钉死回环 + 端口（首次 --port 0，让 OS 现挑一个；dsh 会把真实地址
   // 打出来，启动器读它，所以顺延也不影响页面拿到链接）。
   // 额外参数放最后：用户可以用它覆盖 --port 之类（启动器是从 dsh 的输出里读真实地址的，
   // 所以换个端口也不影响管理页拿到的链接）
   return [profile, '--host', '127.0.0.1', '--port', port, '--no-open', ...EXTRA_ARGS]
 }
 
-/** 这个「版本 × profile」钉死的端口（0 = 没钉，由系统现挑）。 */
+/** 这个「版本 × profile」手工固定的端口（0 = 自动分配并记忆）。 */
 function pinnedPort(version, profile) {
   const ports = homeDir() === defaultHome() ? INSTANCE_PORTS : ENVIRONMENT_PORTS[homeDir()]
   return ports?.[`${version}@${profile}`] || 0
+}
+
+/** 自动端口只接管默认回环模式；局域网配置和用户额外参数仍由用户决定。 */
+function remembersAutoPort(profile, pinned) {
+  return !pinned && bootsWebApp(profile)
+    && !lanBindActive(WEB_BIND, lanBindToggleOn(homeDir(), profile))
+    && !EXTRA_ARGS.some((arg) => /^--(?:port|host)(?:=|$)/.test(arg))
+}
+
+const claimedAutoPorts = new Set()
+async function rememberedPort(version, profile) {
+  const stored = await loadSettings()
+  const port = safeEnvironmentPorts(stored.autoPorts)[homeDir()]?.[`${version}@${profile}`] || 0
+  if (!port) return 0
+  // 自动端口不能抢手工指定给其他实例的端口；真实监听也要检查（含别的程序）。
+  const reserved = [stored.instancePorts, ...Object.values(stored.environmentPorts || {})]
+    .some((ports) => Object.values(ports || {}).includes(port))
+    || safeLaunchPresets(stored.launchPresets).some((entry) => entry.port === port)
+  const busy = reserved || port === PORT || port === stored.port || instanceOnPort(port) || !(await portAvailable(port))
+  // 检查监听会让出执行权；不同目录的并发启动不能同时复用同一个历史端口。
+  if (busy || claimedAutoPorts.has(port)) {
+    pushLog(`自动端口 ${port} 已被占用或保留，将重新分配；浏览器可能需要重新授权`)
+    return 0
+  }
+  claimedAutoPorts.add(port)
+  return port
+}
+
+async function rememberAutoPort(version, profile, url) {
+  const port = urlPortOf(url)
+  if (!port) return
+  const home = homeDir(), key = `${version}@${profile}`
+  try {
+    // 不同目录可以同时启动，读改写必须在设置写队列里合并，不能覆盖另一项刚记下的端口。
+    await saveSettings((current) => {
+      const autoPorts = safeEnvironmentPorts(current.autoPorts)
+      return { autoPorts: { ...autoPorts, [home]: { ...autoPorts[home], [key]: port } } }
+    })
+  } catch (error) {
+    pushLog(`记忆自动端口失败：${error instanceof Error ? error.message : error}`)
+  }
 }
 
 /** 地址里的端口（认不出来就是 0：这种地址不该让调用方炸掉）。 */
@@ -3553,17 +3594,21 @@ async function bootOnce(ver, prof) {
   if (prof === PROFILE_NAME) await seedMarket(ver)
   const alongside = instances.size > 0
   const pinned = pinnedPort(ver, prof)
+  const automatic = remembersAutoPort(prof, pinned)
+  const reused = automatic ? await rememberedPort(ver, prof) : 0
   if (pinned && !(await portAvailable(pinned))) {
     // 只说问题、不拦着：占着它的可能是用户马上要关掉的东西，也可能只是 Windows 的
     // TIME_WAIT。真起不来时下面那条 catch 会把话说清楚。
     pushLog(`固定端口 ${pinned} 现在被占用，这次启动多半会失败`)
   }
   pushLog(`启动 ${ver} · profile ${prof}${lanBindActive(WEB_BIND, lanBindToggleOn(homeDir(), prof)) ? ' · Web 绑定 局域网(0.0.0.0，由配置层决定)' : ''}${pinned ? ` · 固定端口 ${pinned}` : ''}${alongside ? '（与已在跑的实例并存）' : ''}`)
-  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned), prof)
+  if (reused) pushLog(`复用自动端口：${ver}@${prof} → ${reused}`)
+  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned || reused), prof)
   const proc = attachProcess(ver, prof, child)
   await emitState()
   try {
     const result = await waitUntilReady(proc, ver)
+    if (automatic) await rememberAutoPort(ver, prof, result.url)
     // 钉了端口却没落到上面（额外参数里另有 --port，或 dsh 自己顺延了）：如实说一句，
     // 否则用户以为存下来的地址还有效
     if (pinned && urlPortOf(result.url) !== pinned) {
@@ -3598,6 +3643,8 @@ async function bootOnce(ver, prof) {
       // 非 Error 对象就算了
     }
     throw error
+  } finally {
+    claimedAutoPorts.delete(reused)
   }
 }
 
@@ -3961,6 +4008,7 @@ async function renameProfile(profile, nextName) {
           launchPresets: safeLaunchPresets(current.launchPresets).map((entry) => entry.profile === from && sameHome(entry.dshHome || defaultHome()) ? { ...entry, profile: name } : entry),
           ...(sameHome(defaultHome()) ? { profile: current.profile === from ? name : current.profile, instancePorts: ports(current.instancePorts) } : {}),
           environmentPorts: Object.fromEntries(Object.entries(safeEnvironmentPorts(current.environmentPorts)).map(([dir, value]) => [dir, sameHome(dir) ? ports(value) : value])),
+          autoPorts: Object.fromEntries(Object.entries(safeEnvironmentPorts(current.autoPorts)).map(([dir, value]) => [dir, sameHome(dir) ? ports(value) : value])),
         }))
         INSTANCE_PORTS = safeInstancePorts(saved.instancePorts)
         ENVIRONMENT_PORTS = safeEnvironmentPorts(saved.environmentPorts)

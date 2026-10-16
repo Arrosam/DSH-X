@@ -3,7 +3,7 @@
  *
  * 这条以前是硬约束——README 里写着「同时只跑一个版本，避免不同版本争用端口和数据」，
  * 起第二个版本会把第一个顶掉。现在放开：每个版本一个实例，端口由 dsh 自己挑
- * （启动器传 --port 0），数据（DSH_HOME）本来就是共享的。
+ * （首次 --port 0，之后优先复用），数据（DSH_HOME）本来就是共享的。
  *
  * 所以这里钉住四件事：起第二个不会顶掉第一个、同一个版本重复点启动不会叠加、
  * 停是按版本停的、重启会把在跑的都拉回来；顺带钉住托盘读的那份 running 仍然是
@@ -37,7 +37,8 @@ const srv = createServer((req, res) => {
   res.setHeader('content-type', 'text/html; charset=utf-8')
   res.end(req.url === '/home' ? process.env.DSH_HOME : '<!doctype html><html><body>fake dsh</body></html>')
 })
-srv.listen(0, '127.0.0.1', () => {
+const portAt = process.argv.indexOf('--port')
+srv.listen(portAt >= 0 ? Number(process.argv[portAt + 1]) : 0, '127.0.0.1', () => {
   const { port } = srv.address()
   console.log(\`dsh web: http://127.0.0.1:\${port}/?token=fake\`)
 })
@@ -205,14 +206,15 @@ test('同一 Profile 的两个版本仍串行准备，避免同时初始化或�
 
 test('重启会把在跑的实例都拉回来', async () => {
   const before = [(await api('/api/start', { version: A })).url, (await api('/api/start', { version: B })).url]
+  const started = (await state()).instances.map((item) => item.startedAt)
   const back = await api('/api/restart', {})
   const snap = await state()
   assert.equal(snap.instances.length, 2, '重启不该把多开变成单开')
   assert.ok(back.url, '返回一个可以打开的地址')
   const urls = snap.instances.map((item) => item.url)
   assert.ok(urls.every(Boolean))
-  // 端口是每次启动重新挑的，重启后不该还是原来那两个（假 dsh 每次都是新端口）
-  assert.ok(urls.every((url) => !before.includes(url)))
+  assert.deepEqual([...urls].sort(), [...before].sort(), '重启保留自动端口对应的站点身份')
+  assert.ok(snap.instances.every((item) => !started.includes(item.startedAt)), '必须真的重启进程，不能只返回旧地址')
 })
 
 test('版本目录里跑着的实例不许改、不许卸', async () => {
@@ -334,14 +336,17 @@ test('同版本同 Profile 可在不同 DSH_HOME 并存，管理和停止按启�
   const stored = JSON.parse(readFileSync(join(APP, 'settings.json'), 'utf8'))
   assert.equal(stored.environmentPorts[otherHome][`${A}@web`], port)
   assert.equal(stored.instancePorts?.[`${A}@web`], undefined)
+  assert.equal(stored.autoPorts[HOME][`${A}@web`], Number(new URL(first.url).port))
+  assert.equal(stored.autoPorts[otherHome][`${A}@web`], Number(new URL(second.url).port), '同名实例的自动端口按目录分别记忆')
   const { writePackState } = await import('../packs.js')
   writePackState(DATA, { packs: [{ name: 'only-default', profile: 'web' }] })
   assert.ok((await api('/api/packs')).packs.some((item) => item.records.some((record) => record.name === 'only-default')))
   assert.ok(!(await api('/api/packs', undefined, launchId)).packs.some((item) => item.records.some((record) => record.name === 'only-default')))
   assert.equal((await api('/api/start', { version: A, profile: 'web' }, launchId)).url, second.url)
+  await api('/api/instance-port', { version: A, profile: 'web', port: 0 }, launchId)
   await api('/api/stop', { version: A, profile: 'web' }, launchId)
   assert.equal((await state()).instances.find((item) => item.home === HOME)?.url, first.url)
-  await api('/api/start', { version: A, profile: 'web' }, launchId)
+  assert.equal((await api('/api/start', { version: A, profile: 'web' }, launchId)).url, second.url, '独立目录重启时复用自己的自动端口')
   await api('/api/restart', {})
   assert.deepEqual((await state()).instances.filter((item) => item.version === A && item.profile === 'web').map((item) => item.home).sort(), [HOME, otherHome].sort())
   await api('/api/stop', { version: A, profile: 'web', home: otherHome })
@@ -370,9 +375,11 @@ test('托盘使用命名启动项，单项重启和停止不碰其他目录或 P
     row = (await trayRows()).find((item) => item.id === saved.entry.id)
     assert.equal(row.target.url, launched.url)
     assert.equal((await state()).launchPresets.find((item) => item.id === row.id).usedVersion, A)
+    const startedAt = (await state()).instances.find((item) => item.home === otherHome).startedAt
     const restarted = await api('/api/tray/action', { id: row.id, action: 'restart', targetId: row.target.id })
-    assert.notEqual(restarted.url, launched.url)
+    assert.equal(restarted.url, launched.url, '托盘重启也保留自动端口')
     let snap = await state()
+    assert.notEqual(snap.instances.find((item) => item.home === otherHome).startedAt, startedAt)
     assert.equal(snap.instances.find((item) => item.home === HOME && item.profile === 'web').url, first.url)
     assert.equal(snap.instances.find((item) => item.profile === 'work').url, work.url)
     await api('/api/tray/action', { id: row.id, action: 'stop', targetId: row.target.id })

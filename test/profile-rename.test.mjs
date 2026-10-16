@@ -108,6 +108,8 @@ server.listen(0, '127.0.0.1', () => console.log('dsh web: http://127.0.0.1:' + s
     assert.equal(settings().launchPresets.find((item) => item.id === otherId).port, 23456)
     assert.deepEqual(settings().instancePorts, { '1.0.0@work': 45678 })
     assert.deepEqual(settings().environmentPorts[other], { '1.0.0@web': 34567 })
+    assert.ok(settings().autoPorts[home]['1.0.0@work'] > 0, '改名带走自动端口，保留浏览器站点身份')
+    assert.equal(settings().autoPorts[home]['1.0.0@web'], undefined)
     assert.ok(existsSync(otherWeb))
     const record = readPackState(data).packs[0]
     assert.equal(record.profile, 'work')

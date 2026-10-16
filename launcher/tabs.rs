@@ -217,6 +217,7 @@ impl BrowserTabs {
                     }
                 })
                 .build_as_child(window)?;
+            super::permissions::install(&view, window);
             self.tabs.push(Tab { target: target.clone(), view, loaded: String::new(), page_title: String::new(), visible: false, memory_active: true, page_loaded: false });
         }
         let tab = self.tabs.iter_mut().find(|tab| tab.target.id == target.id).unwrap();
@@ -633,7 +634,11 @@ mod tests {
         }
         browser.action(TabAction::Close("second".into()), &window, &manager);
         assert!(browser.retired.iter().any(|tab| tab.visible), "页面交接完成前必须保留关闭页的画面");
-        pump(&mut event_loop, &mut browser, &window, &manager, Duration::from_millis(300));
+        // 页面接管依赖渲染进程回传；机器忙时 300ms 不够，等待交接完成而不是猜动画时长。
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && (!browser.retired.is_empty() || !browser.tabs[0].visible) {
+            pump(&mut event_loop, &mut browser, &window, &manager, Duration::from_millis(100));
+        }
         assert_eq!(browser.tabs.len(), 1);
         assert!(browser.retired.is_empty() && browser.tabs[0].visible);
         assert_eq!(requests.load(Ordering::SeqCst), 2, "切换和关闭标签不能重新请求页面");

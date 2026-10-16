@@ -1296,7 +1296,7 @@
   "更新版本": "Update version",
   "卸载版本": "Uninstall version",
   "删除启动项": "Delete launch",
-  "留空自动分配端口。固定端口在下次启动时生效。": "Leave blank for an automatic port. Fixed ports apply on the next start.",
+  "留空自动分配并记住端口，被占用时重新分配。固定端口在下次启动时生效。": "Leave blank to assign and remember a port; reassign if occupied. Fixed ports apply on the next start.",
   "开始使用 DSH": "Start DSH",
   "正在读取可用版本…": "Checking available versions…",
   "一键启动": "Start",
@@ -1404,7 +1404,7 @@
        const portInput = document.getElementById('launchPort')
       if (portInput) {
         portInput.placeholder = t('自动')
-         portInput.title = t('留空自动分配端口。固定端口在下次启动时生效。')
+         portInput.title = t('留空自动分配并记住端口，被占用时重新分配。固定端口在下次启动时生效。')
        }
        const nameInput = document.getElementById('launchName')
        if (nameInput) nameInput.placeholder = t(nameInput.dataset.placeholderI18n)

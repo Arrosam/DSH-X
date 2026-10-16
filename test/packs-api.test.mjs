@@ -68,6 +68,8 @@ async function startManager() {
     port,
     autoStart: false,
     seedMarket: false,
+    // 假索引的失败请求也留在本机，不能把 localhost 兜底成外网镜像而卡住离线测试。
+    downloadSource: 'official',
   }, null, 2))
   // 假 dsh：版本目录里放一份能解析的入口，plugin 命令跑它就够了
   const fakeBin = join(dataDir, 'versions', '9.9.9', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')

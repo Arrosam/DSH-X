@@ -226,10 +226,12 @@ export const DEFAULTS = {
   dataDir: '',
   port: DEFAULT_PORT,
   profile: DEFAULT_PROFILE,
-  // 钉死端口的实例（键 `版本@profile`）：没钉的组合每次启动由系统挑，见 safeInstancePorts
+  // 手工钉死的端口优先于自动记忆的端口，见 safeInstancePorts。
   instancePorts: {},
   // 额外 DSH_HOME 的固定端口；默认目录仍沿用 instancePorts。
   environmentPorts: {},
+  // 自动端口按目录与实例记忆，不混进手工设置，避免点击「自动」清掉站点身份。
+  autoPorts: {},
   // 旧设置没有启动项时，读取侧会补上内置默认项，首次使用无需先填参数。
   launchPresets: [],
   // 界面语言：zh / en（安装时选的语言写进安装目录的 lang.txt，启动器读一次落到这里）
@@ -315,8 +317,8 @@ export function safeProfile(value) {
 /**
  * 每个实例（版本 × profile）手工钉的固定端口，键形如 `0.1.7@web`。
  *
- * 默认每个实例都由系统现挑一个端口（`--port 0`），代价是链接每次启动都变：书签、手机
- * 上存的地址、别的程序里的回调地址都留不住。钉死的组合按下一次的端口起。
+ * 自动端口首次由系统挑选，之后尽量复用，保留浏览器权限和站点数据；手工固定的端口
+ * 不会因为占用而换号。两类记录分开保存。
  *
  * 脏值直接丢掉（不抛）：这张表是「多几个键也无所谓」的附加信息，为了历史文件里的一条
  * 烂数据让整个设置读不出来不划算。键的两段分别按 VERSION_RE / safeProfile 的形状收，
@@ -682,6 +684,7 @@ async function saveSettingsNow(patch) {
   merged.args = 'args' in patch ? safeArgs(patch.args) : safeArgs(merged.args)
   merged.instancePorts = safeInstancePorts('instancePorts' in patch ? patch.instancePorts : merged.instancePorts)
   merged.environmentPorts = safeEnvironmentPorts(merged.environmentPorts)
+  merged.autoPorts = safeEnvironmentPorts(merged.autoPorts)
   merged.launchPresets = safeLaunchPresets(merged.launchPresets)
   merged.dshHomes = safeDshHomes(merged.dshHomes)
   merged.dshHomeNames = safeDshHomeNames(merged.dshHomeNames)
