@@ -136,6 +136,9 @@ enum UserEvent {
     TabTitle(String, String),
     TabPageLoaded(String, String),
     TabLink(String, String),
+    /// 标签页的 WebKit 页面进程崩溃（只有 macOS 报告），由外壳重新认证装回
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    TabCrashed(String),
 }
 
 /// 从 /api/tray 读回来的状态（纯文本 key=value，见 server.js）
@@ -1425,6 +1428,9 @@ fn main() {
             }
             Event::UserEvent(UserEvent::TabPageLoaded(id, url)) => {
                 if let (Some(tabs), Some(window)) = (&mut browser_tabs, &window) { tabs.page_loaded(&id, &url, window); }
+            }
+            Event::UserEvent(UserEvent::TabCrashed(id)) => {
+                if let Some(tabs) = &mut browser_tabs { tabs.recover(&id); }
             }
             Event::UserEvent(UserEvent::TabLink(id, url)) => {
                 if !browser_tabs.as_ref().is_some_and(|tabs| tabs.link(&id, &url)) {
