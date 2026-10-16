@@ -403,6 +403,7 @@ export function safeLaunchPresets(value) {
     const usedVersion = String(item.usedVersion ?? '')
     const prevVersion = String(item.prevVersion ?? '')
     return [{ id, name, version, profile, port,
+      ...(item.autoLaunch === true ? { autoLaunch: true } : {}),
       ...(VERSION_RE.test(usedVersion) ? { usedVersion } : {}),
       ...(VERSION_RE.test(prevVersion) ? { prevVersion } : {}),
       ...(dshHome ? { dshHome } : {}), ...(icon !== 'terminal' ? { icon } : {}) }]

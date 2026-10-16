@@ -142,7 +142,7 @@ test('直接回车保存也先检查新目录；坏路径不落盘，不改全�
     })
     Object.assign(c, {
       launchFormEl: {}, launchSaveEl: { disabled: false }, launchNameEl: { value: '独立工作' },
-      launchIcon: 'terminal', versionValue: 'auto', launchPortEl: { value: '' },
+      launchIcon: 'terminal', versionValue: 'auto', launchPortEl: { value: '' }, launchAutoLaunchEl: { checked: true },
       closeLaunchEditor() {}, render() {},
     })
     c.launchDshHomeEl.value = invalid ? './bad' : 'D:/isolated'
@@ -155,6 +155,7 @@ test('直接回车保存也先检查新目录；坏路径不落盘，不改全�
       assert.equal(writes[0][0], '/api/launch-presets')
       assert.equal(writes[0][1].dshHome, 'D:/isolated')
       assert.equal(writes[0][1].profile, 'web')
+      assert.equal(writes[0][1].autoLaunch, true)
     }
     assert.equal(c.state.dshHome, 'C:/global')
     assert.equal(c.launchSaveEl.disabled, false)

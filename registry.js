@@ -28,7 +28,6 @@ export function currentRegistry() {
   return DOWNLOAD_SOURCES[name] || DOWNLOAD_SOURCES[DEFAULTS.downloadSource]
 }
 const USER_AGENT = `dsh-versions/${pkg.version || '0.0.0'}`
-const packumentCache = new Map()
 let npmReady = null
 
 const NPM_CMD = `@ECHO OFF
@@ -69,19 +68,43 @@ async function registryGet(url) {
   throw last
 }
 
-export async function packument(name) {
-  const registry = currentRegistry()
-  const cacheKey = `${registry}/${name}`
-  if (packumentCache.has(cacheKey)) return packumentCache.get(cacheKey)
-  const pending = registryGet(`${registry}/${name.replace('/', '%2f')}`)
-  packumentCache.set(cacheKey, pending)
-  try {
-    return await pending
-  } catch (error) {
-    packumentCache.delete(cacheKey)
-    throw error
+/**
+ * npm 的版本历史很大，浏览多个插件后不能永久留在内存里；刷新也要能看到新发布。
+ * 保留短时请求合并，闲置到期主动释放，而不是等下一次访问才清掉。
+ */
+export function createPackumentReader({ get = registryGet, registry = currentRegistry, limit = 16, ttl = 60_000 } = {}) {
+  const cache = new Map()
+  const remove = (key, entry) => {
+    if (cache.get(key) !== entry) return
+    cache.delete(key)
+    clearTimeout(entry.timer)
+  }
+  return async (name) => {
+    const base = registry()
+    const key = `${base}/${name}`
+    const cached = cache.get(key)
+    if (cached) {
+      cache.delete(key)
+      cache.set(key, cached)
+      return cached.pending
+    }
+    const entry = {}
+    entry.pending = Promise.resolve().then(() => get(`${base}/${name.replace('/', '%2f')}`)).catch((error) => {
+      remove(key, entry)
+      throw error
+    })
+    cache.set(key, entry)
+    entry.timer = setTimeout(() => remove(key, entry), ttl)
+    entry.timer.unref?.()
+    while (cache.size > limit) {
+      const oldest = cache.entries().next().value
+      remove(...oldest)
+    }
+    return entry.pending
   }
 }
+
+export const packument = createPackumentReader()
 
 export async function listPackage(name) {
   const meta = await packument(name)
@@ -434,6 +457,8 @@ export async function installSpec(root, name, range, onLog = () => {}) {
   await runNpm(cli, [
     'install',
     `${name}@${range}`,
+    '--prefer-dedupe',
+    '--save-exact',
     '--omit=dev',
     '--no-audit',
     '--no-fund',
@@ -465,4 +490,14 @@ export async function installSpec(root, name, range, onLog = () => {}) {
   } finally {
     clearInterval(pulse)
   }
+}
+
+/**
+ * 只重排已装依赖：离线、不跑生命周期脚本、不改直接依赖的版本范围。
+ * 交给 npm 校验依赖与 peer 约束，不能自己按包名删目录或合并不同版本。
+ */
+export async function optimizeDependencies(root, onLog = () => {}) {
+  const { cli } = await ensureNpm(onLog)
+  await runNpm(cli, ['dedupe', '--offline', '--ignore-scripts', '--omit=dev',
+    '--no-audit', '--no-fund', '--package-lock=false', '--no-progress'], { cwd: root, onLog })
 }

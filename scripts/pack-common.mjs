@@ -24,6 +24,7 @@ export const NODE_MIRRORS = [
 const APP_FILES = [
   'start.js',
   'server.js',
+  'log-writer.js',
   'registry.js',
   'settings.js',
   'proxy.js',

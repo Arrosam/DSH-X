@@ -535,6 +535,7 @@ html.reduce-motion .launch-status.is-working::before { animation: none; }
 /* 正文只纵向滚动；给焦点描边留出空间，避免边缘控件触发横向滚动或被裁掉。 */
 .launch-modal-fields { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; margin: -2px; padding: 2px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 #launchDialog .home-field > label { font-size: 12px; letter-spacing: 0; }
+.toggle.launch-auto-launch { margin: 0; font-size: 12px; }
 .launch-version-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .launch-version-tools[hidden] { display: none; }
 .launch-version-tools .hint { flex-basis: 100%; margin: 0; }
@@ -1839,6 +1840,7 @@ html .set-row:focus-within { background: transparent; box-shadow: none; }
 #versionManageHint { margin: 0; min-height: 0; font-size: 12px; }
 #versionManageHint:empty { display: none; }
 .version-manage-heading { margin: 6px 0 0; font-size: 12px; font-weight: 500; color: var(--muted); }
+.version-optimize { flex: 0 0 auto; padding: 7px 10px; font-size: 12px; white-space: nowrap; }
 .version-manage-row .version-remove svg { width: 18px; height: 18px; }
 .version-manage-row .version-manage-info span { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .version-manage-list { display: grid; align-content: start; gap: 10px; flex: 1 1 auto; min-height: 0; overflow: auto; scrollbar-width: thin; }

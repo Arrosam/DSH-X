@@ -105,7 +105,7 @@ async function main() {
   // onWake 要尽早挂上：另一个实例双击启动时会立刻打 /api/wake，晚一步就丢了这个请求。
   setHost({ onWake: () => showManager() })
 
-  // 打开启动器只把界面摆出来，不再默认拉起 dsh——跑哪个版本、什么时候跑，由用户在界面上点。
+  // 内核由 startServer 按启动项的勾选在后台拉起，这里不等待它们就绪。
   // 更新也一样：启动时不打扰，更新按钮留在界面上，点了才弹确认。
   if (!APP_WINDOW) openPage(MANAGER_URL)
 
