@@ -1087,11 +1087,19 @@ async function setInstancePortNow(version, profile, port) {
     ...Object.entries(INSTANCE_PORTS).map(([other, otherPort]) => [defaultHome(), other, otherPort]),
     ...Object.entries(ENVIRONMENT_PORTS).flatMap(([dir, ports]) => Object.entries(ports).map(([other, otherPort]) => [dir, other, otherPort])),
   ]
-  const taken = allPorts.find(([dir, other, otherPort]) => otherPort === value && !(dir === home && other === key))
+  // 启动项换了 DSH 版本后，它上次启动用的旧版本（usedVersion / prevVersion）还钉着这个端口：
+  // 那是同一个启动项留下的，跟着版本挪过来，而不是拦住启动。别的组合钉着的端口照旧拒绝。
+  const launch = safeLaunchPresets(loadSettingsSync().launchPresets).find((item) => item.id === launchScope.getStore()?.launchId)
+  const moved = launch?.profile === prof
+    ? [launch.usedVersion, launch.prevVersion].filter(Boolean).map((used) => `${used}@${prof}`)
+      .filter((other) => other !== key && map[other] === value)
+    : []
+  const taken = allPorts.find(([dir, other, otherPort]) => otherPort === value && !(dir === home && (other === key || moved.includes(other))))
   if (taken) throw new Error(`端口 ${value} 已经钉给 ${taken[1]}（${taken[0]}）了，换一个`)
+  for (const other of moved) delete map[other]
   map[key] = value
   await savePorts(map)
-  pushLog(`固定端口：${key} → ${value}（下次启动生效）`)
+  pushLog(`固定端口：${key} → ${value}（下次启动生效）${moved.length ? `，从 ${moved.join('、')} 挪过来` : ''}`)
   await emitState()
   const ours = instanceOnPort(value)
   return { key, port: value, busy: !ours && !(await portAvailable(value)) }
