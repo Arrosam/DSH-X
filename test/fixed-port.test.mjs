@@ -146,6 +146,40 @@ test('托盘启动和重启沿用启动项固定端口', async () => {
   }
 })
 
+test('启动项换了版本：固定端口跟着挪到新版，标签标题用启动项名称', async () => {
+  const port = await freePort()
+  const saved = await api('/api/launch-presets', { name: '换版本环境', version: A, profile: 'work', port })
+  const scoped = async (path, body) => {
+    const response = await fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dsh-launch-id': saved.entry.id }, body: JSON.stringify(body) })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`)
+    return data
+  }
+  try {
+    await scoped('/api/instance-port', { version: A, profile: 'work', port })
+    const first = await scoped('/api/start', { version: A, profile: 'work' })
+    assert.equal(portOf(first.url), port)
+    const text = await (await fetch(`${base}/api/tray`)).text()
+    const tabs = JSON.parse(text.split('\n').find((line) => line.startsWith('instances=')).slice(10))
+    assert.deepEqual(tabs.map((tab) => tab.title), ['换版本环境'], '标签显示启动项名称，不是版本号')
+    await scoped('/api/stop', { version: A, profile: 'work' })
+    await api('/api/launch-presets', { ...saved.entry, version: B })
+    await scoped('/api/instance-port', { version: B, profile: 'work', port })
+    const ports = (await state()).instancePorts
+    assert.equal(ports[`${B}@work`], port, '端口跟着启动项挪到新版本')
+    assert.equal(ports[`${A}@work`], undefined, '旧版本不再占着这个端口')
+    const second = await scoped('/api/start', { version: B, profile: 'work' })
+    assert.equal(portOf(second.url), port)
+    await scoped('/api/stop', { version: B, profile: 'work' })
+    await assert.rejects(pin(A, port, 'work'), /已经钉给/, '不经启动项手工钉同一个端口照旧拒绝')
+  } finally {
+    await api('/api/stop', {})
+    await api('/api/launch-presets/remove', { id: saved.entry.id })
+    await pin(A, 0, 'work')
+    await pin(B, 0, 'work')
+  }
+})
+
 /** 假 dsh 收到的 argv（每次启动一行）。 */
 function launches() {
   try {

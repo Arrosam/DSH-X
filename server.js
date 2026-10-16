@@ -1144,8 +1144,13 @@ function trayLaunches() {
   return rows.map((row) => {
     const key = JSON.stringify([row.home, row.version, row.profile])
     const pending = trayActions.get(key)
-    return { ...row, key, instanceId: key, status: pending?.status || row.proc?.status || 'stopped', busy: Boolean(pending), installed: versions.includes(row.version), target: row.proc ? internalTabTarget(row.proc) : null }
+    return { ...row, key, instanceId: key, status: pending?.status || row.proc?.status || 'stopped', busy: Boolean(pending), installed: versions.includes(row.version), target: row.proc ? internalTabTarget(row.proc, row.name) : null }
   })
+}
+
+/** 实例所属启动项的名称（标签标题用）；没有对应启动项时返回空串。 */
+function launchNameOf(instance) {
+  return trayLaunches().find((row) => row.proc === instance)?.name || ''
 }
 
 async function trayAction(body) {
@@ -4352,11 +4357,14 @@ function internalTabsHost() {
   return shellWindowHost() && process.env.DSH_INTERNAL_TABS === '1'
 }
 
-/** 用实例身份而不是端口标识标签：重启换端口或 token 时仍能找到原来的页面。 */
-export function internalTabTarget(instance) {
+/**
+ * 用实例身份而不是端口标识标签：重启换端口或 token 时仍能找到原来的页面。
+ * 标题优先用启动项名称（用户认的是自己起的环境名，不是版本号）；不属于任何启动项的实例才退回「profile · 版本」。
+ */
+export function internalTabTarget(instance, name = '') {
   return {
     id: JSON.stringify([instance.home || '', instance.version || '', instance.profile || '']),
-    title: [instance.profile, instance.version].filter(Boolean).join(' · ') || 'DSH',
+    title: name || [instance.profile, instance.version].filter(Boolean).join(' · ') || 'DSH',
     url: instance.url || '',
     status: instance.status || 'stopped',
     managed: true,
@@ -4386,7 +4394,7 @@ function openExternal(target, mode = OPEN_MODE) {
   const url = String(target)
   if (openRoute(mode, shellWindowHost(), internalTabsHost()) === 'internal') {
     const instance = instanceList().find((proc) => proc.url && new URL(proc.url).origin === new URL(url).origin)
-    const tab = instance ? internalTabTarget(instance) : { id: new URL(url).origin, title: 'DSH', url, status: 'running', managed: false }
+    const tab = instance ? internalTabTarget(instance, launchNameOf(instance)) : { id: new URL(url).origin, title: 'DSH', url, status: 'running', managed: false }
     // 认证地址只在本机管道中传递；标题和实例身份都不包含 token，也不写入日志或设置。
     process.stdout.write(`__DSH_TAB__ ${JSON.stringify(tab)}\n`)
     return
@@ -4620,6 +4628,7 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/tray') {
     // 保留旧外壳的标量字段；新外壳按命名启动项操作，不再把单项停止变成停止全部。
     const running = primaryInstance()
+    const launches = trayLaunches()
     send(res, 200, [
       `status=${running?.status || 'stopped'}`,
       `url=${running?.url || ''}`,
@@ -4631,8 +4640,8 @@ async function handleApi(req, res, url) {
       `shell=${shellWindowHost() ? 1 : 0}`,
       `theme=${THEME}`,
       // 原生标签页要跟随所有实例，不能用「最近启动的实例」去覆盖用户正在看的其他页面。
-      `instances=${JSON.stringify(instanceList().map(internalTabTarget))}`,
-      `launches=${JSON.stringify(trayLaunches().map(({ id, instanceId, name, version, profile, status, busy, installed, target }) => ({ id, instanceId, name, version, profile, status, busy, installed, target })))}`,
+      `instances=${JSON.stringify(instanceList().map((proc) => internalTabTarget(proc, launches.find((row) => row.proc === proc)?.name)))}`,
+      `launches=${JSON.stringify(launches.map(({ id, instanceId, name, version, profile, status, busy, installed, target }) => ({ id, instanceId, name, version, profile, status, busy, installed, target })))}`,
     ].join('\n'), 'text/plain; charset=utf-8')
     return
   }
