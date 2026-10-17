@@ -6,10 +6,13 @@
  * - newlineCount 用 `for...of` 逐码点遍历整段文本数换行 —— 慢 56 倍；
  * - identitySectionMap 用 Array.from + join 逐项拼 sourcemap 的 mappings —— 慢 273 倍。
  *
- * 安全性：只在**原实现与已知的慢实现完全一致**时才替换（逐字符校验过），
- * dsh 升级导致代码变化时自动跳过（no-op），不会把语义改错。
+ * 字符串加速只匹配已知实现；另在已知 runProfile 入口包一层启动缓存生命周期，
+ * 成功或失败后立即清空。上游改写目标片段时自动跳过。
  */
+import { patchProfileBoot } from './startup-resolver.mjs'
+
 const TARGET = 'dsh-client-modules/lib/index.js'
+const PROFILE_BOOT = /\/dsh\/lib\/profile-boot(?:-[^/]+)?\.js(?:\?.*)?$/
 
 /** 已知的慢实现（用于校验，必须精确匹配才动手）。 */
 const SLOW_NEWLINE = 'function newlineCount(value) {\n\tlet count = 0;\n\tfor (const char of value) if (char === "\\n") count += 1;\n\treturn count;\n}'
@@ -20,10 +23,15 @@ const FAST_MAPPINGS = 'const _lines = newlineCount(source); const mappings = _li
 
 export function load(url, context, nextLoad) {
   const result = nextLoad(url, context)
-  if (!url.includes(TARGET)) return result
+  const profileBoot = PROFILE_BOOT.test(url)
+  if (!profileBoot && !url.includes(TARGET)) return result
   if (result.format !== 'module' || result.source === undefined) return result
 
   let source = Buffer.isBuffer(result.source) ? result.source.toString('utf8') : String(result.source)
+  if (profileBoot) {
+    const patched = patchProfileBoot(source)
+    return patched === source ? result : { ...result, source: patched }
+  }
   const applied = []
 
   // 逐字符校验后才替换：只有长得和实测过的慢实现一模一样才动手

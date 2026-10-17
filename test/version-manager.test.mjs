@@ -11,7 +11,8 @@ function installer(overrides = {}) {
   const calls = [], notices = []
   const context = vm.createContext({
     action: '', state: { installing: null }, picked: '0.1.0', versionValue: '0.1.0', launchProfile: 'safe', userPicked: true,
-    installedList: () => ['0.1.0'], render() {},
+    installedList: () => ['0.1.0'], render() {}, runningInfo: () => null, isManagedVersion: () => true,
+    t: text => text,
     post: async (path, body) => { calls.push({ path, version: body.version }) },
     getJson: async (path) => { calls.push({ path }); return { installed: ['0.1.0', '0.2.0'] } },
     applyState: (data) => { context.receivedState = data },
@@ -53,6 +54,24 @@ test('安装失败保留具体错误并解除操作锁', async () => {
   assert.equal(context.action, '')
 })
 
+test('手动优化只整理所选版本，不改变启动项选择，成功和失败均释放操作状态', async () => {
+  const { context, calls, notices } = installer()
+  await context.optimizeVersion('0.1.0')
+  assert.deepEqual(calls, [{ path: '/api/versions/optimize', version: '0.1.0' }, { path: '/api/state' }])
+  assert.equal(context.picked, '0.1.0')
+  assert.equal(context.launchProfile, 'safe')
+  assert.equal(context.action, '')
+  assert.deepEqual(notices, ['依赖优化完成'])
+  context.post = async () => { throw new Error('离线缓存缺失') }
+  await context.optimizeVersion('0.1.0')
+  assert.equal(context.action, '')
+  assert.equal(notices.at(-1), '离线缓存缺失')
+  context.runningInfo = () => ({ status: 'running' })
+  const count = notices.length
+  await context.optimizeVersion('0.1.0')
+  assert.equal(notices.length, count)
+})
+
 test('运行中或停止中的任一实例都会锁住对应版本的卸载，安装列表排除已装版本', () => {
   const elements = new Map()
   const element = (id) => {
@@ -72,6 +91,8 @@ test('运行中或停止中的任一实例都会锁住对应版本的卸载，�
   context.paintVersionManager()
   assert.match(element('versionManageList').innerHTML, /data-remove-version="0\.2\.0"[^>]*disabled/)
   assert.match(element('versionManageList').innerHTML, /data-remove-version="0\.1\.0"[^>]*disabled/)
+  assert.match(element('versionManageList').innerHTML, /data-optimize-version="0\.2\.0"[^>]*disabled/)
+  assert.match(element('versionManageList').innerHTML, /data-optimize-version="0\.1\.0"[^>]*disabled/)
   assert.match(element('select').innerHTML, /value="0\.3\.0"/)
   assert.doesNotMatch(element('select').innerHTML, /value="0\.[12]\.0"/)
   context.state.instances = []

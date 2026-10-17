@@ -1,8 +1,8 @@
 /**
  * 固定端口：在控制页给一个「版本 × profile」钉死端口，之后每次启动都落在它上面。
  *
- * 默认每个实例都由系统现挑端口（`--port 0`），代价是链接每次启动都变——书签、手机上
- * 存的地址留不住。钉住之后：启动参数里带的是那个端口、链接不变、重启还在原地；钉重了 /
+ * 自动端口首次由系统挑选后记住，重启优先复用，保留浏览器权限和站点数据。
+ * 手工钉住之后：启动参数里带的是那个端口、链接不变、重启还在原地；钉重了 /
  * 钉到管理页的端口上 / 钉给不起 web 的 profile 都要当场拒绝；端口被别的程序占着时，
  * 启动失败的原因要说得清是哪个端口（这正是这个功能最可能出的岔子）。
  *
@@ -54,10 +54,10 @@ function freePort() {
 }
 
 /** 占住一个端口当「别的程序」，返回它的端口和放手的方法。 */
-function holdPort() {
+function holdPort(port = 0) {
   return new Promise((resolve) => {
     const held = createServer()
-    held.listen(0, '127.0.0.1', () => {
+    held.listen(port, '127.0.0.1', () => {
       resolve({ port: held.address().port, release: () => new Promise((done) => held.close(done)) })
     })
   })
@@ -111,7 +111,7 @@ writeFileSync(join(APP, 'settings.json'), JSON.stringify({
 
 const { startServer, stopAll } = await import('../server.js')
 const { safeInstancePorts, safeLaunchPresets } = await import('../settings.js')
-const base = await startServer()
+let base = await startServer()
 
 async function api(path, body) {
   const response = await fetch(`${base}${path}`, body === undefined
@@ -247,11 +247,53 @@ test('钉了端口：启动参数里带它，链接也落在它上面', async ()
   await pin(A, '')
 })
 
-test('没钉的组合还是每次由系统挑（--port 0）', async () => {
+test('自动端口首次由系统挑，重启实例与管理器后复用，不混入手工端口', async () => {
   const { url } = await api('/api/start', { version: A, profile: 'web' })
   assert.ok(launchedWithPort(0), '没钉就是 --port 0')
   assert.ok(!(await state()).instancePorts[`${A}@web`], '表里不该凭空多一条')
   assert.ok(portOf(url) > 0)
+  await api('/api/stop', {})
+  // UI 和托盘每次启动都会重申 port: 0，不能因此删除自动端口记录。
+  await pin(A, 0)
+  const restarted = await api('/api/start', { version: A, profile: 'web' })
+  assert.equal(new URL(restarted.url).origin, new URL(url).origin)
+  const stored = JSON.parse(readFileSync(join(APP, 'settings.json'), 'utf8'))
+  assert.equal(stored.autoPorts[HOME][`${A}@web`], portOf(url))
+  await api('/api/stop', {})
+  await stopAll()
+  base = await startServer()
+  const afterManager = await api('/api/start', { version: A, profile: 'web' })
+  assert.equal(new URL(afterManager.url).origin, new URL(url).origin)
+  const last = launches().at(-1)
+  assert.equal(last[last.indexOf('--port') + 1], String(portOf(url)))
+  await api('/api/stop', {})
+})
+
+test('自动端口被占用时重新分配，下一次记住新端口', async () => {
+  const stored = JSON.parse(readFileSync(join(APP, 'settings.json'), 'utf8'))
+  const previous = stored.autoPorts[HOME][`${A}@web`]
+  const held = await holdPort(previous)
+  try {
+    const first = await api('/api/start', { version: A, profile: 'web' })
+    assert.notEqual(portOf(first.url), previous)
+    await api('/api/stop', {})
+    const next = await api('/api/start', { version: A, profile: 'web' })
+    assert.equal(portOf(next.url), portOf(first.url))
+    assert.ok(!(await state()).instancePorts[`${A}@web`])
+  } finally {
+    await api('/api/stop', {})
+    await held.release()
+  }
+})
+
+test('手工固定端口优先，切回自动后保留原自动端口', async () => {
+  const previous = JSON.parse(readFileSync(join(APP, 'settings.json'), 'utf8')).autoPorts[HOME][`${A}@web`]
+  const fixed = await freePort()
+  await pin(A, fixed)
+  assert.equal(portOf((await api('/api/start', { version: A, profile: 'web' })).url), fixed)
+  await api('/api/stop', {})
+  await pin(A, 0)
+  assert.equal(portOf((await api('/api/start', { version: A, profile: 'web' })).url), previous)
   await api('/api/stop', {})
 })
 
@@ -381,7 +423,7 @@ test('控制页有端口输入框，文案有英文', () => {
     '端口',
     '端口被占用',
     '端口 {port} 现在被别的程序占着：这次启动会失败，先让出它或换一个。',
-    '留空自动分配端口。固定端口在下次启动时生效。',
+    '留空自动分配并记住端口，被占用时重新分配。固定端口在下次启动时生效。',
   ]) {
     assert.ok(dict[text], `「${text}」缺英文`)
   }

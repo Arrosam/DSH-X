@@ -3,14 +3,16 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
+import { createInterface } from 'node:readline'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { accessSync, appendFileSync, chmodSync, closeSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { accessSync, chmodSync, closeSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
-import { cmpVer, currentRegistry, describeNpmFailure, installSpec, listPackage, parsePnpmProgress, parseVer } from './registry.js'
+import { cmpVer, currentRegistry, describeNpmFailure, installSpec, listPackage, optimizeDependencies, parsePnpmProgress, parseVer } from './registry.js'
 import pkg from './package.json' with { type: 'json' }
+import { createLogWriter } from './log-writer.js'
 import {
   disableRowId,
   listPlugins,
@@ -205,6 +207,10 @@ const LOG_DIR = APP_DIR
 const LOG_FILE = join(LOG_DIR, 'manager.log')
 const LOG_MAX_BYTES = 5 * 1024 * 1024
 const NOISY_LOG_RE = /^(?:已安装 \d+\/\d+|已解析 \d+)/
+const logWriter = createLogWriter(LOG_FILE, { maxBytes: LOG_MAX_BYTES })
+process.on('exit', () => logWriter.flush())
+let pendingLogEvents = []
+let logEventTimer = null
 
 const clients = new Set()
 let host = {
@@ -214,8 +220,8 @@ const logs = []
 /**
  * 正在跑的 dsh 实例，一个「版本 × profile」组合一个（多开）。
  *
- * 端口不用抢：启动器给会起 web 的 profile 传 `--port 0`，由系统各挑一个，从 dsh 自己
- * 打印的地址里读回来。数据是共享的——同一个 DSH_HOME，多开的实例看见同一批会话与记忆；
+ * 自动端口首次交给系统挑，之后复用实际就绪地址的端口，保留浏览器权限与站点数据。
+ * 数据是共享的——同一个 DSH_HOME，多开的实例看见同一批会话与记忆；
  * 插件树按 profile 各是各的。同一个组合再点一次启动只会拿回已经在跑的那个。
  */
 const instances = new Map()
@@ -233,6 +239,7 @@ function instanceKey(version, profile) {
   return `${homeDir()}\0${version}@${profile}`
 }
 let installing = null
+let optimizingVersion = null
 let installProgress = null
 // 插件安装/升级的进度（走 dsh 内部的 pnpm，解析方式和 npm 不同，页面按 kind 分给不同的进度条）
 let pluginProgress = null
@@ -509,17 +516,16 @@ async function saveConfig(config) {
 /** 把重要日志追加到 manager.log（进度类噪音行丢弃，超过 5MB 轮转一次）。 */
 function persistLog(text) {
   if (NOISY_LOG_RE.test(text)) return
-  try {
-    if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true })
-    if (existsSync(LOG_FILE) && statSync(LOG_FILE).size > LOG_MAX_BYTES) renameSync(LOG_FILE, `${LOG_FILE}.1`)
-  } catch {
-    // 目录/轮转问题不阻塞启动流程
-  }
-  try {
-    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${text}\n`)
-  } catch {
-    // 落盘失败不阻塞
-  }
+  logWriter.append(`[${new Date().toISOString()}] ${text}\n`)
+}
+
+function flushLogEvents() {
+  if (logEventTimer !== null) clearTimeout(logEventTimer)
+  logEventTimer = null
+  if (!pendingLogEvents.length) return
+  const lines = pendingLogEvents
+  pendingLogEvents = []
+  emit('log', { lines })
 }
 
 function pushLog(line) {
@@ -528,7 +534,15 @@ function pushLog(line) {
   logs.push(text)
   if (logs.length > 400) logs.splice(0, logs.length - 400)
   persistLog(text)
-  emit('log', { line: text })
+  // 页面本来就支持 lines；合并 SSE 消息，减少安装/启动日志风暴里的序列化与浏览器回调。
+  if (clients.size) {
+    pendingLogEvents.push(text)
+    if (pendingLogEvents.length >= 100) flushLogEvents()
+    else if (logEventTimer === null) {
+      logEventTimer = setTimeout(flushLogEvents, 40)
+      logEventTimer.unref()
+    }
+  }
 }
 
 function emit(event, data) {
@@ -1153,7 +1167,7 @@ function launchNameOf(instance) {
   return trayLaunches().find((row) => row.proc === instance)?.name || ''
 }
 
-async function trayAction(body) {
+async function trayAction(body, startup = {}) {
   const row = trayLaunches().find((item) => item.id === body.id)
   if (!row) throw new Error('启动项已不存在，请重新打开托盘菜单')
   const action = body.action
@@ -1171,7 +1185,7 @@ async function trayAction(body) {
   if (action !== 'stop' && !row.installed) throw new Error('请先在启动器中安装此版本')
   trayActions.set(row.key, { id: row.id, name: row.name, home: row.home, version: row.version, profile: row.profile, status: action === 'stop' ? 'stopping' : 'starting' })
   try {
-    return await launchScope.run({ home: row.home, launchId: row.preset?.id }, async () => {
+    return await launchScope.run({ ...startup, home: row.home, launchId: row.preset?.id }, async () => {
       if (action === 'stop' || action === 'restart') await stop(row.version, row.profile, row.home)
       if (action !== 'stop') {
         if (row.preset) {
@@ -1185,6 +1199,36 @@ async function trayAction(body) {
   } finally {
     trayActions.delete(row.key)
   }
+}
+
+let startupGeneration = 0
+
+function assertStartupActive() {
+  const generation = launchScope.getStore()?.startupGeneration
+  if (generation !== undefined && generation !== startupGeneration) {
+    const error = new Error('启动器已退出，取消自动启动')
+    error.code = 'STARTUP_CANCELLED'
+    throw error
+  }
+}
+
+/** 只启动明确勾选且已安装的入口；不等内核就绪，管理页与原生窗口可以继续加载。 */
+async function launchStartupPresets(presets) {
+  if (!safeLaunchPresets(presets).some((entry) => entry.autoLaunch)) return
+  const generation = startupGeneration
+  await Promise.all(trayLaunches().filter((row) => row.preset?.autoLaunch).map(async (row) => {
+    if (row.proc || row.busy) return
+    if (!row.installed) {
+      pushLog(`自动启动「${row.name}」已跳过：请先安装${row.version ? ` ${row.version}` : '内核'}`)
+      return
+    }
+    try {
+      pushLog(`自动启动「${row.name}」`)
+      await trayAction({ id: row.id, action: 'start', instanceId: row.key }, { startupGeneration: generation })
+    } catch (error) {
+      if (error?.code !== 'STARTUP_CANCELLED') pushLog(`自动启动「${row.name}」失败：${error instanceof Error ? error.message : error}`)
+    }
+  }))
 }
 
 // 运行时也能编辑快捷入口；保存与启动历史共用一条写队列，防止并发读改写覆盖彼此。
@@ -1253,6 +1297,7 @@ async function saveLaunchPresetNow(body) {
   const icon = safeLaunchIcon(body.icon)
   const previous = index >= 0 ? presets[index] : null
   const entry = { id, name, version, profile, port,
+    ...((body.autoLaunch === undefined ? previous?.autoLaunch : body.autoLaunch === true) ? { autoLaunch: true } : {}),
     // 用过的版本记录跟着启动项走，编辑参数不该抹掉回退历史。
     ...(previous?.usedVersion ? { usedVersion: previous.usedVersion } : {}),
     ...(previous?.prevVersion ? { prevVersion: previous.prevVersion } : {}),
@@ -1734,7 +1779,8 @@ export function withBundledRuntime(pathValue, preferredPnpm = '') {
   const bundled = join(ROOT, 'node')
   // 源码运行也得把正在用的 node 交给 pnpm 的 shim；桌面应用启动时 PATH 可能没有 node。
   const dir = existsSync(join(bundled, NODE_BINARY)) ? bundled : dirname(process.execPath)
-  const parts = [...String(pathValue).split(delimiter).filter(Boolean), ...pnpmCandidates(pathValue)]
+  // 原 PATH 已经完整保留，只补固定位置；再筛整条 PATH 会重复探测每个目录的 pnpm 后缀。
+  const parts = [...String(pathValue).split(delimiter).filter(Boolean), ...pnpmCandidates('')]
   return orderRuntimePaths(parts, dir, preferredPnpm).join(delimiter)
 }
 
@@ -1967,7 +2013,7 @@ function profileBootsWebIn(home, name) {
  * dsh 启动参数。`alongside` = 已经有一个实例在跑（多开），局域网下要另给端口。
  * @param {string} profile 这次启动用的 profile（多开下同一版本可以各用各的）
  * @param {boolean} alongside
- * @param {number} pinned 手工钉死的端口（0 = 没钉，由系统挑）
+ * @param {number} pinned 手工固定或自动记忆的端口（0 = 首次，由系统挑）
  */
 function bootArgs(profile = PROFILE_NAME, alongside = false, pinned = 0) {
   // 不起 web 的 profile（headless / acp / sdk…）不提供 HTTP 服务，也不认这几个 flag：
@@ -1984,17 +2030,58 @@ function bootArgs(profile = PROFILE_NAME, alongside = false, pinned = 0) {
     if (!pinned && !alongside) return [profile, '--no-open', ...EXTRA_ARGS]
     return [profile, '--port', port, '--no-open', ...EXTRA_ARGS]
   }
-  // 默认姿势：钉死回环 + 端口（没钉就 --port 0，让 OS 现挑一个；dsh 会把真实地址
+  // 默认姿势：钉死回环 + 端口（首次 --port 0，让 OS 现挑一个；dsh 会把真实地址
   // 打出来，启动器读它，所以顺延也不影响页面拿到链接）。
   // 额外参数放最后：用户可以用它覆盖 --port 之类（启动器是从 dsh 的输出里读真实地址的，
   // 所以换个端口也不影响管理页拿到的链接）
   return [profile, '--host', '127.0.0.1', '--port', port, '--no-open', ...EXTRA_ARGS]
 }
 
-/** 这个「版本 × profile」钉死的端口（0 = 没钉，由系统现挑）。 */
+/** 这个「版本 × profile」手工固定的端口（0 = 自动分配并记忆）。 */
 function pinnedPort(version, profile) {
   const ports = homeDir() === defaultHome() ? INSTANCE_PORTS : ENVIRONMENT_PORTS[homeDir()]
   return ports?.[`${version}@${profile}`] || 0
+}
+
+/** 自动端口只接管默认回环模式；局域网配置和用户额外参数仍由用户决定。 */
+function remembersAutoPort(profile, pinned) {
+  return !pinned && bootsWebApp(profile)
+    && !lanBindActive(WEB_BIND, lanBindToggleOn(homeDir(), profile))
+    && !EXTRA_ARGS.some((arg) => /^--(?:port|host)(?:=|$)/.test(arg))
+}
+
+const claimedAutoPorts = new Set()
+async function rememberedPort(version, profile) {
+  const stored = await loadSettings()
+  const port = safeEnvironmentPorts(stored.autoPorts)[homeDir()]?.[`${version}@${profile}`] || 0
+  if (!port) return 0
+  // 自动端口不能抢手工指定给其他实例的端口；真实监听也要检查（含别的程序）。
+  const reserved = [stored.instancePorts, ...Object.values(stored.environmentPorts || {})]
+    .some((ports) => Object.values(ports || {}).includes(port))
+    || safeLaunchPresets(stored.launchPresets).some((entry) => entry.port === port)
+  const busy = reserved || port === PORT || port === stored.port || instanceOnPort(port) || !(await portAvailable(port))
+  // 检查监听会让出执行权；不同目录的并发启动不能同时复用同一个历史端口。
+  if (busy || claimedAutoPorts.has(port)) {
+    pushLog(`自动端口 ${port} 已被占用或保留，将重新分配；浏览器可能需要重新授权`)
+    return 0
+  }
+  claimedAutoPorts.add(port)
+  return port
+}
+
+async function rememberAutoPort(version, profile, url) {
+  const port = urlPortOf(url)
+  if (!port) return
+  const home = homeDir(), key = `${version}@${profile}`
+  try {
+    // 不同目录可以同时启动，读改写必须在设置写队列里合并，不能覆盖另一项刚记下的端口。
+    await saveSettings((current) => {
+      const autoPorts = safeEnvironmentPorts(current.autoPorts)
+      return { autoPorts: { ...autoPorts, [home]: { ...autoPorts[home], [key]: port } } }
+    })
+  } catch (error) {
+    pushLog(`记忆自动端口失败：${error instanceof Error ? error.message : error}`)
+  }
 }
 
 /** 地址里的端口（认不出来就是 0：这种地址不该让调用方炸掉）。 */
@@ -2131,6 +2218,7 @@ export function dshArgs(version, extra = [], profile = '') {
 }
 
 function spawnDsh(version, extra, profile = '', options = {}) {
+  if (optimizingVersion === version) throw new Error('正在优化此版本的依赖，请稍后再试')
   const home = homeDir()
   // 先把 dsh 的命令行入口写出来（PATH 里要用到），再拼参数
   writeDshShims(version)
@@ -2465,6 +2553,7 @@ export function decodeProcessOutput(bytes, platform = process.platform) {
  * profile 与进度出口都能换：整合包安装也跑在目标 profile 上，进度分到整合包页。
  */
 async function runPluginCommand(ver, args, label, options = {}) {
+  if (optimizingVersion === ver) throw new Error('正在优化此版本的依赖，请稍后再试')
   const profile = options.profile || PROFILE_NAME
   const onProgress = options.onProgress || emitPluginProgress
   // 保留名（desktop）：CLI 会拒，改用同一份目录的别名（见 ensureProfileAlias）
@@ -2666,16 +2755,28 @@ const pluginUpdateCache = { at: 0, data: null, profile: '' }
 const PLUGIN_UPDATE_TTL = 60 * 1000
 const PLUGIN_UPDATE_CONCURRENCY = 4
 
-/** 插件命令与启动页自动选择一致：目标 Profile 的运行版本优先，其次已装的最高版本。 */
+/** 固定内核跟随目标启动项；只有 auto 或未绑定的 Profile 才按运行版本、最高已装版本选择。 */
 async function pluginCommandVersion(profile = PROFILE_NAME) {
-  // 配置顺序是安装顺序；装过旧版、或别的 Profile 在运行，都不应把这里切到旧版。
+  const config = await loadConfig()
+  const presets = safeLaunchPresets(loadSettingsSync().launchPresets)
+    .filter((entry) => entry.profile === profile && (entry.dshHome || defaultHome()) === homeDir())
+  const selected = presets.find((entry) => entry.id === launchScope.getStore()?.launchId)
+  const available = (version) => {
+    if (!version) throw new Error('没有可用的 dsh 版本，插件页暂时用不了')
+    // 固定版本缺失时不能偷偷换内核，否则兼容检查和实际启动检查的就不是同一套组件。
+    if (!existsSync(binPath(version))) throw new Error(`DSH ${version} 未安装，请先在版本管理中安装，或修改启动项的内核版本`)
+    return version
+  }
+  if (selected) return available(resolvePresetVersion(selected, homeDir(), config))
+
+  // 设置页只有目录与 Profile，没有启动项 ID；仍优先沿用正在运行的环境。
   const live = liveInstanceList().filter((proc) => proc.profile === profile && proc.home === homeDir())
     .sort((a, b) => cmpVer(parseVer(b.version), parseVer(a.version)))[0]
-  if (live?.version) return live.version
-  const versions = listedVersions(await loadConfig()).filter((ver) => existsSync(binPath(ver)))
-    .sort((a, b) => cmpVer(parseVer(b), parseVer(a)))
-  if (!versions.length) throw new Error('没有可用的 dsh 版本，插件页暂时用不了')
-  return versions[0]
+  if (live?.version) return available(live.version)
+  const versions = [...new Set(presets.map((entry) => resolvePresetVersion(entry, homeDir(), config)))]
+  // 同一个目录/Profile 可以绑定多个内核，不能靠启动项排列顺序猜用户要更新哪一套。
+  if (versions.length > 1) throw new Error(`profile「${profile}」对应多个内核版本，请从要使用的启动项进入插件管理后再更新`)
+  return available(versions[0] || resolvePresetVersion({ version: 'auto', profile }, homeDir(), config))
 }
 
 /**
@@ -3388,6 +3489,31 @@ async function install(version) {
   }
 }
 
+/** npm 整理时会移动文件，启动准备和插件命令也必须纳入互斥，不能只看已启动的进程。 */
+async function optimizeVersion(version) {
+  const ver = safeVersion(version)
+  if (installing || packInstalling || pluginBusy || startChains.size || startingProfiles.size) throw new Error('正在安装或启动，请稍后再优化依赖')
+  if (instanceList().some(proc => proc.version === ver)) throw new Error('请先停止此版本的所有实例再优化依赖')
+  if (!isManaged(ver) || !existsSync(binPath(ver))) throw new Error('只能优化启动器管理的已安装版本')
+  // 在第一次 await 前占住操作，避免其他窗口同时启动、卸载或切换版本目录。
+  installing = optimizingVersion = ver
+  installProgress = { phase: 'optimize' }
+  try {
+    await emitState()
+    emit('progress', installProgress)
+    pushLog(`优化 ${ver} 的重复依赖`)
+    await optimizeDependencies(versionDir(ver), line => { if (line) pushLog(line) })
+    if (!existsSync(binPath(ver))) throw new Error('整理后找不到官方入口 lib/bin.js')
+    pushLog(`${ver} 依赖优化完成`)
+    return { ok: true }
+  } finally {
+    installing = optimizingVersion = null
+    installProgress = null
+    emit('progress', { phase: 'idle' })
+    await emitState()
+  }
+}
+
 function killTree(pid) {
   if (!pid) return
   if (process.platform === 'win32') {
@@ -3406,6 +3532,7 @@ function killTree(pid) {
 
 function attachProcess(version, profile, child) {
   const key = instanceKey(version, profile)
+  let ready
   const proc = {
     key,
     version,
@@ -3417,30 +3544,31 @@ function attachProcess(version, profile, child) {
     tail: [],
     exit: null,
     startedAt: Date.now(),
+    ready: new Promise((resolve) => { ready = resolve }),
   }
   instances.set(key, proc)
   // 一个组合一个实例，日志里要能看出是哪一行是哪台在说话（多开时尤其）
   const tag = `[${version}/${profile}] `
-  const onChunk = (buf) => {
-    const text = buf.toString('utf8')
-    for (const line of text.split(/\r?\n/)) {
-      if (line.trim()) {
-        proc.tail.push(line)
-        if (proc.tail.length > 200) proc.tail.shift()
-      }
-      pushLog(`${tag}${line}`)
-      const match = line.match(READY_RE)
-      if (match && proc.status === 'starting') {
-        proc.url = match[1]
-        proc.status = 'running'
-        emitState()
-      }
+  const onLine = (line) => {
+    if (line.trim()) {
+      proc.tail.push(line)
+      if (proc.tail.length > 200) proc.tail.shift()
+    }
+    pushLog(`${tag}${line}`)
+    const match = line.match(READY_RE)
+    if (match && proc.status === 'starting') {
+      proc.url = match[1]
+      proc.status = 'running'
+      proc.readyAt = performance.now()
+      ready()
+      emitState()
     }
   }
-  child.stdout.on('data', onChunk)
-  child.stderr.on('data', onChunk)
+  // 管道的 chunk 没有行/UTF-8 边界；逐块 split 会截断中文、错误码，甚至整个就绪 URL。
+  for (const input of [child.stdout, child.stderr]) createInterface({ input, crlfDelay: Infinity }).on('line', onLine)
   child.on('exit', (code, signal) => {
     proc.exit = { code, signal }
+    ready()
     pushLog(`${tag}已退出 code=${code ?? '-'} signal=${signal ?? '-'}`)
     if (instances.get(key)?.child === child) {
       instances.delete(key)
@@ -3452,17 +3580,21 @@ function attachProcess(version, profile, child) {
 }
 
 async function waitUntilReady(proc, version) {
-  const started = Date.now()
   const label = `${version}/${proc.profile}`
-  while (proc.status === 'starting') {
+  if (proc.status === 'starting') {
     if (instances.get(proc.key) !== proc) throw new Error(`${label} 启动失败`)
-    if (Date.now() - started > START_TIMEOUT_MS) {
-      killTree(proc.child.pid)
-      throw new Error(`${label} 启动超时`)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200))
+    let timer
+    try {
+      // 已经有 stdout 就绪事件，无需再为每次启动额外等一轮 200ms 轮询。
+      await Promise.race([proc.ready, new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          killTree(proc.child.pid)
+          reject(new Error(`${label} 启动超时`))
+        }, START_TIMEOUT_MS)
+      })])
+    } finally { clearTimeout(timer) }
   }
-  if (!proc.url) throw new Error(`${version} 启动失败`)
+  if (!proc.url) throw new Error(`${label} 启动失败`)
   return { url: proc.url }
 }
 
@@ -3548,23 +3680,34 @@ async function selfCheckPage(url, version) {
 
 /** 起一个 web 子进程并等到它打印就绪 URL；失败时把子进程输出尾巴留给 AI 当证据。 */
 async function bootOnce(ver, prof) {
+  const startedAt = performance.now()
   await mkdir(homeDir(), { recursive: true })
   // 预装 dshmarket 只对当前 profile 做：起别的 profile——safe、整合包
   // 环境、别人故意留空的——不该被偷偷塞进一堆包
   if (prof === PROFILE_NAME) await seedMarket(ver)
   const alongside = instances.size > 0
   const pinned = pinnedPort(ver, prof)
+  const automatic = remembersAutoPort(prof, pinned)
+  const reused = automatic ? await rememberedPort(ver, prof) : 0
   if (pinned && !(await portAvailable(pinned))) {
     // 只说问题、不拦着：占着它的可能是用户马上要关掉的东西，也可能只是 Windows 的
     // TIME_WAIT。真起不来时下面那条 catch 会把话说清楚。
     pushLog(`固定端口 ${pinned} 现在被占用，这次启动多半会失败`)
   }
   pushLog(`启动 ${ver} · profile ${prof}${lanBindActive(WEB_BIND, lanBindToggleOn(homeDir(), prof)) ? ' · Web 绑定 局域网(0.0.0.0，由配置层决定)' : ''}${pinned ? ` · 固定端口 ${pinned}` : ''}${alongside ? '（与已在跑的实例并存）' : ''}`)
-  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned), prof)
+  if (reused) pushLog(`复用自动端口：${ver}@${prof} → ${reused}`)
+  assertStartupActive()
+  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned || reused), prof)
+  const spawnAt = performance.now()
   const proc = attachProcess(ver, prof, child)
   await emitState()
   try {
     const result = await waitUntilReady(proc, ver)
+    if (automatic) await rememberAutoPort(ver, prof, result.url)
+    // 分清启动器准备、子进程输出就绪地址、管理器确认三段，避免把地址可用误当成会话首屏。
+    const readyAt = proc.readyAt || performance.now()
+    const confirmedAt = performance.now()
+    pushLog(`启动耗时 ${ver}/${prof}：准备 ${Math.round(spawnAt - startedAt)}ms，子进程就绪地址 ${Math.round(readyAt - spawnAt)}ms，确认 ${Math.round(confirmedAt - readyAt)}ms，总计 ${Math.round(confirmedAt - startedAt)}ms`)
     // 钉了端口却没落到上面（额外参数里另有 --port，或 dsh 自己顺延了）：如实说一句，
     // 否则用户以为存下来的地址还有效
     if (pinned && urlPortOf(result.url) !== pinned) {
@@ -3599,6 +3742,8 @@ async function bootOnce(ver, prof) {
       // 非 Error 对象就算了
     }
     throw error
+  } finally {
+    claimedAutoPorts.delete(reused)
   }
 }
 
@@ -3736,6 +3881,8 @@ async function startWithRepair(version, profile = PROFILE_NAME) {
     try {
       return await startNow(version, profile)
     } catch (error) {
+      assertStartupActive()
+      if (error?.code === 'STARTUP_CANCELLED') throw error
       lastError = error
       pushLog(`启动失败：${error instanceof Error ? error.message : error}`)
       if (autoDisabled.size < MAX_AUTO_DISABLE && await autoDisableFailedPlugins(error, autoDisabled, profile)) {
@@ -3773,6 +3920,8 @@ async function start(version, profile) {
   const key = profileKey(name)
   const previous = startChains.get(key) || Promise.resolve()
   const run = previous.then(async () => {
+    assertStartupActive()
+    if (optimizingVersion === version) throw new Error('正在优化此版本的依赖，请稍后再启动')
     if (packInstalling) throw new Error('正在安装整合包，结束后再启动 DSH')
     if (maintainingProfiles.has(key)) throw new Error(`profile「${name}」正在修改，稍后再启动`)
     startingProfiles.add(key)
@@ -3962,6 +4111,7 @@ async function renameProfile(profile, nextName) {
           launchPresets: safeLaunchPresets(current.launchPresets).map((entry) => entry.profile === from && sameHome(entry.dshHome || defaultHome()) ? { ...entry, profile: name } : entry),
           ...(sameHome(defaultHome()) ? { profile: current.profile === from ? name : current.profile, instancePorts: ports(current.instancePorts) } : {}),
           environmentPorts: Object.fromEntries(Object.entries(safeEnvironmentPorts(current.environmentPorts)).map(([dir, value]) => [dir, sameHome(dir) ? ports(value) : value])),
+          autoPorts: Object.fromEntries(Object.entries(safeEnvironmentPorts(current.autoPorts)).map(([dir, value]) => [dir, sameHome(dir) ? ports(value) : value])),
         }))
         INSTANCE_PORTS = safeInstancePorts(saved.instancePorts)
         ENVIRONMENT_PORTS = safeEnvironmentPorts(saved.environmentPorts)
@@ -4499,6 +4649,7 @@ async function uninstallSystem(ver) {
 
 async function uninstall(version) {
   const ver = safeVersion(version)
+  if (optimizingVersion === ver) throw new Error('正在优化此版本的依赖，请稍后再移除')
   // 这个版本可能有多个 profile 的实例在跑，任何一个在都不能卸
   if (instanceList().some((proc) => proc.version === ver)) throw new Error('请先停止再移除')
   const config = await loadConfig()
@@ -4591,6 +4742,7 @@ function send(res, status, body, type = 'application/json; charset=utf-8', heade
 }
 
 async function exportLogs() {
+  logWriter.flush()
   const chunks = []
   for (const path of [`${LOG_FILE}.1`, LOG_FILE]) {
     try {
@@ -4733,6 +4885,8 @@ async function handleApi(req, res, url) {
       'x-accel-buffering': 'no',
     })
     if (typeof res.flushHeaders === 'function') res.flushHeaders()
+    // 先把旧批次交给既有连接，避免新连接先收回放、随后又收到同一批待发送日志。
+    flushLogEvents()
     res.write(`event: log\ndata: ${JSON.stringify({ lines: logs.slice(-120) })}\n\n`)
     res.write(`event: state\ndata: ${JSON.stringify(await snapshot())}\n\n`)
     if (installProgress) res.write(`event: progress\ndata: ${JSON.stringify(installProgress)}\n\n`)
@@ -4786,6 +4940,10 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/install') {
     await install(body.version)
     send(res, 200, { ok: true })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/versions/optimize') {
+    send(res, 200, await optimizeVersion(body.version))
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/start') {
@@ -5694,14 +5852,19 @@ export async function startServer() {
     console.log(`dsh-versions: http://127.0.0.1:${PORT}`)
     console.log(`dsh-versions data: ${DATA}`)
     console.log(`dsh-versions home: ${homeDir()}`)
+    void launchStartupPresets(stored.launchPresets).catch((error) => pushLog(`读取自动启动项失败：${error instanceof Error ? error.message : error}`))
     return `http://127.0.0.1:${PORT}`
   }
   throw lastError ?? new Error('没有可用端口')
 }
 
 export async function stopAll() {
+  // 退出可能发生在端口探测或设置落盘期间；禁止尚未 spawn 的后台启动在收尾后复活。
+  startupGeneration++
   for (const proc of instanceList()) killTree(proc.child.pid)
   instances.clear()
+  logWriter.flush()
+  flushLogEvents()
   for (const res of clients) {
     try { res.end() } catch { /* already gone */ }
   }

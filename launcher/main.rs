@@ -40,6 +40,7 @@ use wry::{WebContext, WebView, WebViewBuilder};
 mod tray;
 use tray::{LaunchEntry, LaunchMenus};
 mod tabs;
+mod permissions;
 use tabs::{BrowserTabs, TabAction, TabTarget};
 
 #[cfg(windows)]
@@ -522,6 +523,7 @@ fn create_dsh_window(
         })
         .build(&window)
         .ok()?;
+    permissions::install(&webview, &window);
 
     Some(DshWindow {
         window,
@@ -1334,6 +1336,8 @@ fn main() {
 
     // webview 与 context 都是本帧的局部变量，run 不返回，所以它们的生命周期覆盖整个窗口期
     event_loop.run(move |event, event_loop, control_flow| {
+        // WebView2 的回调必须先退栈；媒体授权在事件循环里用原生窗口询问。
+        permissions::poll(&state.lang);
         #[cfg(target_os = "macos")]
         let _ = &app_menu;
         // Windows：左键点托盘＝打开启动器界面（菜单已经改成只在右键弹）。macOS 的左键是出菜单。
