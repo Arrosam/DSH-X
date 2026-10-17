@@ -3172,7 +3172,8 @@
           } catch (error) { notify(error.message) }
         }
         if (wasLive) {
-          await startVersion(latest, targetProfile, null, target?.launchId)
+          // 跟点卡片启动一样带上启动项的固定端口：端口随版本挪到新版，不然更新后这次落在随机端口上。
+          await startVersion(latest, targetProfile, entry ? entry.port : null, target?.launchId)
           return
         }
         action = ''

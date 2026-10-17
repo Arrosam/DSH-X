@@ -40,7 +40,7 @@ pub fn parse_open(line: &str) -> Option<TabTarget> {
 }
 
 #[derive(Debug)]
-pub enum TabAction { Select(String), SelectRequested(String, u64), Reorder(Vec<String>, u64), Close(String), Reload, Next, CloseActive, Layout(f64), Present(u64) }
+pub enum TabAction { Select(String), SelectRequested(String, u64), Reorder(Vec<String>, u64), Close(String), Reload, Next, CloseActive, Layout(f64), Present(u64), Overlay(bool) }
 
 pub fn parse_action(body: &str) -> Option<TabAction> {
     let value: Value = serde_json::from_str(body).ok()?;
@@ -60,6 +60,7 @@ pub fn parse_action(body: &str) -> Option<TabAction> {
         "close-active" => Some(TabAction::CloseActive),
         "layout" => value.get("height")?.as_f64().filter(|height| (36.0..=256.0).contains(height)).map(TabAction::Layout),
         "present" => Some(TabAction::Present(value.get("serial")?.as_u64()?)),
+        "overlay" => Some(TabAction::Overlay(value.get("open")?.as_bool()?)),
         _ => None,
     }
 }
@@ -95,6 +96,8 @@ pub struct BrowserTabs {
     order_request: Option<u64>,
     // 关闭当前标签时先保留旧画面，替代页面显示后再释放原生视图。
     retired: Vec<Tab>,
+    // 管理页有弹窗开着：原生标签页总叠在管理页之上，弹窗画不过它，只能先把标签页收起来。
+    overlay: bool,
 }
 
 pub(super) fn bounds(window: &Window, top: f64, height: Option<f64>) -> Rect {
@@ -108,7 +111,7 @@ pub(super) fn bounds(window: &Window, top: f64, height: Option<f64>) -> Rect {
 impl BrowserTabs {
     pub fn new() -> Self {
         Self { tabs: vec![], selected: String::new(), enabled: false, lang: "zh".into(), theme: "system".into(), rendered: String::new(), header_height: HEADER_HEIGHT,
-            geometry: None, presentation: 0, rendered_selection: String::new(), selection_request: None, order_request: None, retired: vec![] }
+            geometry: None, presentation: 0, rendered_selection: String::new(), selection_request: None, order_request: None, retired: vec![], overlay: false }
     }
 
     pub fn preferences(&mut self, enabled: bool, lang: &str, theme: &str, window: &Window, manager: &WebView) {
@@ -155,7 +158,9 @@ impl BrowserTabs {
     fn present(&mut self, serial: u64, manager: &WebView) {
         // 快速连点产生的旧绘制回执不能把页面切回去。只响应最新一次选择。
         if serial != self.presentation { return; }
-        if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.target.id == self.selected) {
+        // 弹窗开着时按「选中管理页」呈现：露出完整弹窗，在任何标签下都能直接关掉；选中项不变，弹窗关了原样放回。
+        let shown = if self.overlay { String::new() } else { self.selected.clone() };
+        if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.target.id == shown) {
             if !tab.visible {
                 // 激活前恢复正常内存目标；后台只收缩浏览器缓存，不暂停脚本或断开连接。
                 set_memory_active(&tab.view, true);
@@ -166,7 +171,7 @@ impl BrowserTabs {
             }
         }
         for tab in self.tabs.iter_mut().chain(&mut self.retired) {
-            if tab.visible && tab.target.id != self.selected && tab.view.set_visible(false).is_ok() {
+            if tab.visible && tab.target.id != shown && tab.view.set_visible(false).is_ok() {
                 tab.visible = false;
                 if tab.page_loaded {
                     set_memory_active(&tab.view, false);
@@ -175,8 +180,8 @@ impl BrowserTabs {
             }
         }
         self.retired.clear();
-        if self.selected.is_empty() { let _ = manager.focus(); }
-        else { let _ = tab_focus(&self.tabs, &self.selected); }
+        if shown.is_empty() { let _ = manager.focus(); }
+        else { let _ = tab_focus(&self.tabs, &shown); }
     }
 
     pub fn open(&mut self, target: TabTarget, window: &Window, manager: &WebView, context: &mut WebContext, proxy: &EventLoopProxy<UserEvent>) -> wry::Result<()> {
@@ -267,6 +272,13 @@ impl BrowserTabs {
             }
             TabAction::Present(serial) => {
                 self.present(serial, manager);
+                return;
+            }
+            TabAction::Overlay(open) => {
+                if self.overlay == open { return; }
+                self.overlay = open;
+                // 换一个呈现序号，走同一条「管理页画完再回执」的路径切换可见性，不另开一套显示逻辑。
+                self.render(manager, true);
                 return;
             }
         }
@@ -371,6 +383,9 @@ mod tests {
         assert!(parse_action(r#"{"action":"select"}"#).is_none());
         assert!(matches!(parse_action(r#"{"action":"present","serial":3}"#), Some(TabAction::Present(3))));
         assert!(parse_action(r#"{"action":"present","serial":-1}"#).is_none());
+        assert!(matches!(parse_action(r#"{"action":"overlay","open":true}"#), Some(TabAction::Overlay(true))));
+        assert!(matches!(parse_action(r#"{"action":"overlay","open":false}"#), Some(TabAction::Overlay(false))));
+        assert!(parse_action(r#"{"action":"overlay"}"#).is_none());
         assert!(matches!(parse_action(r#"{"action":"select","id":"web","request":2}"#), Some(TabAction::SelectRequested(id, 2)) if id == "web"));
         assert!(parse_action(r#"{"action":"select","id":"web","request":-1}"#).is_none());
     }

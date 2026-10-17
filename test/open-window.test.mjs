@@ -85,4 +85,7 @@ test('内部标签按环境和版本识别，重启更换端口与认证 token �
   assert.notEqual(first.id, internalTabTarget({ ...instance, home: 'D:\\other-home' }).id)
   assert.notEqual(first.id, internalTabTarget({ ...instance, version: '2.0.0' }).id)
   assert.ok(!first.id.includes('token=') && !first.title.includes('token='))
+  assert.equal(internalTabTarget(instance, '工作').title, '工作', '属于启动项的实例用启动项名称做标题')
+  assert.equal(internalTabTarget(instance, '工作').id, first.id, '标题不参与标签身份')
+  assert.equal(first.title, 'web · 1.0.0', '没有启动项时退回 profile · 版本')
 })
