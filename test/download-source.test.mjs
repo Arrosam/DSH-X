@@ -47,7 +47,7 @@ test('registry.js 里不再有写死的源，缓存和 .npmrc 都跟着当前源
   assert.doesNotMatch(registry, /^export const REGISTRY =/m, '写死的 REGISTRY 常量应该没有了')
   assert.match(registry, /export function currentRegistry\(\)/)
   // 缓存按源分开：切源之后不能读到另一个源的旧结果
-  assert.match(registry, /const cacheKey = `\$\{registry\}\/\$\{name\}`/)
+  assert.match(registry, /const key = `\$\{base\}\/\$\{name\}`/)
   assert.match(registry, /registry=\$\{currentRegistry\(\)\}/, '安装目录的 .npmrc 每次现写当前源')
   assert.match(registry, /npm_config_registry: currentRegistry\(\)/, '下载时把源透给 npm')
 })

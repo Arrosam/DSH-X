@@ -30,4 +30,5 @@ tray-icon = "0.25.1"
 wry = "0.57.0"
 
 [target.'cfg(windows)'.dependencies]
+webview2-com = "0.39.1"
 windows-sys = { version = "0.60", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 
 import { copyAppFiles } from '../scripts/pack-common.mjs'
@@ -27,6 +28,10 @@ test('安装包会带上整合包配方，且不带上插件源码', async () =>
     assert.ok(existsSync(join(out, 'server.js')), '启动器源码在')
     assert.ok(existsSync(join(out, 'reserved-profile-boot.mjs')), '起 desktop profile 用的绕行入口在')
     assert.ok(existsSync(join(out, 'public', 'index.html')), '管理页在')
+    const hookResult = spawnSync(process.execPath, ['--import', pathToFileURL(join(out, 'perf', 'register.mjs')).href, '--eval', ''], {
+      cwd: out, encoding: 'utf8', windowsHide: true, timeout: 10_000,
+    })
+    assert.equal(hookResult.status, 0, hookResult.error?.message || hookResult.stderr)
     // 光看文件存在抓不住传递依赖遗漏：在复制后的目录解析整棵服务依赖树。
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', "await import('./server.js')"], {
       cwd: out,

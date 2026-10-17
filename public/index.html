@@ -574,6 +574,10 @@
             <input id="launchPort" type="number" min="1" max="65535" step="1" inputmode="numeric" />
           </div>
         </div>
+        <label class="toggle launch-auto-launch">
+          <span data-i18n="打开启动器时启动">打开启动器时启动</span>
+          <input id="launchAutoLaunch" type="checkbox" />
+        </label>
       </div>
       <div class="launch-tool-actions">
         <div class="launch-version-tools" id="launchVersionTools" hidden>
@@ -706,6 +710,10 @@
     // ---- 界面双语：字典按中文原文做 key，没翻到的原样显示中文（不会漏、不会崩） ----
     const LANG = '__APP_LANG__'
     const EN = {
+  "优化依赖": "Optimize dependencies",
+  "正在优化依赖…": "Optimizing dependencies…",
+  "依赖优化完成": "Dependencies optimized",
+  "整理重复依赖，减少内存和磁盘占用": "Deduplicate dependencies to reduce memory and disk usage",
   "只直连（不用镜像）": "Direct only (no mirror)",
   "国内加速（先直连，连不上走镜像）": "Accelerated (direct first, mirror on failure)",
   "仅从 GitHub 下载。": "Download from GitHub only.",
@@ -1255,6 +1263,7 @@
   "没有可安装的版本": "No versions available to install",
   "正在运行 · {profile}": "Running · {profile}",
   "编辑启动项": "Edit launch",
+  "打开启动器时启动": "Start when the launcher opens",
   "编辑 {name}": "Edit {name}",
   "推荐版本（自动）": "Recommended version (automatic)",
   "自动最新版本": "Latest version (auto)",
@@ -1296,7 +1305,7 @@
   "更新版本": "Update version",
   "卸载版本": "Uninstall version",
   "删除启动项": "Delete launch",
-  "留空自动分配端口。固定端口在下次启动时生效。": "Leave blank for an automatic port. Fixed ports apply on the next start.",
+  "留空自动分配并记住端口，被占用时重新分配。固定端口在下次启动时生效。": "Leave blank to assign and remember a port; reassign if occupied. Fixed ports apply on the next start.",
   "开始使用 DSH": "Start DSH",
   "正在读取可用版本…": "Checking available versions…",
   "一键启动": "Start",
@@ -1404,7 +1413,7 @@
        const portInput = document.getElementById('launchPort')
       if (portInput) {
         portInput.placeholder = t('自动')
-         portInput.title = t('留空自动分配端口。固定端口在下次启动时生效。')
+         portInput.title = t('留空自动分配并记住端口，被占用时重新分配。固定端口在下次启动时生效。')
        }
        const nameInput = document.getElementById('launchName')
        if (nameInput) nameInput.placeholder = t(nameInput.dataset.placeholderI18n)
@@ -1422,6 +1431,7 @@
     const launchProfileEl = document.getElementById('launchProfile')
     const launchDshHomeEl = document.getElementById('launchDshHome')
     const launchPortEl = document.getElementById('launchPort')
+    const launchAutoLaunchEl = document.getElementById('launchAutoLaunch')
     const launchNameEl = document.getElementById('launchName')
     const launchSaveEl = document.getElementById('launchSave')
     const launchDialogEl = document.getElementById('launchDialog')
@@ -2839,6 +2849,18 @@
       finally { action = ''; render() }
     }
 
+    async function optimizeVersion(version) {
+      if (!version || action || state.installing || runningInfo(version)) return
+      action = 'optimize'
+      render()
+      try {
+        await post('/api/versions/optimize', { version })
+        applyState(await getJson('/api/state'))
+        notify(t('依赖优化完成'), t('优化依赖'))
+      } catch (error) { notify(error.message) }
+      finally { action = ''; render() }
+    }
+
     function paintVersionManager() {
       const installed = [...installedList()].sort((a, b) => compareVersion(b, a))
       const latest = latestRemoteVersion()
@@ -2856,8 +2878,8 @@
       versionInstallSelectEl.disabled = busy || !available.length
       document.getElementById('versionManageInstall').disabled = busy || !versionInstallSelectEl.value
       syncUiSelect(versionInstallSelectEl)
-      const installing = Boolean(state.installing) || action === 'install' || action === 'update'
-      document.getElementById('versionManageHint').textContent = installing ? progressHint(t('正在安装'))
+      const installing = Boolean(state.installing) || action === 'install' || action === 'update' || action === 'optimize'
+      document.getElementById('versionManageHint').textContent = action === 'optimize' || installProgress?.phase === 'optimize' ? t('正在优化依赖…') : installing ? progressHint(t('正在安装'))
         : action === 'uninstall' ? t('正在卸载…') : !available.length && !versionNames(remote.versions).length ? t('读不到远程版本。') : ''
       paintProgress(document.getElementById('versionManageProgress'), document.getElementById('versionManageProgressBar'), installProgress, installing)
       const list = document.getElementById('versionManageList')
@@ -2866,7 +2888,8 @@
         const status = live ? live.status === 'starting' ? t('启动中') : live.status === 'stopping' ? t('停止中')
           : t('正在运行 · {profile}', { profile: live.profile || t('运行中') }) : t('未运行')
         const label = t('卸载版本')
-        return `<div class="version-manage-row" role="listitem"><div class="version-manage-info"><strong>${escapeHtml(version)}</strong>${live ? `<span title="${escapeHtml(status)}">${escapeHtml(status)}</span>` : ''}</div><button class="ghost icon-btn version-remove" type="button" data-remove-version="${escapeHtml(version)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}" ${busy || live ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg></button></div>`
+        const optimize = t('优化依赖')
+        return `<div class="version-manage-row" role="listitem"><div class="version-manage-info"><strong>${escapeHtml(version)}</strong>${live ? `<span title="${escapeHtml(status)}">${escapeHtml(status)}</span>` : ''}</div><button class="ghost version-optimize" type="button" data-optimize-version="${escapeHtml(version)}" title="${escapeHtml(t('整理重复依赖，减少内存和磁盘占用'))}" ${busy || live ? 'disabled' : ''}>${escapeHtml(optimize)}</button><button class="ghost icon-btn version-remove" type="button" data-remove-version="${escapeHtml(version)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}" ${busy || live ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg></button></div>`
       }).join('') || `<p class="hint version-manage-empty">${escapeHtml(t('尚未安装任何版本'))}</p>`
       // 状态推送和安装进度频繁变化，保留相同的行以免键盘焦点被重建打断。
       if (versionManageMarkup !== markup) {
@@ -2874,6 +2897,9 @@
         list.innerHTML = markup
         list.querySelectorAll('[data-remove-version]').forEach((button) => {
           button.onclick = () => { void uninstallVersion(button.dataset.removeVersion) }
+        })
+        list.querySelectorAll('[data-optimize-version]').forEach((button) => {
+          button.onclick = () => { void optimizeVersion(button.dataset.optimizeVersion) }
         })
       }
     }
@@ -2930,6 +2956,7 @@
       launchProfile = entry?.profile || 'web'
       paintLaunchHomes(entry?.dshHome || '')
       launchPortEl.value = entry?.port ? String(entry.port) : ''
+      launchAutoLaunchEl.checked = entry?.autoLaunch === true
       launchDeleteEl.hidden = !entry || entry.id === DEFAULT_LAUNCH_ID
       document.getElementById('launchDialogTitle').textContent = t(entry ? '编辑启动项' : '添加启动项')
       showDialog(launchDialogEl)
@@ -2977,6 +3004,7 @@
           id: editingLaunchId || undefined, name: launchNameEl.value, icon: launchIcon,
           version: versionValue || 'auto', profile: launchProfile, port: launchPortEl.value.trim(),
           dshHome: launchDshHomeEl.value.trim(),
+          autoLaunch: launchAutoLaunchEl.checked,
         })
         updateLaunchEntry(data.entry)
         launchSaveEl.disabled = false
@@ -3033,7 +3061,8 @@
       setPluginProgress(Boolean(pluginProgress))
       paintLaunchHome()
       paintInstances()
-      hintEl.textContent = action === 'install' || action === 'update' || state.installing ? progressHint(t('正在安装'))
+      hintEl.textContent = action === 'optimize' || installProgress?.phase === 'optimize' ? t('正在优化依赖…')
+        : action === 'install' || action === 'update' || state.installing ? progressHint(t('正在安装'))
         : action === 'uninstall' ? t('正在卸载…') : ''
       // 上次启动没成：原因的入口留在提示行上。托盘里点的启动失败时没有页面在等结果，
       // 能看到原因的只有这里。那个组合又跑起来了就不再提。
