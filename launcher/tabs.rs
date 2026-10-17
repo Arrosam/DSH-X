@@ -4,6 +4,8 @@ use tao::dpi::{LogicalPosition, LogicalSize};
 use tao::event_loop::EventLoopProxy;
 use tao::window::Window;
 use wry::{PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
+#[cfg(target_os = "macos")]
+use wry::WebViewBuilderExtDarwin;
 #[cfg(target_os = "windows")]
 use wry::{MemoryUsageLevel, WebViewExtWindows};
 
@@ -193,6 +195,10 @@ impl BrowserTabs {
             let ipc_proxy = proxy.clone();
             let loaded_id = target.id.clone();
             let loaded_proxy = proxy.clone();
+            #[cfg(target_os = "macos")]
+            let crash_id = target.id.clone();
+            #[cfg(target_os = "macos")]
+            let crash_proxy = proxy.clone();
             // 每个标签保留独立的原生 WebView，不靠 iframe：避免跨源嵌入限制，切换也不会重载会话。
             let view = WebViewBuilder::new_with_web_context(context)
                 .with_url("about:blank")
@@ -220,8 +226,14 @@ impl BrowserTabs {
                     if matches!(event, PageLoadEvent::Finished) {
                         let _ = loaded_proxy.send_event(UserEvent::TabPageLoaded(loaded_id.clone(), url));
                     }
-                })
-                .build_as_child(window)?;
+                });
+            // WebKit 的页面进程崩了（日志里是 JavaScriptCore JIT 的 SIGSEGV / EXC_BREAKPOINT，常在打字触发的
+            // 事件回调里）只剩一块黑屏。必须由外壳主动接管：见 recover 里为什么不能直接 reload。
+            #[cfg(target_os = "macos")]
+            let view = view.with_on_web_content_process_terminate_handler(move || {
+                let _ = crash_proxy.send_event(UserEvent::TabCrashed(crash_id.clone()));
+            });
+            let view = view.build_as_child(window)?;
             super::permissions::install(&view, window);
             self.tabs.push(Tab { target: target.clone(), view, loaded: String::new(), page_title: String::new(), visible: false, memory_active: true, page_loaded: false });
         }
@@ -316,6 +328,23 @@ impl BrowserTabs {
             else { tab.target.status = "stopped".into(); }
         }
         self.render(manager, false);
+    }
+
+    /// 页面进程崩溃后重新装回这个标签。
+    ///
+    /// 不能用 reload：进程崩溃后 WKWebView 的 URL 变成 nil，reload 发出的请求不带 SameSite=Strict 的
+    /// dsh 认证 cookie（实测同一请求改成 Lax 就带上），dsh 只能回 401「authentication required」。
+    /// 改为重新导航到带启动 token 的地址：token 在这个 dsh 进程的生命周期内一直有效，服务端会重发
+    /// cookie 并 303 到主页，这和从管理页「打开」走的是同一条认证路径。
+    pub fn recover(&mut self, id: &str) {
+        if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.target.id == id) {
+            // 实例已停止时 loaded 为空，标签上那张停止提示页由下一次 follow 重画，这里不抢。
+            if tab.loaded.is_empty() { return; }
+            tab.page_loaded = false;
+            set_memory_active(&tab.view, true);
+            tab.memory_active = true;
+            let _ = tab.view.load_url(&tab.loaded);
+        }
     }
 
     pub fn title(&mut self, id: &str, title: String, manager: &WebView) {
