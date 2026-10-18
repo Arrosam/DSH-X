@@ -2824,8 +2824,10 @@ async function pluginCommandVersion(profile = PROFILE_NAME) {
   const versions = [...new Set(presets.map((entry) => resolvePresetVersion(entry, homeDir(), config)))]
   // 同一个目录/Profile 可以绑定多个内核，不能靠启动项排列顺序猜用户要更新哪一套。
   if (versions.length > 1) throw new Error(`profile「${profile}」对应多个内核版本，请从要使用的启动项进入插件管理后再更新`)
+  // 绑定的通道没有可用内核时照样报错；空串不能掉进未绑定 Profile 的兜底，绕到其他通道执行。
+  if (presets.length) return available(versions[0])
   // 这个 Profile 没有启动项，也就没人选过版本类型：所有类别都算（Alpha 全收），跟以前一样取最高已装。
-  return available(versions[0] || resolvePresetVersion({ version: 'auto', profile, updateChannel: VERSION_CHANNEL.ALPHA }, homeDir(), config))
+  return available(resolvePresetVersion({ version: 'auto', profile, updateChannel: VERSION_CHANNEL.ALPHA }, homeDir(), config))
 }
 
 /**
