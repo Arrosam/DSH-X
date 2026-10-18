@@ -134,7 +134,9 @@ if (args[0] === 'plugin') {
     await update(NEW, { launchId: ID, profile: 'unbound' })
   })
   await t.test('auto 与未绑定 Profile 保留运行版本优先、否则最高已装版本的选择', async () => {
-    await saveSettings({ launchPresets: [preset(ID, 'auto')] })
+    // 自动项只在自己的版本类型里挑；这里测的是「运行优先、否则最高已装」，用收全部类别的 Alpha，
+    // 免得默认的正式版类型把已装的 alpha 内核筛掉（按类型筛选另有 update-channel 的用例）。
+    await saveSettings({ launchPresets: [{ ...preset(ID, 'auto'), updateChannel: 'alpha' }] })
     await update(NEW, { launchId: ID })
     await update(NEW, { profile: 'unbound' })
     resetPlugin()
