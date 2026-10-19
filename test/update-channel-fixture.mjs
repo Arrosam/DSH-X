@@ -101,6 +101,11 @@ function freePort() {
 export async function startChannelServer({ prefix, packument, installed = [], presets, bin = () => FAKE_BIN, online = true }) {
   const root = mkdtempSync(join(tmpdir(), prefix))
   const app = isolateUserHome(join(root, 'user'))
+  // Windows 还会从这些目录发现全局 dsh；只隔离 HOME/APPDATA 会把真运行时带进来，
+  // 自动启动用例就可能启动它而不是下面写出的假 dsh。和 PATH API 测试一样隔离这些入口。
+  for (const key of ['LOCALAPPDATA', 'npm_config_prefix', 'ProgramW6432', 'ProgramFiles', 'ProgramFiles(x86)']) {
+    process.env[key] = join(root, 'system')
+  }
   const data = join(root, 'data')
   const home = join(root, 'home')
   for (const dir of [app, data, home]) mkdirSync(dir, { recursive: true })
