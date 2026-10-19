@@ -14,11 +14,12 @@ const app = isolateUserHome(root)
 const { DEFAULTS, safePluginMarketSources, loadSettings, loadSettingsSync, saveSettings } = await import('../settings.js')
 test.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }))
 
-test('默认不指定市场，旧预装开关不迁移；源校验、去重和持久化', async () => {
-  assert.deepEqual(DEFAULTS.pluginMarketSources, [])
+test('默认使用 Awesome DSH Plugin，旧预装开关不迁移；源校验、去重和持久化', async () => {
+  assert.deepEqual(DEFAULTS.pluginMarketSources, ['https://awesome-dsh-plugin.com/index.json'])
+  assert.deepEqual((await loadSettings()).pluginMarketSources, DEFAULTS.pluginMarketSources)
   mkdirSync(app, { recursive: true })
   writeFileSync(join(app, 'settings.json'), JSON.stringify({ seedMarket: true }))
-  assert.deepEqual((await loadSettings()).pluginMarketSources, [])
+  assert.deepEqual((await loadSettings()).pluginMarketSources, DEFAULTS.pluginMarketSources)
   assert.equal((await loadSettings()).seedMarket, undefined)
   for (const value of [null, '', ['file:///tmp/market.json'], ['https://user:pass@example.com/'], ['https://example.com/#'], ['relative'], [123]]) {
     assert.throws(() => safePluginMarketSources(value), /插件源/)
@@ -32,6 +33,7 @@ test('默认不指定市场，旧预装开关不迁移；源校验、去重和�
   assert.deepEqual((await loadSettings()).pluginMarketSources, urls)
   await saveSettings({ pluginMarketSources: [] })
   assert.deepEqual((await loadSettings()).pluginMarketSources, [])
+  assert.deepEqual(loadSettingsSync().pluginMarketSources, [], '主动清空后不能重新加回默认源')
 })
 
 test('钩子仅修改目标模块的缺省值，源码变化或未配置时原样跳过', () => {
@@ -49,7 +51,7 @@ test('真实官方市场 schema：缺省、已有源和主动清空相互独立'
   // 本地有官方运行时才补做真实 schema 验证；CI 的离线用例不依赖下载 dsh。
   const runtime = new URL('../data/versions/0.2.1-rc.2/node_modules/@deepseek-ai/dsh-plugin-market/lib/index.js', import.meta.url)
   if (!existsSync(runtime)) return t.skip('未安装官方 rc.2 运行时')
-  const urls = ['https://example.com/index.json']
+  const urls = DEFAULTS.pluginMarketSources
   const script = `
     import assert from 'node:assert/strict'
     import Market from ${JSON.stringify(runtime.href)}
@@ -93,8 +95,8 @@ test('管理页保存默认源只改设置，启动不再安装或重新启用 d
     const response = await fetch(origin + path, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body) })
     return { status: response.status, body: await response.json() }
   }
-  assert.deepEqual((await (await fetch(origin + '/api/settings')).json()).pluginMarketSources, [])
-  const urls = ['https://example.com/index.json']
+  assert.deepEqual((await (await fetch(origin + '/api/settings')).json()).pluginMarketSources, DEFAULTS.pluginMarketSources)
+  const urls = DEFAULTS.pluginMarketSources
   const saved = await post('/api/settings', { pluginMarketSources: urls })
   assert.equal(saved.status, 200, JSON.stringify(saved.body))
   assert.deepEqual(saved.body.pluginMarketSources, urls)

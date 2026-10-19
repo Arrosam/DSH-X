@@ -262,7 +262,7 @@ export const DEFAULTS = {
   webBind: DEFAULT_WEB_BIND,
   autoStart: false,
   // 官方自定义插件市场的默认索引；已有 Profile 配置优先，不再预装第三方市场。
-  pluginMarketSources: [],
+  pluginMarketSources: ['https://awesome-dsh-plugin.com/index.json'],
   // 启动失败时按错误点名自动禁用问题插件（兼容模式），再重试
   autoDisablePlugins: true,
   // 装完新版本后自动清理更旧的版本（只留最新的和最近装的一个）。
