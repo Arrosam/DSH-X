@@ -281,13 +281,15 @@
               <!-- dsh 那一类已经并进常规：留一条分组小标题，不再单开一个分类 -->
               <div class="set-caption" data-i18n="dsh">dsh</div>
               <div class="set-group">
-                <label class="toggle set-row">
-                  <span class="set-text">
-                    <span class="set-name" data-i18n="插件市场">插件市场</span>
-                    <span class="set-desc" data-i18n="安装新版本时加入插件市场。">安装新版本时加入插件市场。</span>
-                  </span>
-                  <input id="seedMarket" type="checkbox" />
-                </label>
+                <div class="set-row stacked">
+                  <label class="set-text" for="pluginMarketSources">
+                    <span class="set-name" data-i18n="默认插件源">默认插件源</span>
+                    <span class="set-desc" data-i18n="官方自定义插件市场的索引地址，每行一个；留空不预设，已有配置优先。下次启动 dsh 生效，需在 dsh 中启用自定义插件市场。">官方自定义插件市场的索引地址，每行一个；留空不预设，已有配置优先。下次启动 dsh 生效，需在 dsh 中启用自定义插件市场。</span>
+                  </label>
+                  <div class="set-control">
+                    <textarea id="pluginMarketSources" rows="3" spellcheck="false" placeholder="https://example.com/plugins.json"></textarea>
+                  </div>
+                </div>
 
                 <label class="toggle set-row">
                   <span class="set-text">
@@ -1190,7 +1192,8 @@
   "登录系统时启动。": "Start when you sign in.",
   "目录与端口": "Folders and ports",
   "重启启动器后生效。": "Takes effect after restarting the launcher.",
-  "安装新版本时加入插件市场。": "Include the plugin market when installing a version.",
+  "默认插件源": "Default plugin sources",
+  "官方自定义插件市场的索引地址，每行一个；留空不预设，已有配置优先。下次启动 dsh 生效，需在 dsh 中启用自定义插件市场。": "Index URLs for the official custom plugin market, one per line. Leave blank for no defaults; existing configuration takes priority. Applies on the next dsh start; enable Custom plugin markets in dsh.",
   "这一页文案的语言。": "The language used on these pages.",
   "启动器": "Launcher",
   "已安装。可更新到 {latest}。": "Installed. {latest} is available.",
@@ -3857,7 +3860,7 @@
     }
 
     const autoStartEl = document.getElementById('autoStart')
-    const seedMarketEl = document.getElementById('seedMarket')
+    const pluginMarketSourcesEl = document.getElementById('pluginMarketSources')
     const autoDisableEl = document.getElementById('autoDisable')
     const autoCleanEl = document.getElementById('autoCleanVersions')
     let pluginProfile = ''
@@ -4186,7 +4189,7 @@
           : t('局域网访问还需在 dsh 中开启远程访问。')
       }
       if ('autoStart' in data) autoStartEl.checked = Boolean(data.autoStart)
-      if ('seedMarket' in data) seedMarketEl.checked = data.seedMarket !== false
+      if ('pluginMarketSources' in data) pluginMarketSourcesEl.value = data.pluginMarketSources.join('\n')
       if ('autoDisablePlugins' in data) autoDisableEl.checked = data.autoDisablePlugins !== false
       if ('autoCleanVersions' in data) autoCleanEl.checked = data.autoCleanVersions !== false
       syncUiSelects()
@@ -4324,7 +4327,7 @@
       else loadSettings()
     }
     autoStartEl.onchange = () => queueSetting('autoStart', autoStartEl.checked)
-    seedMarketEl.onchange = () => queueSetting('seedMarket', seedMarketEl.checked)
+    pluginMarketSourcesEl.onchange = () => queueSetting('pluginMarketSources', pluginMarketSourcesEl.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))
     autoDisableEl.onchange = () => queueSetting('autoDisablePlugins', autoDisableEl.checked)
     autoCleanEl.onchange = () => queueSetting('autoCleanVersions', autoCleanEl.checked)
     uiLangEl.onchange = () => queueSetting('lang', uiLangEl.value)

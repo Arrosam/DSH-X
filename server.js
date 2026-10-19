@@ -106,6 +106,7 @@ import {
   updateUrlCandidates,
   safePanelTransparency,
   safeDownloadSource,
+  safePluginMarketSources,
   safePort,
   safeProfile,
   safeProxyMode,
@@ -128,7 +129,6 @@ let DATA = resolveDataDir()
 const PUBLIC = join(ROOT, 'public')
 let CONFIG = join(DATA, 'config.json')
 const PKG = '@deepseek-ai/dsh'
-const MARKET_PKG = 'dshmarket'
 const APP_VERSION = String(pkg.version || '0.0.0')
 const APP_REPO = 'yyh-001/DSH-X'
 // 发布页上的安装包名：scripts/pack.mjs 按平台产出同名文件
@@ -385,10 +385,6 @@ function binPath(version) {
   const system = detectSystemDsh()
   if (system?.version === version) return system.bin
   return managedBin(version)
-}
-
-function profileManifest(profile = PROFILE_NAME) {
-  return join(profileDirOf(profile), 'package.json')
 }
 
 function scanInstalled() {
@@ -1007,7 +1003,7 @@ async function publicSettings() {
     listenPort: PORT,
     portDefault: DEFAULT_PORT,
     autoStart: await autoStartEnabled(),
-    seedMarket: stored.seedMarket !== false,
+    pluginMarketSources: safePluginMarketSources(stored.pluginMarketSources),
     autoDisablePlugins: stored.autoDisablePlugins !== false,
     autoCleanVersions: autoCleanEnabled(stored),
     keepVersions: safeKeepVersions(stored.keepVersions),
@@ -1425,7 +1421,7 @@ async function saveManagerSettings(body) {
     ...('hideBackground' in body ? { hideBackground: body.hideBackground === true } : {}),
     ...('hideBigFish' in body ? { hideBigFish: body.hideBigFish === true } : {}),
     ...('autoStart' in body ? { autoStart: Boolean(body.autoStart) } : {}),
-    ...('seedMarket' in body ? { seedMarket: body.seedMarket !== false } : {}),
+    ...('pluginMarketSources' in body ? { pluginMarketSources: safePluginMarketSources(body.pluginMarketSources) } : {}),
     ...('autoDisablePlugins' in body ? { autoDisablePlugins: body.autoDisablePlugins !== false } : {}),
     ...('autoCleanVersions' in body ? { autoCleanVersions: body.autoCleanVersions !== false } : {}),
     ...('keepVersions' in body ? { keepVersions: safeKeepVersions(body.keepVersions) } : {}),
@@ -1508,10 +1504,6 @@ async function saveManagerSettings(body) {
     pushLog(`启动 profile 改为 ${stored.profile}`)
     PROFILE_NAME = stored.profile
   }
-  if ('seedMarket' in body && stored.seedMarket) {
-    const versions = listedVersions(await loadConfig())
-    if (versions[0] && !pluginBusy) await seedMarket(versions[0])
-  }
   await emitState()
   return { ...await publicSettings(), ...(systemPathResult ? { systemPathResult } : {}) }
 }
@@ -1535,6 +1527,8 @@ export function dshEnv(version, options = {}) {
     DSH_BIN: binPath(version),
     DSH_VERSION: version,
     DSH_PROFILE: PROFILE_NAME,
+    // 只给官方市场 schema 提供缺省值；用户保存过的 indexes（包括空数组）始终优先。
+    DSH_X_PLUGIN_MARKET_SOURCES: JSON.stringify(safePluginMarketSources(loadSettingsSync().pluginMarketSources)),
     // 只有「必须被 dsh 起的 worker 线程继承」的东西留在这里：worker 的 execArgv 是空的，
     // 命令行参数传不进去，只能靠 NODE_OPTIONS（这里只放文件名，目录靠下面的 NODE_PATH 传）。
     // dsh 自己要的那几个开关（--use-system-ca、--max-http-header-size、--import 钩子）走命令行，
@@ -1693,7 +1687,7 @@ async function preferredPnpmDir(profile) {
 /**
  * 把便携运行时的目录放到 PATH 最前面。
  *
- * `dsh plugin` 是 pnpm 的透传器，装插件（含首次预装 dshmarket）必须有 pnpm；机器上
+ * `dsh plugin` 是 pnpm 的透传器，装插件必须有 pnpm；机器上
  * 有没有全局 pnpm 全看运气，所以安装包自带一份。另外插件里常带原生模块和 postinstall
  * 构建脚本，也指望能就地找到 node/npm。系统里已经有 pnpm 时的排序见 orderRuntimePaths。
  */
@@ -2580,17 +2574,6 @@ async function releaseNotes(kind, version) {
   }
 }
 
-async function installedPlugins() {
-  const file = profileManifest()
-  if (!existsSync(file)) return []
-  try {
-    const manifest = JSON.parse(await readFile(file, 'utf8'))
-    return Object.keys(manifest.dependencies ?? {}).sort()
-  } catch {
-    return []
-  }
-}
-
 /** 兼容检查的拒绝不是 pnpm 故障；保留原因，别引导用户绕过检查强装。 */
 export function describePluginFailure(output, label, code) {
   const text = String(output || '').replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
@@ -2985,72 +2968,6 @@ async function repairProfileDeps(version, error, profile = PROFILE_NAME) {
     return false
   } finally {
     pluginBusy = false
-  }
-}
-
-// 这次运行里预装已经失败过。启动失败时的自动修复会重跑启动流程，每次都重试预装的话
-// 会把失败信息刷满终端，而失败原因并不会自己消失——留到下次启动再试。
-let marketSeedFailed = false
-
-/**
- * dsh 实际加载哪些插件，看的是 profile 清单里的 dsh.profile.bundles。
- * 「依赖里有 + 目录里有」不等于它会跑起来——装上了却没启用时，插件市场就是不会出现。
- */
-async function registeredBundles() {
-  try {
-    const manifest = JSON.parse(await readFile(profileManifest(), 'utf8'))
-    const list = manifest?.dsh?.profile?.bundles
-    return Array.isArray(list) ? list : []
-  } catch {
-    return []
-  }
-}
-
-/** 把包装进 dsh.profile.bundles——dsh 插件管理器点「启用」写的就是这里。 */
-async function registerBundle(name) {
-  const file = profileManifest()
-  let manifest
-  try {
-    manifest = JSON.parse(await readFile(file, 'utf8'))
-  } catch {
-    // 清单还没有或读不动：这一步只是补启用，不在这里造文件
-    return false
-  }
-  if (!manifest || typeof manifest !== 'object') return false
-  const dsh = typeof manifest.dsh === 'object' && manifest.dsh ? manifest.dsh : (manifest.dsh = {})
-  const profile = typeof dsh.profile === 'object' && dsh.profile ? dsh.profile : (dsh.profile = {})
-  const bundles = Array.isArray(profile.bundles) ? profile.bundles : (profile.bundles = [])
-  if (bundles.includes(name)) return false
-  bundles.push(name)
-  await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`)
-  return true
-}
-
-async function seedMarket(version) {
-  const settings = await loadSettings()
-  if (settings.seedMarket === false) return
-  if (marketSeedFailed) return
-  const plugins = await installedPlugins()
-  // 三条都成立才算装好了，少一条都要修：
-  // 1) 清单里有——pnpm 中途失败或被杀毒软件拦下时，清单里留了名字却只有一个空壳目录
-  //    （正是 "unknown error, open ...dshmarket\package.json" 那种）；
-  // 2) 文件真的在——只看清单会把空壳当成装好了，那个坏目录就永远修不回来；
-  // 3) 在 dsh.profile.bundles 里——少了这条，包是装上了但 dsh 不会加载它，市场不出现，
-  //    而前两条都成立，于是预装再也不会重试（这个缺口让市场一直缺席）。
-  const listed = plugins.includes(MARKET_PKG)
-  const onDisk = existsSync(join(profileDir(), 'node_modules', MARKET_PKG, 'package.json'))
-  const bundled = (await registeredBundles()).includes(MARKET_PKG)
-  if (listed && onDisk && bundled) return
-  try {
-    // 只有「包不在」才真的需要跑 pnpm；包在、只是没启用的话补一句启用就够了，
-    // 不必每次都去跑一遍注定失败的安装
-    if (!listed || !onDisk) await addPlugin(version, MARKET_PKG)
-    if (await registerBundle(MARKET_PKG)) {
-      pushLog(`已把 ${MARKET_PKG} 加入 profile 的 bundle 列表，重启后市场就会出现`)
-    }
-  } catch (error) {
-    marketSeedFailed = true
-    pushLog(`预装 dshmarket 失败: ${error instanceof Error ? error.message : error}（本次运行不再重试，可在插件页手动安装）`)
   }
 }
 
@@ -3548,7 +3465,6 @@ async function install(version) {
     config.versions = [ver, ...listedVersions(config).filter((item) => item !== ver)]
     await saveConfig(config)
     pushLog(`${ver} 安装完成`)
-    await seedMarket(ver)
     // 装完新版顺手清掉更旧的（保留最新 + 最近装的一个，正在跑的除外）
     await pruneVersions(config)
   } catch (error) {
@@ -3757,9 +3673,6 @@ async function selfCheckPage(url, version) {
 async function bootOnce(ver, prof) {
   const startedAt = performance.now()
   await mkdir(homeDir(), { recursive: true })
-  // 预装 dshmarket 只对当前 profile 做：起别的 profile——safe、整合包
-  // 环境、别人故意留空的——不该被偷偷塞进一堆包
-  if (prof === PROFILE_NAME) await seedMarket(ver)
   const alongside = instances.size > 0
   const pinned = pinnedPort(ver, prof)
   const automatic = remembersAutoPort(prof, pinned)

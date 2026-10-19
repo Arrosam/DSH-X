@@ -22,7 +22,7 @@ DSH-X is a lightweight third-party desktop launcher for DeepSeek Harness: launch
 
 - **Launch entries and multiple instances**: choose a home directory, profile, version and port per entry; start entries concurrently and add entries while DSH is running.
 - **Version management**: a dedicated manager for detecting new releases, manually installing, removing and assigning versions to launch entries.
-- **Plugins and packs**: install, toggle and update plugins by environment; browse, search and sort the masonry-style community market, or import and export packs.
+- **Plugins and packs**: install, toggle and update plugins by environment and configure default indexes for the official custom plugin market; browse, search and sort the masonry-style community market, or import and export packs.
 - **MCP and skills**: configure MCP servers and import, manage and toggle skills.
 - **Opening modes**: tabs inside DSH-X, a system browser tab, standalone browser window or desktop window.
 - **Appearance**: light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.

@@ -112,9 +112,9 @@ export async function copyNpmModules(modulesSrc, nodeDir) {
 }
 
 /**
- * `dsh plugin` 是 pnpm 的透传器，PATH 上没有 pnpm 就完全装不了插件（含开机预装
- * dshmarket）。机器上有没有全局 pnpm 全看运气，所以便携目录自带一个，启动器再
- * 把它加进子进程 PATH。命令行包装（pnpm / pnpm.cmd）由各平台自己写。
+ * `dsh plugin` 是 pnpm 的透传器，PATH 上没有 pnpm 就完全装不了插件。机器上有没有全局
+ * pnpm 全看运气，所以便携目录自带一个，启动器再把它加进子进程 PATH。
+ * 命令行包装（pnpm / pnpm.cmd）由各平台自己写。
  *
  * npmCli 是用来装 pnpm 的 npm-cli.js；pnpm 是纯 JS 包，在哪个平台装出来都一样。
  */
