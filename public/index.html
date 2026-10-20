@@ -436,6 +436,19 @@
                   <p class="hint" id="proxyHint"></p>
                 </div>
               </div>
+              <div class="set-label" data-i18n="AI 自检">AI 自检</div>
+              <div class="set-group">
+                <div class="set-row">
+                  <div class="set-text">
+                    <span class="set-name" data-i18n="让 AI 给环境做体检">让 AI 给环境做体检</span>
+                    <span class="set-desc" data-i18n="复制一段现成的自检请求，粘贴到对话里发给 AI；它会用 dsh-x-selfcheck 技能跑只读检查，再逐条解释失败和警告。">复制一段现成的自检请求，粘贴到对话里发给 AI；它会用 dsh-x-selfcheck 技能跑只读检查，再逐条解释失败和警告。</span>
+                  </div>
+                  <div class="set-control">
+                    <button class="ghost" id="copySelfcheckPrompt" type="button" data-i18n="复制自检请求">复制自检请求</button>
+                  </div>
+                </div>
+                <p class="hint" id="selfcheckHint" role="status" aria-live="polite"></p>
+              </div>
             </section>
           </div>
         </section>
@@ -1359,6 +1372,16 @@
   "配置已修复，可启动或重启此环境。": "Configuration repaired. Start or restart this environment to apply.",
   "环境 {profile} 已启动。": "Environment {profile} started.",
   "启动参数、修复、端口、网络与目录。": "Launch arguments, recovery, ports, network and directories.",
+  "AI 自检": "AI self-check",
+  "让 AI 给环境做体检": "Let AI check the setup",
+  "复制一段现成的自检请求，粘贴到对话里发给 AI；它会用 dsh-x-selfcheck 技能跑只读检查，再逐条解释失败和警告。": "Copy a ready-made self-check request and paste it to your AI. It runs read-only checks with the dsh-x-selfcheck skill and explains failures and warnings one by one.",
+  "复制自检请求": "Copy self-check request",
+  "已复制，粘贴到对话里发给 AI 就行。": "Copied. Paste it into the chat and send it to your AI.",
+  "复制失败：{error}": "Copy failed: {error}",
+  "请帮我自检本机 DSH-X（DeepSeek Harness 启动器）环境：先只读检查，不要改文件、不要重启 dsh。": "Please self-check the DSH-X (DeepSeek Harness launcher) setup on this machine. Start with read-only checks: do not change files or restart dsh.",
+  "用 dsh-x-selfcheck 技能跑一次体检，命令：": "Run the checks with the dsh-x-selfcheck skill:",
+  "这个路径来自管理页的技能清单；如果找不到技能，先告诉我，别自己装或改环境。": "That path comes from the manager's skill list. If the skill is not there, tell me instead of installing or changing anything yourself.",
+  "拿到报告后：先讲 FAIL 和 WARN（每条带证据、影响和该在哪修），再讲值得注意的 INFO；要改配置、补丁层或插件时先给方案，等我同意再动手。": "With the report: explain FAIL and WARN first (evidence, impact and where to fix each), then any notable INFO. Propose changes to settings, the patch layer or plugins and wait for my approval before editing.",
   "管理插件": "Manage plugins",
   "管理 {name} 的插件": "Manage plugins for {name}",
   "正在读取插件…": "Loading plugins…",
@@ -4030,6 +4053,8 @@
       { key: 'hideBigFish', input: document.getElementById('hideBigFish'), apply: window.setLauncherBigFishHidden },
     ]
     const pickDirEl = document.getElementById('pickDir')
+    const copySelfcheckEl = document.getElementById('copySelfcheckPrompt')
+    const selfcheckHintEl = document.getElementById('selfcheckHint')
     const dataDirEl = document.getElementById('dataDir')
     const dataDirHint = document.getElementById('dataDirHint')
     const systemPathEl = document.getElementById('systemPath')
@@ -4371,6 +4396,57 @@
         proxyHintEl.textContent = error.message
       } finally {
         proxyTestEl.disabled = false
+      }
+    }
+    // 复制这件事在设置页只有一个入口，但部分 WebView 没有 Clipboard API，得留选区复制的后路
+    async function copyPlainText(text) {
+      try {
+        await navigator.clipboard.writeText(text)
+      } catch {
+        const field = document.createElement('textarea')
+        field.value = text
+        field.readOnly = true
+        field.style.cssText = 'position:fixed;left:0;top:0;opacity:0;pointer-events:none'
+        document.body.appendChild(field)
+        field.select()
+        try {
+          if (!document.execCommand('copy')) throw new Error('copy failed')
+        } finally {
+          field.remove()
+        }
+      }
+    }
+    copySelfcheckEl.onclick = async () => {
+      copySelfcheckEl.disabled = true
+      try {
+        // 技能可能被装到自定义 DSH_HOME：路径从管理页的技能清单拿，AI 拿到就能直接跑
+        let script = '~/.dsh/skills/dsh-x-selfcheck/scripts/selfcheck.mjs'
+        try {
+          const data = await getJson('/api/skills')
+          const skill = (data.skills || []).find((item) => item.name === 'dsh-x-selfcheck')
+          if (skill?.file) {
+            const file = String(skill.file)
+            const dir = file.slice(0, Math.max(file.lastIndexOf('\\'), file.lastIndexOf('/')))
+            const sep = dir.includes('\\') ? '\\' : '/'
+            script = `${dir}${sep}scripts${sep}selfcheck.mjs`
+          }
+        } catch { /* 管理页读不到技能清单就退回默认位置，指令里已经让 AI 先确认 */ }
+        const prompt = [
+          t('请帮我自检本机 DSH-X（DeepSeek Harness 启动器）环境：先只读检查，不要改文件、不要重启 dsh。'),
+          '',
+          t('用 dsh-x-selfcheck 技能跑一次体检，命令：'),
+          `node "${script}" --json`,
+          '',
+          t('这个路径来自管理页的技能清单；如果找不到技能，先告诉我，别自己装或改环境。'),
+          '',
+          t('拿到报告后：先讲 FAIL 和 WARN（每条带证据、影响和该在哪修），再讲值得注意的 INFO；要改配置、补丁层或插件时先给方案，等我同意再动手。'),
+        ].join('\n')
+        await copyPlainText(prompt)
+        selfcheckHintEl.textContent = t('已复制，粘贴到对话里发给 AI 就行。')
+      } catch (error) {
+        selfcheckHintEl.textContent = t('复制失败：{error}', { error: error.message })
+      } finally {
+        copySelfcheckEl.disabled = false
       }
     }
     webBindEl.onchange = () => queueSetting('webBind', webBindEl.value)
