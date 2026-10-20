@@ -150,7 +150,6 @@ test('旧同步界面已撤出首页，兼容接口与插件引擎仍保留', ()
 test('设置页有「复制自检请求」按钮：路径问技能清单，复制出去的是可直接执行的命令', () => {
   // 按钮放在高级设置的「AI 自检」组里；技能可能装在自定义 DSH_HOME，路径不能写死
   assert.match(html, /<section class="set-section" data-category="advanced"[\s\S]*?id="copySelfcheckPrompt"/, '按钮在高级设置里')
-  assert.match(html, /<p class="hint" id="selfcheckHint" role="status" aria-live="polite"><\/p>/, '复制结果有提示行（空内容自动隐藏）')
   assert.match(html, /getJson\('\/api\/skills'\)/, '从管理页技能清单拿真实安装路径')
   assert.match(html, /item\.name === 'dsh-x-selfcheck'/, '只认 dsh-x-selfcheck 这个技能')
   assert.match(html, /node "\$\{script\}" --json/, '复制出去的请求带可直接执行的命令')
@@ -158,7 +157,7 @@ test('设置页有「复制自检请求」按钮：路径问技能清单，复�
   assert.match(html, /document\.execCommand\('copy'\)/, 'WebView 没有 Clipboard API 时退回选区复制')
   // 英文也要有，否则界面切成英文这里还是中文
   const dict = new vm.Script(`(${html.match(/const EN = (\{[\s\S]*?\n\})/)[1]})`).runInNewContext()
-  for (const key of ['复制自检请求', '让 AI 给环境做体检', '已复制，粘贴到对话里发给 AI 就行。', '用 dsh-x-selfcheck 技能跑一次体检，命令：']) {
+  for (const key of ['复制自检请求', '让 AI 给环境做体检', '复制自检指令，发给 AI 检查环境。', '用 dsh-x-selfcheck 技能跑一次体检，命令：']) {
     assert.ok(dict[key], `「${key.slice(0, 12)}…」有英文`)
   }
 })

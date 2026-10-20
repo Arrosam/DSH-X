@@ -443,13 +443,12 @@
                 <div class="set-row">
                   <div class="set-text">
                     <span class="set-name" data-i18n="让 AI 给环境做体检">让 AI 给环境做体检</span>
-                    <span class="set-desc" data-i18n="复制一段现成的自检请求，粘贴到对话里发给 AI；它会用 dsh-x-selfcheck 技能跑只读检查，再逐条解释失败和警告。">复制一段现成的自检请求，粘贴到对话里发给 AI；它会用 dsh-x-selfcheck 技能跑只读检查，再逐条解释失败和警告。</span>
+                    <span class="set-desc" data-i18n="复制自检指令，发给 AI 检查环境。">复制自检指令，发给 AI 检查环境。</span>
                   </div>
                   <div class="set-control">
                     <button class="ghost" id="copySelfcheckPrompt" type="button" data-i18n="复制自检请求">复制自检请求</button>
                   </div>
                 </div>
-                <p class="hint" id="selfcheckHint" role="status" aria-live="polite"></p>
               </div>
             </section>
           </div>
@@ -1377,9 +1376,8 @@
   "启动参数、修复、端口、网络与目录。": "Launch arguments, recovery, ports, network and directories.",
   "AI 自检": "AI self-check",
   "让 AI 给环境做体检": "Let AI check the setup",
-  "复制一段现成的自检请求，粘贴到对话里发给 AI；它会用 dsh-x-selfcheck 技能跑只读检查，再逐条解释失败和警告。": "Copy a ready-made self-check request and paste it to your AI. It runs read-only checks with the dsh-x-selfcheck skill and explains failures and warnings one by one.",
+  "复制自检指令，发给 AI 检查环境。": "Copy a self-check request and send it to your AI.",
   "复制自检请求": "Copy self-check request",
-  "已复制，粘贴到对话里发给 AI 就行。": "Copied. Paste it into the chat and send it to your AI.",
   "复制失败：{error}": "Copy failed: {error}",
   "请帮我自检本机 DSH-X（DeepSeek Harness 启动器）环境：先只读检查，不要改文件、不要重启 dsh。": "Please self-check the DSH-X (DeepSeek Harness launcher) setup on this machine. Start with read-only checks: do not change files or restart dsh.",
   "用 dsh-x-selfcheck 技能跑一次体检，命令：": "Run the checks with the dsh-x-selfcheck skill:",
@@ -4057,7 +4055,6 @@
     ]
     const pickDirEl = document.getElementById('pickDir')
     const copySelfcheckEl = document.getElementById('copySelfcheckPrompt')
-    const selfcheckHintEl = document.getElementById('selfcheckHint')
     const dataDirEl = document.getElementById('dataDir')
     const dataDirHint = document.getElementById('dataDirHint')
     const systemPathEl = document.getElementById('systemPath')
@@ -4445,9 +4442,8 @@
           t('拿到报告后：先讲 FAIL 和 WARN（每条带证据、影响和该在哪修），再讲值得注意的 INFO；要改配置、补丁层或插件时先给方案，等我同意再动手。'),
         ].join('\n')
         await copyPlainText(prompt)
-        selfcheckHintEl.textContent = t('已复制，粘贴到对话里发给 AI 就行。')
       } catch (error) {
-        selfcheckHintEl.textContent = t('复制失败：{error}', { error: error.message })
+        notify(t('复制失败：{error}', { error: error.message }))
       } finally {
         copySelfcheckEl.disabled = false
       }
