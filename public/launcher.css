@@ -872,6 +872,8 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .set-row.stacked { display: block; }
 .set-row.stacked .set-control { margin-top: 11px; }
 .set-row.stacked .set-control input[type=text], .set-row.stacked .set-control input[type=password] { flex: 1 1 auto; min-width: 0; }
+.set-control textarea { width: 100%; min-width: 0; resize: vertical; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--text); font: 12px/1.7 ui-monospace, monospace; }
+.set-control textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .set-row .hint { margin: 9px 0 0; }
 /* 整行可点的开关行：给个悬停反馈，别让人猜哪儿能点 */
 .toggle.set-row {

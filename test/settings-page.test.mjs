@@ -49,8 +49,8 @@ test('顶栏四个 tab 已取消，设置分类在左侧导航，主页右上角
   assert.doesNotMatch(html, /data-category="dsh"/, 'dsh 分类已经并进常规')
   assert.match(
     html,
-    /<section class="set-section" data-category="general"[\s\S]{0,3000}?<div class="set-caption"[^>]*>dsh<\/div>[\s\S]{0,3000}?id="seedMarket"/,
-    '插件市场仍在常规设置中',
+    /<section class="set-section" data-category="general"[\s\S]{0,3000}?<div class="set-caption"[^>]*>dsh<\/div>[\s\S]{0,3000}?id="pluginMarketSources"/,
+    '默认插件源在常规设置中',
   )
   // profile 选择器整体撤了：插件页以环境卡片为入口，常规里也不再重复一份
   assert.doesNotMatch(
