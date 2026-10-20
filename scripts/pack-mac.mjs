@@ -229,6 +229,23 @@ function waitForFinderLayout(mount) {
 }
 
 /**
+ * 卸载临时卷。卷改名后 Finder / Spotlight / diskimages-help 还会短暂占着它，
+ * 立刻 detach 会「Resource busy」——跑得慢的 intel runner 上几乎每次都踩到；
+ * 所以先反复等它松手，实在不行再 -force 强卸（内容已写完，强卸不会丢窗口布局）。
+ */
+function detachVolume(device) {
+  let last = null
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const forced = attempt >= 6
+    const result = spawnSync('hdiutil', forced ? ['detach', device, '-force'] : ['detach', device], { encoding: 'utf8' })
+    if (result.status === 0) return
+    last = result
+    run('sleep', ['2'])
+  }
+  throw new Error(`hdiutil detach ${device} failed: ${last?.stderr || last?.stdout || ''}`)
+}
+
+/**
  * dmg 里放包本体和一个指向 /Applications 的链接，拖过去就装好了。
  * 先做可写镜像、挂上用 Finder 摆窗口（写进卷里的 .DS_Store），再压成只读 UDZO。
  * 摆窗口要求能控制 Finder（第一次跑会弹「自动化」授权）；没有图形会话时退回朴素布局。
@@ -262,7 +279,7 @@ function buildDmg() {
     run('sync', [])
     run('diskutil', ['rename', device, DMG_VOLUME])
     // 改名后挂载点跟着变，按设备卸载
-    run('hdiutil', ['detach', device])
+    detachVolume(device)
   }
 
   rmSync(DMG, { force: true })
