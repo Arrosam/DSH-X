@@ -9,7 +9,9 @@ import { createServer } from 'node:http'
 import { optimizeDependencies } from '../registry.js'
 
 const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
-const code = source.slice(source.indexOf('async function optimizeVersion('), source.indexOf('\nfunction killTree('))
+// 切片终点跟着 server.js 的函数签名走：killTree 改成 async 后这里会切到文件末尾，
+// 把 export 语句也带进来，vm 里就是「Unexpected token 'export'」。
+const code = source.slice(source.indexOf('async function optimizeVersion('), source.indexOf('\nasync function killTree('))
 const starting = source.slice(source.indexOf('async function start(version, profile)'), source.indexOf('\nexport async function launchInstalled('))
 
 function manager(overrides = {}) {

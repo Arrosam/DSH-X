@@ -822,9 +822,11 @@ async function installMacUpdate(staged) {
  * 托盘退出和 /api/quit 都走这里。
  */
 export async function shutdown() {
+  // 等 stopAll 把进程确实收掉再走：这几秒的耐心换的是不留下孤儿 dsh（它一脱离，下次启动
+  // 就会撞上被占着的插件文件和端口，用户还找不到是谁）。上限覆盖「终止 → 强制终止」两段。
   await Promise.race([
     stopAll(),
-    new Promise((resolve) => setTimeout(resolve, 2000)),
+    new Promise((resolve) => setTimeout(resolve, STOP_EXIT_TIMEOUT_MS + STOP_KILL_GRACE_MS + 1000)),
   ])
   await notifyShutdown()
 }
@@ -3505,20 +3507,107 @@ async function optimizeVersion(version) {
   }
 }
 
-function killTree(pid) {
-  if (!pid) return
+/** 等 dsh 退出的上限：正常 taskkill /F 是毫秒级，只有卡死的进程才会用满。 */
+const STOP_EXIT_TIMEOUT_MS = 5000
+/** 第一次终止没生效后的加时：再给这么久；还活着就报错，绝不静默丢掉跟踪记录。 */
+const STOP_KILL_GRACE_MS = 3000
+
+/**
+ * 等子进程真的退出（'exit' 事件），返回是否退出。
+ *
+ * 不能等 'close'：'close' 要等 stdout/stderr 两条**管道**关闭，而 dsh 拉起的插件、subprocess
+ * 之类的孙进程会把它们继承下去。孙进程一旦脱离父进程（父进程先死），taskkill /T 按进程树
+ * 也收不到它，管道就一直开着，'close' 能拖到几十秒甚至永远不来——可 dsh 自己（'exit'）早没了。
+ * 原来 stop() 等 'close'，5 秒一到就删跟踪记录往下走，重启时旧进程可能还占着 profile 和端口，
+ * 新的又起来了：这正是 #57 里「重启后连不上、随后插件文件被占用」的形状。
+ */
+function waitExit(child, timeoutMs) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    let timer
+    const onExit = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    timer = setTimeout(() => {
+      child.removeListener('exit', onExit)
+      resolve(false)
+    }, timeoutMs)
+    child.once('exit', onExit)
+  })
+}
+
+/**
+ * 终止一个实例进程（Windows 连整棵树）。
+ * @returns {Promise<boolean>} 这次终止**动作**有没有执行成功；进程死没死要看 waitExit。
+ *
+ * 两处必须留神，都是踩过的坑：
+ * - 必须等 taskkill 结束：fire-and-forget 的写法连它失败都看不见，进程活着一律当死了。
+ * - 必须挂 'error'：spawn 找不到 taskkill 时（PATH 被改、精简系统），没挂监听的 ChildProcess
+ *   会抛未捕获的 'error'，把管理服务自己打死。
+ * 退出码 0 才算杀掉。别把 128 当「进程已经不在了」放过去：调试 #57 时见过 taskkill 明确
+ * 打印「could not be terminated」也返回 128，这时候等 5 秒再补一刀，白白拖着重启。非 0
+ * 一律当没杀动，立刻退回到 Node 自己的 kill——Windows 上就是 TerminateProcess，只收这一个
+ * 进程（子进程收不到，所以 taskkill 仍是主路径，fallback 只是别让主进程活在那儿）。
+ */
+async function killTree(pid, child, force = true) {
+  if (!pid) return false
   if (process.platform === 'win32') {
-    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
-      stdio: 'ignore',
-      windowsHide: true,
+    const killed = await new Promise((resolve) => {
+      let done = false
+      let timer
+      const finish = (value) => {
+        if (done) return
+        done = true
+        clearTimeout(timer)
+        resolve(value)
+      }
+      let task
+      try {
+        task = spawn('taskkill', ['/pid', String(pid), '/T', ...(force ? ['/F'] : [])], {
+          stdio: 'ignore',
+          windowsHide: true,
+        })
+      } catch {
+        return finish(false)
+      }
+      // taskkill 自己也可能挂住（比如卡在别的句柄上），别让它拖住收尾
+      timer = setTimeout(() => finish(false), STOP_EXIT_TIMEOUT_MS + STOP_KILL_GRACE_MS)
+      task.on('error', () => finish(false))
+      task.on('exit', (code) => finish(code === 0))
     })
-    return
+    if (killed) return true
+    try {
+      return child ? child.kill('SIGKILL') : false
+    } catch {
+      return false
+    }
   }
   try {
-    process.kill(pid, 'SIGTERM')
-  } catch {
-    // already gone
+    process.kill(pid, force ? 'SIGKILL' : 'SIGTERM')
+    return true
+  } catch (error) {
+    // 进程已经没了：目的达到
+    return error?.code === 'ESRCH'
   }
+}
+
+/**
+ * 让一个实例进程真的退出：先终止一次，等；没死就强制再杀一次，再等。
+ * @returns {Promise<boolean>} 是否已确认退出（等不到就是没退出，调用方不能当它死了）
+ */
+async function terminateProcess(proc) {
+  const label = `${proc.version}/${proc.profile}`
+  if (!proc.child?.pid) return true
+  // Windows 没有「温和终止」这条路：taskkill 不带 /F 只是发 WM_CLOSE，对控制台进程约等于
+  // 不生效，所以一开始就 /F；POSIX 先 SIGTERM，给它体面退出的机会，再升级到 SIGKILL。
+  await killTree(proc.child.pid, proc.child, process.platform === 'win32')
+  if (await waitExit(proc.child, STOP_EXIT_TIMEOUT_MS)) return true
+  pushLog(`${label}（PID ${proc.child.pid}）收到终止信号后 ${STOP_EXIT_TIMEOUT_MS / 1000} 秒仍未退出，强制终止`)
+  await killTree(proc.child.pid, proc.child, true)
+  if (await waitExit(proc.child, STOP_KILL_GRACE_MS)) return true
+  pushLog(`${label}（PID ${proc.child.pid}）强制终止后仍未退出`)
+  return false
 }
 
 function attachProcess(version, profile, child) {
@@ -3579,7 +3668,11 @@ async function waitUntilReady(proc, version) {
       // 已经有 stdout 就绪事件，无需再为每次启动额外等一轮 200ms 轮询。
       await Promise.race([proc.ready, new Promise((_, reject) => {
         timer = setTimeout(() => {
-          killTree(proc.child.pid)
+          // 起不来就别留活口：先报错，终止在后台升级（卡住的进程会走强制终止，不然跟踪
+          // 记录会永远停在「启动中」）。
+          void terminateProcess(proc).then((gone) => {
+            if (!gone) pushLog(`${label}（PID ${proc.child.pid}）启动超时后仍未退出`)
+          })
           reject(new Error(`${label} 启动超时`))
         }, START_TIMEOUT_MS)
       })])
@@ -3752,6 +3845,13 @@ async function startNow(version, profile = PROFILE_NAME) {
   }
   if (existing?.status === 'starting') {
     return waitUntilReady(existing, ver)
+  }
+  if (existing?.status === 'stopping') {
+    // 上一个实例还在停（另一处 stop 正进行，或它没在预期时间内退出）：等它真退出再起新的，
+    // 否则两份 dsh 会抢同一份 profile——插件文件被占用、端口冲突都是这么来的。
+    if (!(await waitExit(existing.child, STOP_EXIT_TIMEOUT_MS + STOP_KILL_GRACE_MS))) {
+      throw new Error(`${ver}/${prof} 正在停止且尚未退出，请稍后再启动`)
+    }
   }
   const config = await loadConfig()
   if (!listedVersions(config).includes(ver)) throw new Error(`${ver} 未安装`)
@@ -4602,13 +4702,24 @@ async function stop(version, profile = '', targetHome = '') {
   if (!targets.length) return
   for (const proc of targets) proc.status = 'stopping'
   await emitState()
+  const stuck = []
   await Promise.all(targets.map(async (proc) => {
-    const closed = new Promise((resolve) => proc.child.once('close', resolve))
-    killTree(proc.child.pid)
-    await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, 5000))])
-    if (instances.get(proc.key)?.child === proc.child) instances.delete(proc.key)
+    const label = `${proc.version}/${proc.profile}`
+    if (await terminateProcess(proc)) {
+      // 'exit' 处理器会删记录，这里兜底：事件已经错过时别留下幽灵条目
+      if (instances.get(proc.key)?.child === proc.child) instances.delete(proc.key)
+      return
+    }
+    // 进程还活着就不能当真停掉了。原来这里超时后一删了之，等于把孤儿丢给系统：重启会在
+    // 同一份 profile / 端口上再起一份，就是「文件被占用」的来源。现在保留跟踪记录、把状态
+    // 退回去（页面上的停止/重启按钮还能再点一次），并把错误抛给用户。
+    stuck.push(`${label}（PID ${proc.child.pid}）`)
+    proc.status = proc.url ? 'running' : 'starting'
   }))
   await emitState()
+  if (stuck.length) {
+    throw new Error(`停止失败：${stuck.join('、')} 的进程没有退出，可能还占着端口或插件文件；请再试一次，或在任务管理器里结束它`)
+  }
 }
 
 async function uninstallSystem(ver) {
@@ -5870,7 +5981,13 @@ export async function startServer() {
 export async function stopAll() {
   // 退出可能发生在端口探测或设置落盘期间；禁止尚未 spawn 的后台启动在收尾后复活。
   startupGeneration++
-  for (const proc of instanceList()) killTree(proc.child.pid)
+  // 退出前也要确认子进程真没了：原来杀完就 clear，taskkill 没生效时 dsh 就成了没有父进程的
+  // 孤儿 node.exe——用户看到的就是「进程脱离了启动器」，再打开启动器时它还占着插件文件。
+  const procs = instanceList()
+  await Promise.allSettled(procs.map(async (proc) => {
+    if (!(await terminateProcess(proc))) pushLog(`[退出] ${proc.version}/${proc.profile}（PID ${proc.child.pid}）没有退出`)
+    if (instances.get(proc.key)?.child === proc.child) instances.delete(proc.key)
+  }))
   instances.clear()
   logWriter.flush()
   flushLogEvents()
