@@ -177,6 +177,11 @@ header {
 /* macOS 用系统红绿灯：自绘按钮不要，顶栏左边让出红绿灯那块（外壳把它们摆在 x=18 起的约 70px 里） */
 .mac-window .win-controls { display: none; }
 .mac-window header { padding-left: 96px; }
+/* macOS 外壳（Electron）：拖窗口只能靠 app-region——Chromium 没有「从页面发起一次系统拖动」的接口。
+   控件和标签条要挖出来，否则点不动、标签也拖不了序。双击空白处缩放由系统处理。 */
+.mac-window header { -webkit-app-region: drag; }
+.mac-window header :is(button, a, input, select, .select),
+.mac-window .internal-tabs-area { -webkit-app-region: no-drag; }
 .win-btn {
   width: 34px;
   height: 30px;
