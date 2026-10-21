@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
-import { chmod, copyFile, mkdir, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
@@ -14,25 +14,30 @@ import {
   downloadNodeFile,
   run,
 } from './pack-common.mjs'
+import { packager } from '@electron/packager'
 import { LAUNCHER_NAME, MAC_APP_NAME, MAC_BUNDLE_ID, NODE_BINARY } from '../platform.js'
 import { macSigningIdentity, signMacBundle } from './mac-signing.mjs'
 
 /**
  * macOS 打包：release/DSH-X.app + release/DSH-X-mac-<arch>.dmg。
  *
- * 包的布局（platform.js 的 appBundle / 外壳的 app_root 都按它找文件）：
- *   DSH-X.app/Contents/MacOS/DSH            原生外壳（launcher/）
- *   DSH-X.app/Contents/Resources/app/…      和 Windows 安装目录一样的内容，node 在 app/node/node
+ * 外壳是 Electron（shell/），不再是 launcher/ 的 Rust + WKWebView——那个只留给 Windows。
+ * 包的布局（platform.js 的 appBundle 按它找文件，自更新按它换包）：
+ *   DSH-X.app/Contents/MacOS/DSH            Electron 主程序（executableName 改成了 DSH）
+ *   DSH-X.app/Contents/Frameworks/…         Electron 框架与 Helper
+ *   DSH-X.app/Contents/Resources/app/…      和 Windows 安装目录一样的内容 + shell/，node 在 app/node/node
  *   DSH-X.app/Contents/Resources/AppIcon.icns
  *
+ * Resources/app 是普通目录、不打 asar：dsh 子进程要用 node/node 去跑里面的 compat/、perf/ 钩子，
+ * 管理服务也要按真实路径找 public/ 和随包的整合包，asar 里的文件外部进程读不到。
+ *
  * dmg 的文件名带架构，和 server.js 的 APP_SETUP 对上——自更新按它去发布页取包。
- * 默认打当前机器的架构；DSH_MAC_ARCH=x64 / arm64 可以指定（外壳交叉编译需要装好对应的 rust target）。
+ * 默认打当前机器的架构；DSH_MAC_ARCH=x64 / arm64 可以指定（Electron 和 node 都按架构下载，不用交叉编译）。
  */
 
 const ARCH = process.env.DSH_MAC_ARCH || process.arch
-const RUST_TARGETS = { arm64: 'aarch64-apple-darwin', x64: 'x86_64-apple-darwin' }
-const RUST_TARGET = RUST_TARGETS[ARCH]
-if (!RUST_TARGET) throw new Error(`不支持的架构：${ARCH}（只支持 ${Object.keys(RUST_TARGETS).join(' / ')}）`)
+const ARCHS = new Set(['arm64', 'x64'])
+if (!ARCHS.has(ARCH)) throw new Error(`不支持的架构：${ARCH}（只支持 ${[...ARCHS].join(' / ')}）`)
 macSigningIdentity() // 缺固定证书时在下载 Node / 编译 Rust 前就中止正式构建
 
 const DIST = `node-v${NODE_VERSION}-darwin-${ARCH}`
@@ -52,8 +57,12 @@ const DS_STORE_WAIT_SECONDS = 20
 const DMG_TITLE_BAR = 28
 /** dmg 窗口布局（点，左上角为原点）：背景图和 Finder 摆图标共用这一份。 */
 const DMG_LAYOUT = { width: 640, height: 440, iconSize: 112, appX: 170, appsX: 470, iconY: 190 }
-// 和 Windows 版一样读 npmmirror；最低系统版本跟 Node 22 官方二进制的要求走
-const MIN_MACOS = '11.0'
+/** Electron 官方构建要求的最低系统版本：比 Node 22 的 11.0 高，以它为准（Electron 44 起是 13.0）。 */
+const MIN_MACOS = '13.0'
+/** Electron 包装出来的临时目录（packager 的 out），组装好之后挪到 release/DSH-X.app。 */
+const ELECTRON_OUT = join(RELEASE, 'electron-out')
+/** 外壳源码：和 APP_FILES 一样平铺拷进 Resources/app/shell。 */
+const SHELL_DIR = join(ROOT, 'shell')
 /** iconset 需要的尺寸（每个再配一张 @2x）。 */
 const ICON_SIZES = [16, 32, 128, 256, 512]
 
@@ -95,9 +104,59 @@ async function copyNodeRuntime() {
   }
 }
 
-function buildLauncher() {
-  run('cargo', ['build', '--release', '--target', RUST_TARGET], join(ROOT, 'launcher'))
-  return join(ROOT, 'launcher', 'target', RUST_TARGET, 'release', LAUNCHER_NAME)
+/**
+ * 只要 Electron 的空壳：packager 负责下载对应架构的 Electron、改名（可执行文件 → DSH，Helper 跟着改）、
+ * 写 Info.plist 的基础项。app 目录给它一个只含 package.json 的占位，真正的内容下面自己拷——
+ * packager 默认会打 asar、按 package.json 裁 node_modules，这两样都不适合这个布局（见文件头）。
+ */
+async function buildShell() {
+  const stub = join(tmpdir(), `dsh-x-electron-stub-${process.pid}`)
+  rmSync(stub, { recursive: true, force: true })
+  await mkdir(stub, { recursive: true })
+  await writeFile(join(stub, 'package.json'), JSON.stringify({ name: 'dsh-x', productName: 'DSH-X', version: PKG.version, main: 'shell/main.mjs' }))
+  // packager 会检查入口文件存在；占位而已，assemble 时整个 app 目录换成真正的内容
+  await mkdir(join(stub, 'shell'), { recursive: true })
+  await writeFile(join(stub, 'shell', 'main.mjs'), '')
+  rmSync(ELECTRON_OUT, { recursive: true, force: true })
+  const electronVersion = JSON.parse(await readFile(join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
+  const [out] = await packager({
+    dir: stub,
+    out: ELECTRON_OUT,
+    platform: 'darwin',
+    arch: ARCH,
+    electronVersion,
+    name: 'DSH-X',
+    executableName: LAUNCHER_NAME,
+    appBundleId: MAC_BUNDLE_ID,
+    appVersion: PKG.version,
+    buildVersion: PKG.version,
+    appCategoryType: 'public.app-category.developer-tools',
+    appCopyright: 'Copyright (C) 2026 yyh',
+    darwinDarkModeSupport: true,
+    asar: false,
+    prune: false,
+    overwrite: true,
+    quiet: true,
+    // 签名在组装完之后统一做（scripts/mac-signing.mjs），这里不签
+    osxSign: false,
+  })
+  rmSync(stub, { recursive: true, force: true })
+  return join(out, 'DSH-X.app')
+}
+
+/**
+ * Info.plist：packager 已写好基础项，这里补上我们自己的（图标、语言、最低系统）和
+ * 媒体权限的用途说明——dsh 的语音输入要麦克风，没有说明文字 macOS 会直接拒绝、连询问都不弹。
+ */
+function patchInfoPlist(plist) {
+  const set = (key, type, value) => run('plutil', ['-replace', key, `-${type}`, value, plist])
+  set('CFBundleIconFile', 'string', ICON_FILE)
+  set('CFBundleDevelopmentRegion', 'string', 'zh_CN')
+  set('CFBundleDisplayName', 'string', 'DSH-X')
+  set('LSMinimumSystemVersion', 'string', MIN_MACOS)
+  set('NSHighResolutionCapable', 'bool', 'YES')
+  set('NSMicrophoneUsageDescription', 'string', 'DSH 的语音输入需要使用麦克风。 / DSH voice input uses the microphone.')
+  set('NSCameraUsageDescription', 'string', 'DSH 页面请求使用摄像头时需要。 / Needed when a DSH page asks for the camera.')
 }
 
 /** assets/icon.png（512 母版）→ AppIcon.icns。 */
@@ -114,50 +173,23 @@ function buildIcon(dest) {
   rmSync(iconset, { recursive: true, force: true })
 }
 
-function infoPlist() {
-  const entries = {
-    CFBundleDevelopmentRegion: 'zh_CN',
-    CFBundleDisplayName: 'DSH-X',
-    CFBundleExecutable: LAUNCHER_NAME,
-    CFBundleIconFile: ICON_FILE,
-    CFBundleIdentifier: MAC_BUNDLE_ID,
-    CFBundleInfoDictionaryVersion: '6.0',
-    CFBundleName: 'DSH-X',
-    CFBundlePackageType: 'APPL',
-    CFBundleShortVersionString: PKG.version,
-    CFBundleVersion: PKG.version,
-    LSApplicationCategoryType: 'public.app-category.developer-tools',
-    LSMinimumSystemVersion: MIN_MACOS,
-    NSHumanReadableCopyright: 'Copyright (C) 2026 yyh',
-  }
-  const body = Object.entries(entries)
-    .map(([key, value]) => `  <key>${key}</key>\n  <string>${value}</string>`)
-    .join('\n')
-  return [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
-    '<plist version="1.0">',
-    '<dict>',
-    body,
-    // 支持深色模式、高分屏（不写的话 WKWebView 在 Retina 上是糊的）
-    '  <key>NSHighResolutionCapable</key>\n  <true/>',
-    '  <key>NSRequiresAquaSystemAppearance</key>\n  <false/>',
-    '</dict>',
-    '</plist>',
-    '',
-  ].join('\n')
-}
-
-async function assemble(launcher) {
+async function assemble(shellApp) {
   rmSync(BUNDLE, { recursive: true, force: true })
-  await mkdir(join(CONTENTS, 'MacOS'), { recursive: true })
+  await rename(shellApp, BUNDLE)
+  rmSync(ELECTRON_OUT, { recursive: true, force: true })
+  // packager 放的占位 app 换成真正的内容
+  rmSync(APP, { recursive: true, force: true })
   await copyAppFiles(APP)
+  await cp(SHELL_DIR, join(APP, 'shell'), { recursive: true })
+  // Electron 按 Resources/app/package.json 的 main 找入口；仓库里的 main 是给 npm start 的 start.js，
+  // 包里改指外壳。版本号等其余字段原样保留（server.js 读它显示版本、比较自更新）。
+  const appPackage = join(APP, 'package.json')
+  await writeFile(appPackage, `${JSON.stringify({ ...JSON.parse(await readFile(appPackage, 'utf8')), main: 'shell/main.mjs' }, null, 2)}\n`)
   await copyNodeRuntime()
-  await copyFile(launcher, join(CONTENTS, 'MacOS', LAUNCHER_NAME))
-  await chmod(join(CONTENTS, 'MacOS', LAUNCHER_NAME), 0o755)
+  // Electron 默认的 electron.icns 换成我们的图标
+  rmSync(join(CONTENTS, 'Resources', 'electron.icns'), { force: true })
   buildIcon(join(CONTENTS, 'Resources', ICON_FILE))
-  await writeFile(join(CONTENTS, 'Info.plist'), infoPlist())
-  await writeFile(join(CONTENTS, 'PkgInfo'), 'APPL????')
+  patchInfoPlist(join(CONTENTS, 'Info.plist'))
   signMacBundle(BUNDLE)
   console.log(`已打包到 ${BUNDLE}`)
 }
@@ -272,6 +304,6 @@ function buildDmg() {
 }
 
 await downloadNode()
-const launcher = buildLauncher()
-await assemble(launcher)
+const shellApp = await buildShell()
+await assemble(shellApp)
 buildDmg()
