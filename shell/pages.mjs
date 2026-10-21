@@ -79,9 +79,22 @@ export function idlePage(lang) {
 </div></body></html>`
 }
 
-/** 标签页对应的实例停了：不在旧端口上反复刷新，以免重启间隙误加载到另一个实例。 */
-export function stoppedPage(lang, theme) {
+/**
+ * 实际生效的深色状态：显式 light/dark 说了算；system（以及将来新增的未知值）跟随系统。
+ * 和 launcher/tabs.rs 的 resolve_dark 一致（#58）。
+ */
+export function resolveDark(theme, systemDark) {
+  if (theme === 'dark') return true
+  if (theme === 'light') return false
+  return systemDark
+}
+
+/**
+ * 标签页对应的实例停了：不在旧端口上反复刷新，以免重启间隙误加载到另一个实例。
+ * 深色沿用 idlePage 的配色（底色 #15171c、文字 #b9bec9）：同一个外壳里不该有两种黑。
+ */
+export function stoppedPage(lang, dark) {
   const text = lang === 'en' ? 'This DSH instance has stopped. Return to the launcher to start it.' : '此 DSH 实例已停止，请返回启动器启动。'
-  const background = theme === 'dark' ? '#111827' : '#f5f8ff'
-  return `<!doctype html><meta charset='utf-8'><style>body{font:16px system-ui;color:#7182a2;background:${background};display:grid;place-items:center;height:90vh}</style><p>${text}</p>`
+  const [color, background] = dark ? ['#b9bec9', '#15171c'] : ['#7182a2', '#f5f8ff']
+  return `<!doctype html><meta charset='utf-8'><style>body{font:16px system-ui;color:${color};background:${background};display:grid;place-items:center;height:90vh}</style><p>${text}</p>`
 }

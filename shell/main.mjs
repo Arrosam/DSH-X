@@ -1,6 +1,6 @@
 // 必须是第一个 import：它在 platform.js / server.js 求值之前补好 PATH 和外壳标记（见 env.mjs）
 import './env.mjs'
-import { BrowserWindow, Menu, Tray, WebContentsView, app, dialog, ipcMain, nativeImage, session, shell } from 'electron'
+import { BrowserWindow, Menu, Tray, WebContentsView, app, dialog, ipcMain, nativeImage, nativeTheme, session, shell } from 'electron'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -100,6 +100,8 @@ async function start() {
   console.log(`DSH-X ${VERSION} (Electron ${process.versions.electron}, Chromium ${process.versions.chrome})`)
   Menu.setApplicationMenu(appMenu())
   installPermissionHandlers()
+  // 系统深浅色在运行中变了（控制中心切换）：停止页跟着重画（#58）
+  nativeTheme.on('updated', () => tabs?.systemThemeChanged())
 
   if (!RUNTIME_NODE) {
     showStartupError('启动器文件不完整', '找不到用来运行 dsh 的 node：自带运行时缺失。', '重新安装一次 DSH-X 即可。')

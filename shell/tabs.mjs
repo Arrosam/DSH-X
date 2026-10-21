@@ -1,5 +1,5 @@
-import { WebContentsView } from 'electron'
-import { dataUrl, stoppedPage } from './pages.mjs'
+import { nativeTheme } from 'electron'
+import { dataUrl, resolveDark, stoppedPage } from './pages.mjs'
 import { reorderBy, sameOrigin } from './model.mjs'
 
 /**
@@ -31,6 +31,8 @@ export class BrowserTabs {
     this.enabled = false
     this.lang = 'zh'
     this.theme = 'system'
+    // 设置里的主题换算出来的实际深浅色：停止页是外壳自己画的，跟不上管理页的 CSS 变量（#58）
+    this.dark = false
     this.rendered = ''
     this.headerHeight = DEFAULT_HEADER_HEIGHT
     this.geometry = ''
@@ -50,11 +52,29 @@ export class BrowserTabs {
   }
 
   preferences(enabled, lang, theme) {
+    const langChanged = this.lang !== lang
     this.enabled = enabled
     this.lang = lang
     this.theme = theme
+    // 状态轮询每次都会走到这里；只有配色或语言真的变了才重画停止页，免得反复重载
+    this.syncPlaceholder(langChanged)
     this.layout()
     this.render(false)
+  }
+
+  /** 系统深浅色在运行中变了：由外壳的 nativeTheme 'updated' 事件调用。 */
+  systemThemeChanged() {
+    this.syncPlaceholder(false)
+  }
+
+  /** 只动正显示停止页的标签（loaded 为空）：运行中的实例页面有自己的配色，重载会丢掉内容。 */
+  syncPlaceholder(langChanged) {
+    const dark = resolveDark(this.theme, nativeTheme.shouldUseDarkColors)
+    if (dark === this.dark && !langChanged) return
+    this.dark = dark
+    for (const tab of this.tabs) {
+      if (tab.target.managed && !tab.loaded) this.load(tab, dataUrl(stoppedPage(this.lang, this.dark)))
+    }
   }
 
   tabBounds() {
@@ -187,7 +207,7 @@ export class BrowserTabs {
       const url = next && (next.status === 'running' || next.status === 'starting') ? next.url : ''
       if (tab.loaded !== url) {
         // 不在占用的旧端口上反复刷新，以免重启间隙误加载到另一个实例。
-        this.load(tab, url || dataUrl(stoppedPage(this.lang, this.theme)))
+        this.load(tab, url || dataUrl(stoppedPage(this.lang, this.dark)))
         tab.loaded = url
         tab.pageTitle = ''
       }

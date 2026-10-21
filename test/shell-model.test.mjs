@@ -23,6 +23,19 @@ import {
   windowMode,
 } from '../shell/model.mjs'
 import { runtimeNode } from '../platform.js'
+import { resolveDark, stoppedPage } from '../shell/pages.mjs'
+
+test('停止页跟随主题与系统深浅色（#58，和 tabs.rs 的同名用例一致）', () => {
+  assert.ok(resolveDark('dark', false) && resolveDark('dark', true))
+  assert.ok(!resolveDark('light', false) && !resolveDark('light', true))
+  assert.ok(!resolveDark('system', false) && resolveDark('system', true))
+  assert.ok(resolveDark('', true), '缺 theme 行时按跟随系统处理')
+  assert.ok(stoppedPage('zh', false).includes('background:#f5f8ff'))
+  const dark = stoppedPage('zh', true)
+  assert.ok(dark.includes('background:#15171c') && !dark.includes('#f5f8ff'), '深色停止页不能带浅色底')
+  const en = stoppedPage('en', true)
+  assert.ok(en.includes('This DSH instance has stopped.') && !en.includes('此 DSH'), '英文界面不能冒出中文')
+})
 
 test('本机地址判定：只认回环，userinfo 里的主机名骗不过去', () => {
   assert.ok(isLoopbackUrl('http://127.0.0.1:9716/?token=a'))
