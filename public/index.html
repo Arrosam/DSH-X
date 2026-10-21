@@ -281,13 +281,15 @@
               <!-- dsh 那一类已经并进常规：留一条分组小标题，不再单开一个分类 -->
               <div class="set-caption" data-i18n="dsh">dsh</div>
               <div class="set-group">
-                <label class="toggle set-row">
-                  <span class="set-text">
-                    <span class="set-name" data-i18n="插件市场">插件市场</span>
-                    <span class="set-desc" data-i18n="安装新版本时加入插件市场。">安装新版本时加入插件市场。</span>
-                  </span>
-                  <input id="seedMarket" type="checkbox" />
-                </label>
+                <div class="set-row">
+                  <div class="set-text">
+                    <span class="set-name" data-i18n="默认插件源">默认插件源</span>
+                    <span class="set-desc" data-i18n="默认 Awesome DSH Plugin，点右侧铅笔可编辑。">默认 Awesome DSH Plugin，点右侧铅笔可编辑。</span>
+                  </div>
+                  <div class="set-control">
+                    <button class="ghost icon-btn" id="pluginMarketSourcesEdit" type="button" title="编辑默认插件源" aria-label="编辑默认插件源" data-i18n-title="编辑默认插件源" data-i18n-aria-label="编辑默认插件源"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg></button>
+                  </div>
+                </div>
 
                 <label class="toggle set-row">
                   <span class="set-text">
@@ -436,6 +438,18 @@
                   <p class="hint" id="proxyHint"></p>
                 </div>
               </div>
+              <div class="set-label" data-i18n="AI 自检">AI 自检</div>
+              <div class="set-group">
+                <div class="set-row">
+                  <div class="set-text">
+                    <span class="set-name" data-i18n="让 AI 给环境做体检">让 AI 给环境做体检</span>
+                    <span class="set-desc" data-i18n="复制自检指令，发给 AI 检查环境。">复制自检指令，发给 AI 检查环境。</span>
+                  </div>
+                  <div class="set-control">
+                    <button class="ghost" id="copySelfcheckPrompt" type="button" data-i18n="复制自检请求">复制自检请求</button>
+                  </div>
+                </div>
+              </div>
             </section>
           </div>
         </section>
@@ -558,18 +572,24 @@
                 </button>
                 <div class="select-panel" id="versionPanel" role="listbox" hidden></div>
               </div>
-              <button class="ghost icon-btn launch-manage-version" id="launchManageVersions" type="button" title="管理版本" aria-label="管理版本" data-i18n-title="管理版本" data-i18n-aria-label="管理版本"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
             </div>
           </div>
           <!-- 版本类型决定「自动最新版本」挑哪些版本、提醒哪些新版本。三档开关的值是 version.js 里
                VERSION_CHANNELS 的下标：越往右越不稳定。档名读屏走 aria-valuetext，旁边那份只给眼睛看 -->
-          <div class="home-field launch-channel-field">
+          <div class="home-field launch-channel-field" id="launchChannelField">
             <label for="launchUpdateChannel" data-i18n="版本类型">版本类型</label>
             <div class="launch-channel-control">
-              <input id="launchUpdateChannel" type="range" min="0" max="2" step="1" value="0" />
+              <span class="launch-switch">
+                <input id="launchUpdateChannel" type="range" min="0" max="2" step="1" value="0" />
+                <!-- 原生 range 的圆钮没法用 CSS 过渡：位置由浏览器画，只能换值。所以藏掉原生圆钮，
+                     用这个自己画的跟着 data-channel 走位，点击/键盘换档才有滑动动效；拖动时仍由原生控件接管 -->
+                <span class="launch-switch-knob" aria-hidden="true"></span>
+              </span>
               <span id="launchUpdateChannelName" aria-hidden="true"></span>
             </div>
           </div>
+          <!-- 管理版本是这一行的辅助动作，放到行尾单独站着；贴着版本下拉会把两个字段挤成三截 -->
+          <button class="ghost icon-btn launch-manage-version" id="launchManageVersions" type="button" title="管理版本" aria-label="管理版本" data-i18n-title="管理版本" data-i18n-aria-label="管理版本"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
           <p class="hint" id="launchUpdateChannelHint"></p>
         </div>
         <div class="home-field">
@@ -687,6 +707,18 @@
       <p class="skill-form-error" id="skillFormError" role="alert"></p>
       </div>
       <div class="ask-actions"><button class="ghost" id="skillCancel" type="button" data-i18n="取消">取消</button><button class="primary" id="skillSave" type="submit" data-i18n="创建">创建</button></div>
+    </form>
+  </div>
+  <div class="ask" id="pluginSourcesDialog" hidden>
+    <form class="ask-card skill-editor-card" id="pluginSourcesForm" role="dialog" aria-modal="true" aria-labelledby="pluginSourcesTitle">
+      <div class="dialog-heading"><h2 class="ask-title" id="pluginSourcesTitle" data-i18n="编辑默认插件源">编辑默认插件源</h2><button class="ghost icon-btn dialog-close" id="pluginSourcesClose" type="button" title="关闭" aria-label="关闭" data-i18n-title="关闭" data-i18n-aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+      <div class="dialog-body">
+        <label for="pluginMarketSources" data-i18n="索引地址（每行一个）">索引地址（每行一个）</label>
+        <textarea id="pluginMarketSources" rows="4" spellcheck="false" placeholder="https://awesome-dsh-plugin.com/index.json"></textarea>
+        <p class="hint" data-i18n="可修改或清空；DSH 中已有配置优先。下次启动 dsh 生效。">可修改或清空；DSH 中已有配置优先。下次启动 dsh 生效。</p>
+        <p class="skill-form-error" id="pluginSourcesError" role="alert"></p>
+      </div>
+      <div class="ask-actions"><button class="ghost" id="pluginSourcesCancel" type="button" data-i18n="取消">取消</button><button class="primary" type="submit" data-i18n="保存">保存</button></div>
     </form>
   </div>
   <div class="ask" id="notice" hidden>
@@ -1190,7 +1222,12 @@
   "登录系统时启动。": "Start when you sign in.",
   "目录与端口": "Folders and ports",
   "重启启动器后生效。": "Takes effect after restarting the launcher.",
-  "安装新版本时加入插件市场。": "Include the plugin market when installing a version.",
+  "默认插件源": "Default plugin sources",
+  "默认 Awesome DSH Plugin，点右侧铅笔可编辑。": "Defaults to Awesome DSH Plugin. Click the pencil to edit.",
+  "编辑默认插件源": "Edit default plugin sources",
+  "索引地址（每行一个）": "Index URLs (one per line)",
+  "可修改或清空；DSH 中已有配置优先。下次启动 dsh 生效。": "Edit or clear the list; existing configuration in dsh takes priority. Applies on the next dsh start.",
+  "索引地址要完整的 http:// 或 https:// 链接：{line}": "Use a full http:// or https:// URL: {line}",
   "这一页文案的语言。": "The language used on these pages.",
   "启动器": "Launcher",
   "已安装。可更新到 {latest}。": "Installed. {latest} is available.",
@@ -1359,6 +1396,15 @@
   "配置已修复，可启动或重启此环境。": "Configuration repaired. Start or restart this environment to apply.",
   "环境 {profile} 已启动。": "Environment {profile} started.",
   "启动参数、修复、端口、网络与目录。": "Launch arguments, recovery, ports, network and directories.",
+  "AI 自检": "AI self-check",
+  "让 AI 给环境做体检": "Let AI check the setup",
+  "复制自检指令，发给 AI 检查环境。": "Copy a self-check request and send it to your AI.",
+  "复制自检请求": "Copy self-check request",
+  "复制失败：{error}": "Copy failed: {error}",
+  "请帮我自检本机 DSH-X（DeepSeek Harness 启动器）环境：先只读检查，不要改文件、不要重启 dsh。": "Please self-check the DSH-X (DeepSeek Harness launcher) setup on this machine. Start with read-only checks: do not change files or restart dsh.",
+  "用 dsh-x-selfcheck 技能跑一次体检，命令：": "Run the checks with the dsh-x-selfcheck skill:",
+  "这个路径来自管理页的技能清单；如果找不到技能，先告诉我，别自己装或改环境。": "That path comes from the manager's skill list. If the skill is not there, tell me instead of installing or changing anything yourself.",
+  "拿到报告后：先讲 FAIL 和 WARN（每条带证据、影响和该在哪修），再讲值得注意的 INFO；要改配置、补丁层或插件时先给方案，等我同意再动手。": "With the report: explain FAIL and WARN first (evidence, impact and where to fix each), then any notable INFO. Propose changes to settings, the patch layer or plugins and wait for my approval before editing.",
   "管理插件": "Manage plugins",
   "管理 {name} 的插件": "Manage plugins for {name}",
   "正在读取插件…": "Loading plugins…",
@@ -1459,6 +1505,8 @@
     const launchPortEl = document.getElementById('launchPort')
     const launchAutoLaunchEl = document.getElementById('launchAutoLaunch')
     const launchUpdateChannelEl = document.getElementById('launchUpdateChannel')
+    const launchChannelFieldEl = document.getElementById('launchChannelField')
+    const launchUpdateChannelHintEl = document.getElementById('launchUpdateChannelHint')
     const launchNameEl = document.getElementById('launchName')
     const launchSaveEl = document.getElementById('launchSave')
     const launchDialogEl = document.getElementById('launchDialog')
@@ -3226,6 +3274,11 @@
       else if (showAllVersions && allVersions.length > RECENT_REMOTE_LIMIT + 2) nextOptions.push({ value: '__less__', text: t('收起旧版本'), more: true })
       versionOptions = nextOptions
       versionValue = nextOptions.some((option) => option.value === picked) ? picked : 'auto'
+      // 钉死具体版本时，「版本类型」管不到这个版本本身，也不影响更新提醒，整块收起来；
+      // 只有「自动最新版本」才需要它。说明行跟着一起藏，不然会剩半截提示悬空。
+      const autoVersion = (versionValue || 'auto') === 'auto'
+      launchChannelFieldEl.hidden = !autoVersion
+      launchUpdateChannelHintEl.hidden = !autoVersion
       const version = selected()
       const anyLive = version ? runningInfo(version) : null
       const loading = Boolean(action) || Boolean(state.installing)
@@ -3857,7 +3910,38 @@
     }
 
     const autoStartEl = document.getElementById('autoStart')
-    const seedMarketEl = document.getElementById('seedMarket')
+    const pluginMarketSourcesEl = document.getElementById('pluginMarketSources')
+    const pluginMarketSourcesEditEl = document.getElementById('pluginMarketSourcesEdit')
+    const pluginMarketSourcesDialogEl = document.getElementById('pluginSourcesDialog')
+    const pluginMarketSourcesFormEl = document.getElementById('pluginSourcesForm')
+    const pluginMarketSourcesErrorEl = document.getElementById('pluginSourcesError')
+    function closePluginSourcesDialog() {
+      pluginMarketSourcesErrorEl.textContent = ''
+      void hidePackDialog(pluginMarketSourcesDialogEl)
+    }
+    pluginMarketSourcesEditEl.onclick = () => {
+      pluginMarketSourcesErrorEl.textContent = ''
+      showPackDialog(pluginMarketSourcesDialogEl, pluginMarketSourcesEl)
+      pluginMarketSourcesEl.focus()
+    }
+    document.getElementById('pluginSourcesClose').onclick = closePluginSourcesDialog
+    document.getElementById('pluginSourcesCancel').onclick = closePluginSourcesDialog
+    trapPackDialog(pluginMarketSourcesDialogEl, closePluginSourcesDialog)
+    pluginMarketSourcesFormEl.onsubmit = (event) => {
+      event.preventDefault()
+      const lines = pluginMarketSourcesEl.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+      // 服务端只收完整 URL 且逐条校验；这里先挡一道，错误直接显示在弹窗里，不用等保存往返
+      for (const line of lines) {
+        let url = null
+        try { url = new URL(line) } catch {}
+        if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
+          pluginMarketSourcesErrorEl.textContent = t('索引地址要完整的 http:// 或 https:// 链接：{line}', { line })
+          return
+        }
+      }
+      queueSetting('pluginMarketSources', lines)
+      closePluginSourcesDialog()
+    }
     const autoDisableEl = document.getElementById('autoDisable')
     const autoCleanEl = document.getElementById('autoCleanVersions')
     let pluginProfile = ''
@@ -4030,6 +4114,7 @@
       { key: 'hideBigFish', input: document.getElementById('hideBigFish'), apply: window.setLauncherBigFishHidden },
     ]
     const pickDirEl = document.getElementById('pickDir')
+    const copySelfcheckEl = document.getElementById('copySelfcheckPrompt')
     const dataDirEl = document.getElementById('dataDir')
     const dataDirHint = document.getElementById('dataDirHint')
     const systemPathEl = document.getElementById('systemPath')
@@ -4186,7 +4271,7 @@
           : t('局域网访问还需在 dsh 中开启远程访问。')
       }
       if ('autoStart' in data) autoStartEl.checked = Boolean(data.autoStart)
-      if ('seedMarket' in data) seedMarketEl.checked = data.seedMarket !== false
+      if ('pluginMarketSources' in data) pluginMarketSourcesEl.value = data.pluginMarketSources.join('\n')
       if ('autoDisablePlugins' in data) autoDisableEl.checked = data.autoDisablePlugins !== false
       if ('autoCleanVersions' in data) autoCleanEl.checked = data.autoCleanVersions !== false
       syncUiSelects()
@@ -4324,7 +4409,6 @@
       else loadSettings()
     }
     autoStartEl.onchange = () => queueSetting('autoStart', autoStartEl.checked)
-    seedMarketEl.onchange = () => queueSetting('seedMarket', seedMarketEl.checked)
     autoDisableEl.onchange = () => queueSetting('autoDisablePlugins', autoDisableEl.checked)
     autoCleanEl.onchange = () => queueSetting('autoCleanVersions', autoCleanEl.checked)
     uiLangEl.onchange = () => queueSetting('lang', uiLangEl.value)
@@ -4371,6 +4455,56 @@
         proxyHintEl.textContent = error.message
       } finally {
         proxyTestEl.disabled = false
+      }
+    }
+    // 复制这件事在设置页只有一个入口，但部分 WebView 没有 Clipboard API，得留选区复制的后路
+    async function copyPlainText(text) {
+      try {
+        await navigator.clipboard.writeText(text)
+      } catch {
+        const field = document.createElement('textarea')
+        field.value = text
+        field.readOnly = true
+        field.style.cssText = 'position:fixed;left:0;top:0;opacity:0;pointer-events:none'
+        document.body.appendChild(field)
+        field.select()
+        try {
+          if (!document.execCommand('copy')) throw new Error('copy failed')
+        } finally {
+          field.remove()
+        }
+      }
+    }
+    copySelfcheckEl.onclick = async () => {
+      copySelfcheckEl.disabled = true
+      try {
+        // 技能可能被装到自定义 DSH_HOME：路径从管理页的技能清单拿，AI 拿到就能直接跑
+        let script = '~/.dsh/skills/dsh-x-selfcheck/scripts/selfcheck.mjs'
+        try {
+          const data = await getJson('/api/skills')
+          const skill = (data.skills || []).find((item) => item.name === 'dsh-x-selfcheck')
+          if (skill?.file) {
+            const file = String(skill.file)
+            const dir = file.slice(0, Math.max(file.lastIndexOf('\\'), file.lastIndexOf('/')))
+            const sep = dir.includes('\\') ? '\\' : '/'
+            script = `${dir}${sep}scripts${sep}selfcheck.mjs`
+          }
+        } catch { /* 管理页读不到技能清单就退回默认位置，指令里已经让 AI 先确认 */ }
+        const prompt = [
+          t('请帮我自检本机 DSH-X（DeepSeek Harness 启动器）环境：先只读检查，不要改文件、不要重启 dsh。'),
+          '',
+          t('用 dsh-x-selfcheck 技能跑一次体检，命令：'),
+          `node "${script}" --json`,
+          '',
+          t('这个路径来自管理页的技能清单；如果找不到技能，先告诉我，别自己装或改环境。'),
+          '',
+          t('拿到报告后：先讲 FAIL 和 WARN（每条带证据、影响和该在哪修），再讲值得注意的 INFO；要改配置、补丁层或插件时先给方案，等我同意再动手。'),
+        ].join('\n')
+        await copyPlainText(prompt)
+      } catch (error) {
+        notify(t('复制失败：{error}', { error: error.message }))
+      } finally {
+        copySelfcheckEl.disabled = false
       }
     }
     webBindEl.onchange = () => queueSetting('webBind', webBindEl.value)

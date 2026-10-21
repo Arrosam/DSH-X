@@ -261,7 +261,8 @@ export const DEFAULTS = {
   // 由配置层（远程访问插件的「局域网访问」开关写的 profile 补丁块）决定 0.0.0.0
   webBind: DEFAULT_WEB_BIND,
   autoStart: false,
-  seedMarket: true,
+  // 官方自定义插件市场的默认索引；已有 Profile 配置优先，不再预装第三方市场。
+  pluginMarketSources: ['https://awesome-dsh-plugin.com/index.json'],
   // 启动失败时按错误点名自动禁用问题插件（兼容模式），再重试
   autoDisablePlugins: true,
   // 装完新版本后自动清理更旧的版本（只留最新的和最近装的一个）。
@@ -288,6 +289,22 @@ export const DEFAULTS = {
 export function safeDownloadSource(value) {
   const name = String(value ?? '').trim()
   return DOWNLOAD_SOURCES[name] ? name : DEFAULT_SOURCE
+}
+
+/** 与官方市场一致：索引只接受无账号密码、无片段的 HTTP(S) URL。 */
+export function safePluginMarketSources(value) {
+  if (!Array.isArray(value)) throw new Error('插件源请填写地址列表')
+  if (value.length > 32) throw new Error('插件源最多 32 个')
+  const urls = value.map((item) => {
+    if (typeof item !== 'string' || !item.trim() || item.length > 4096) throw new Error('插件源请填写完整的 HTTP/HTTPS 索引地址')
+    let url
+    try { url = new URL(item.trim()) } catch { throw new Error('插件源请填写完整的 HTTP/HTTPS 索引地址') }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.href.includes('#')) {
+      throw new Error('插件源仅支持无账号密码、无片段的 HTTP/HTTPS 索引地址')
+    }
+    return url.href
+  })
+  return [...new Set(urls)]
 }
 
 /** 端口校验：1-65535 的整数，别的都当成没填（回默认端口）。 */
@@ -627,6 +644,8 @@ function mergeStoredSettings(stored) {
   delete merged.disableBackgroundAnimation
   // 内置插件的预置开关已撤（插件改由整合包分发），旧文件里的键顺手清掉
   delete merged.seedBundled
+  delete merged.seedMarket
+  try { merged.pluginMarketSources = safePluginMarketSources(merged.pluginMarketSources) } catch { merged.pluginMarketSources = [] }
   delete merged.seedMemory
   try { merged.keepVersions = safeKeepVersions(merged.keepVersions) } catch { merged.keepVersions = 2 }
   return merged
@@ -732,7 +751,8 @@ async function saveSettingsNow(patch) {
   }
   if ('proxyUrl' in patch) merged.proxyUrl = safeProxyUrl(patch.proxyUrl)
   merged.autoStart = Boolean(merged.autoStart)
-  merged.seedMarket = merged.seedMarket !== false
+  merged.pluginMarketSources = safePluginMarketSources(merged.pluginMarketSources)
+  delete merged.seedMarket
   merged.autoDisablePlugins = merged.autoDisablePlugins !== false
   merged.autoCleanVersions = merged.autoCleanVersions !== false
   if ('keepVersions' in patch) merged.keepVersions = safeKeepVersions(patch.keepVersions)

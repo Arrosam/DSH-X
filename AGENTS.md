@@ -62,6 +62,7 @@ Node 服务  start.js → server.js     管理页后端 + 版本 / 插件 / 整�
 | `public/` | 管理界面与看板娘素材（`index.html` 是主体） |
 | `scripts/` | 打包（`pack.mjs` / `pack-mac.mjs` / `pack-common.mjs` / `dsh-setup.iss`）、图标（`make-icons.py`）、落地页素材、发版清单与 SBOM |
 | `plugins/` `packs/` | 插件源码（发 npm）与随包发的整合包配方（见「关键机制」，**两个目录别合并**） |
+| `skills/` | 给 AI 用的技能源码（随仓库分发，不进安装包）：`dsh-x-selfcheck` 只读自检 DSH-X 环境（环境/管理页/数据目录/DSH_HOME/profile/实例/插件/技能/同步/日志），`node skills/dsh-x-selfcheck/scripts/selfcheck.mjs`，零依赖；用例见 `test/selfcheck-skill.test.mjs` |
 | `compat/` `perf/` | 注入 dsh 进程的钩子：兼容修补与加速 |
 | `launcher/` | Windows 的 Rust 外壳（`main.rs`、托盘 / 窗口 / 自更新）；macOS 不再用它 |
 | `shell/` | macOS 的 Electron 外壳（`main.mjs` 窗口 / 托盘 / 菜单，`tabs.mjs` 内部标签页，`model.mjs` 与 Rust 外壳一致的纯规则） |

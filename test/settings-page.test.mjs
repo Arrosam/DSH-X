@@ -49,8 +49,14 @@ test('顶栏四个 tab 已取消，设置分类在左侧导航，主页右上角
   assert.doesNotMatch(html, /data-category="dsh"/, 'dsh 分类已经并进常规')
   assert.match(
     html,
-    /<section class="set-section" data-category="general"[\s\S]{0,3000}?<div class="set-caption"[^>]*>dsh<\/div>[\s\S]{0,3000}?id="seedMarket"/,
-    '插件市场仍在常规设置中',
+    /<section class="set-section" data-category="general"[\s\S]{0,3000}?<div class="set-caption"[^>]*>dsh<\/div>[\s\S]{0,3000}?id="pluginMarketSourcesEdit"/,
+    '默认插件源在常规设置中（列表收起，只留编辑入口）',
+  )
+  // 实际编辑放在弹窗里：设置行不再直接摆一个大文本框，点铅笔才展开
+  assert.match(
+    html,
+    /<div class="ask" id="pluginSourcesDialog"[\s\S]*?id="pluginMarketSources"/,
+    '默认插件源的编辑框在弹窗里',
   )
   // profile 选择器整体撤了：插件页以环境卡片为入口，常规里也不再重复一份
   assert.doesNotMatch(
@@ -145,4 +151,19 @@ test('旧同步界面已撤出首页，兼容接口与插件引擎仍保留', ()
   assert.match(server, /url.pathname === '\/api\/sync\/save'/)
   assert.match(server, /url.pathname === '\/api\/sync\/run'/)
   assert.match(readFileSync(new URL('../plugins/dsh-x-sync/lib/index.js', import.meta.url), 'utf8'), /engine\/sync\.js/)
+})
+
+test('设置页有「复制自检请求」按钮：路径问技能清单，复制出去的是可直接执行的命令', () => {
+  // 按钮放在高级设置的「AI 自检」组里；技能可能装在自定义 DSH_HOME，路径不能写死
+  assert.match(html, /<section class="set-section" data-category="advanced"[\s\S]*?id="copySelfcheckPrompt"/, '按钮在高级设置里')
+  assert.match(html, /getJson\('\/api\/skills'\)/, '从管理页技能清单拿真实安装路径')
+  assert.match(html, /item\.name === 'dsh-x-selfcheck'/, '只认 dsh-x-selfcheck 这个技能')
+  assert.match(html, /node "\$\{script\}" --json/, '复制出去的请求带可直接执行的命令')
+  assert.match(html, /navigator\.clipboard\.writeText/, '优先用 Clipboard API')
+  assert.match(html, /document\.execCommand\('copy'\)/, 'WebView 没有 Clipboard API 时退回选区复制')
+  // 英文也要有，否则界面切成英文这里还是中文
+  const dict = new vm.Script(`(${html.match(/const EN = (\{[\s\S]*?\n\})/)[1]})`).runInNewContext()
+  for (const key of ['复制自检请求', '让 AI 给环境做体检', '复制自检指令，发给 AI 检查环境。', '用 dsh-x-selfcheck 技能跑一次体检，命令：']) {
+    assert.ok(dict[key], `「${key.slice(0, 12)}…」有英文`)
+  }
 })

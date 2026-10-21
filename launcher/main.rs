@@ -1558,6 +1558,19 @@ fn main() {
                     }
                 }
             }
+            // 系统深浅色在运行中变了（Windows 设置里改、macOS 控制中心切）。内嵌实例的
+            // 「已停止」占位页是外壳自己 load_html 画的，不跟着管理页的 CSS，只能主动重画。
+            Event::WindowEvent {
+                event: WindowEvent::ThemeChanged(_),
+                window_id,
+                ..
+            } => {
+                if let Some(window) = &window {
+                    if window.id() == window_id {
+                        if let Some(tabs) = &mut browser_tabs { tabs.system_theme_changed(window); }
+                    }
+                }
+            }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested { .. },
                 window_id,

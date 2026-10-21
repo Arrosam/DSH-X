@@ -22,7 +22,7 @@ DSH-X 是 DeepSeek Harness 的第三方轻量桌面启动器：启动项与多�
 
 - **启动项与多实例**：按项选择用户目录、profile、版本和端口；支持并行启动，运行中也可添加启动项。
 - **版本管理**：独立管理已安装版本，支持检测新版本、手动安装、卸载和为启动项指定版本。
-- **插件与整合包**：按环境安装、开关和更新插件；社区市场支持瀑布流浏览、搜索和排序，也可导入、导出整合包。
+- **插件与整合包**：按环境安装、开关和更新插件，可配置官方自定义插件市场的默认索引源；整合包社区市场支持瀑布流浏览、搜索和排序，也可导入、导出整合包。
 - **MCP 与技能**：配置 MCP 服务器，导入、管理和开关技能。
 - **多种打开方式**：DSH-X 内部标签页、系统浏览器标签页、浏览器独立窗口或桌面窗口。
 - **外观**：浅色 / 深色主题、透明度、开场与启动项动效，以及独立的背景和大肥鱼开关。
@@ -135,7 +135,7 @@ DSH-X 是 DeepSeek Harness 的第三方轻量桌面启动器：启动项与多�
 
 Windows：[下载 DSH-Setup.exe](https://github.com/yyh-001/DSH-X/releases/latest) 安装，从桌面打开 **DSH-X**。
 
-macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`（Intel），把 **DSH-X** 拖进「应用程序」。v0.1.17 使用临时签名，未做公证，首次打开可能需要在系统安全提示中手动允许。
+macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`（Intel），把 **DSH-X** 拖进「应用程序」。v0.1.18 使用临时签名，未做公证，首次打开可能需要在系统安全提示中手动允许。
 
 在主页添加或编辑启动项，选择环境与版本后启动；编辑启动项时可打开 **版本管理**，手动安装或卸载版本。设置 → 常规 → **打开 dsh 的方式** 可选择 DSH-X 内部标签页、浏览器或独立窗口。内部标签页需要使用安装后的桌面端。
 
@@ -158,7 +158,7 @@ Windows（需要 Rust 与 Inno Setup 6）产出 `release/DSH/` 便携目录和 `
 Windows 打包同时生成 SBOM 与发布清单（本地自查，不上传 Release）。发版前检查版本与产物：
 
 ```sh
-node scripts/release-manifest.mjs check-tag v0.1.17
+node scripts/release-manifest.mjs check-tag v0.1.18
 node scripts/release-manifest.mjs verify
 ```
 

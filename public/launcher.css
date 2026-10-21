@@ -545,23 +545,30 @@ html.reduce-motion .launch-status.is-working::before { animation: none; }
 .launch-modal-fields { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; margin: -2px; padding: 2px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 #launchDialog .home-field > label { font-size: 12px; letter-spacing: 0; }
 .toggle.launch-auto-launch { margin: 0; font-size: 12px; }
-/* 更新提醒跟版本下拉同一行：开关只占自身宽度，剩下的都给版本；窄到放不下时整块换到下一行。
-   开关高 26px、下拉高 42px，靠控件盒子撑到同高再居中，两边的控件才对得齐。 */
-.launch-channel-field { flex: 0 0 auto; }
-.launch-channel-control { display: flex; align-items: center; gap: 8px; height: 42px; }
-/* 档名会在「正式版 / Official / RC / Alpha」间切换，留够最长那个的宽度，切档时整行不跟着晃 */
-#launchUpdateChannelName { min-width: 4em; color: var(--text); font-size: 13px; }
-/* 说明要讲清三档各收哪些版本，开关旁边放不下，单独占满下一行；负边距抵掉一部分行间距，贴着上面的控件 */
-#launchUpdateChannelHint { flex-basis: 100%; margin: -4px 0 0; font-size: 12px; }
+/* 更新提醒跟版本下拉同一行：窄到放不下时整块换到下一行，两边的控件才对得齐。
+   版本类型给固定宽度，把开关和档名装进一个有边框的控件盒——跟下拉同高同圆角，读起来是一个设置项，
+   而不是飘在右上角的两粒零件；剩下的宽度都留给版本。 */
+.launch-channel-field { flex: 0 0 150px; }
+.launch-channel-control { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+.launch-channel-control:focus-within { outline: 1px solid var(--accent); }
+/* 档名会在「正式版 / Official / RC / Alpha」间切换，留够最长那个的宽度、靠右，切档时整行不跟着晃 */
+#launchUpdateChannelName { min-width: 3em; margin-left: auto; text-align: right; color: var(--text); font-size: 13px; }
+/* 说明要讲清三档各收哪些版本，开关旁边放不下，单独占满下一行；压成小一号的注释，不跟控件抢视线 */
+#launchUpdateChannelHint { flex-basis: 100%; margin: -2px 0 0; font-size: 11.5px; line-height: 1.65; }
+/* 开关的几何参数挂在包装层上：圆钮和 range 都要读，定义一处就不会两边对不上。
+   圆钮靠 data-channel 选 left（0/1/2 档），带 transition——原生 range 的圆钮没法过渡，只能自绘一个。 */
+.launch-switch { position: relative; display: inline-flex; flex: 0 0 auto; --knob: 20px; --inset: 3px; --travel: 18px; }
+.launch-switch-knob { position: absolute; top: var(--inset); left: var(--inset); width: var(--knob); height: var(--knob); border-radius: 50%; background: #fff; box-shadow: var(--switch-knob-shadow); pointer-events: none; transition: left 220ms cubic-bezier(.2, .8, .2, 1); }
+.launch-switch:has(#launchUpdateChannel[data-channel="rc"]) .launch-switch-knob { left: calc(var(--inset) + var(--travel)); }
+.launch-switch:has(#launchUpdateChannel[data-channel="alpha"]) .launch-switch-knob { left: calc(var(--inset) + var(--travel) * 2); }
+html.reduce-motion .launch-switch-knob { transition: none; }
+@media (prefers-reduced-motion: reduce) { .launch-switch-knob { transition: none; } }
 /* 三档开关：照 .toggle 的两档开关画（同一套轨道色、20px 圆钮、3px 内边、每档行程 18px），只是多一档；
    用 range 而不是三个单选，拖动、点轨道跳档、方向键都是原生的。
    控件盒子只有圆钮的行程那么大，外圈 3px 内边用同色阴影补出来：range 的内边距 Chromium 和 WebKit
    处理不一样，靠它缩行程会让圆钮停不准；margin 给阴影留位，换行贴到弹窗左边时不被裁掉。
    三个小点标出能停的位置，圆钮压住的就是当前档。正式版算「关」（不收预发布），RC / Alpha 算「开」，轨道色按这个分。 */
 #launchUpdateChannel {
-  --knob: 20px;
-  --inset: 3px;
-  --travel: 18px;
   --dot: radial-gradient(circle 2px, rgb(255 255 255 / 70%) 95%, transparent) no-repeat;
   --track: var(--switch-off);
   appearance: none;
@@ -587,6 +594,8 @@ html.reduce-motion .launch-status.is-working::before { animation: none; }
   border-radius: 50%;
   background: #fff;
   box-shadow: var(--switch-knob-shadow);
+  /* 圆钮由 .launch-switch-knob 自绘（要位移动画）；原生圆钮只留命中区域 */
+  opacity: 0;
 }
 #launchUpdateChannel:focus-visible { outline: 1px solid var(--accent); outline-offset: calc(var(--inset) + 2px); }
 html.reduce-motion #launchUpdateChannel { transition: none; }
@@ -877,6 +886,9 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .set-row.stacked { display: block; }
 .set-row.stacked .set-control { margin-top: 11px; }
 .set-row.stacked .set-control input[type=text], .set-row.stacked .set-control input[type=password] { flex: 1 1 auto; min-width: 0; }
+.set-control textarea { width: 100%; min-width: 0; resize: vertical; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--text); font: 12px/1.7 ui-monospace, monospace; }
+.set-control textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.set-control .icon-btn { width: 36px; height: 36px; border-radius: 10px; }
 .set-row .hint { margin: 9px 0 0; }
 /* 整行可点的开关行：给个悬停反馈，别让人猜哪儿能点 */
 .toggle.set-row {
@@ -1701,7 +1713,7 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 #launchDialog .home-field:has(#versionPicker) { position: relative; }
 #launchDialog .launch-version-select-row { display: flex; align-items: center; gap: 8px; }
 #launchDialog .launch-version-select-row .select { flex: 1 1 auto; min-width: 0; }
-#launchDialog .launch-manage-version { flex: 0 0 42px; width: 42px; height: 42px; padding: 11px; border-radius: 10px; }
+#launchDialog .launch-manage-version { flex: 0 0 42px; width: 42px; height: 42px; padding: 11px; border-radius: 10px; align-self: flex-end; }
 #launchDialog .launch-manage-version svg { width: 18px; height: 18px; }
 #launchDialog .select-trigger { min-height: 42px; height: 42px; border-radius: 10px; font-size: 13px; }
 #launchDialog input[type=text], #launchDialog input[type=number], #launchDialog select { height: 42px; border-radius: 10px; font-size: 13px; }
