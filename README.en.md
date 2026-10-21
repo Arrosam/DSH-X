@@ -27,7 +27,7 @@ DSH-X is a lightweight third-party desktop launcher for DeepSeek Harness: launch
 - **Opening modes**: tabs inside DSH-X, a system browser tab, standalone browser window or desktop window.
 - **Appearance**: light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.
 - **Updates and recovery**: self-update, profile recovery and configurable old-version retention; each launch entry's current and previous versions are kept additionally.
-- **Windows / macOS**: a Windows installer and Apple Silicon / Intel dmgs, tray / menu bar operation and launch at login, with Node / npm / pnpm included.
+- **Windows / macOS**: a Windows installer and Apple Silicon / Intel dmgs (macOS 13+), tray / menu bar operation and launch at login, with Node / npm / pnpm included.
 
 Feedback: **QQ group [993579665](https://qm.qq.com/q/7AD2g70HqS)**
 
@@ -145,7 +145,7 @@ Verifying a download (optional): the releases page lists a sha256 next to every 
 
 ## Development
 
-Needs Node.js 22.18+ locally, with no third-party dependencies to install. Run `npm start` for the manager, `npm run server` for the server only, and `npm test` for tests.
+Needs Node.js 22.18+ locally. The launcher itself has no third-party dependencies: `npm start` runs the manager, `npm run server` the server only, and `npm test` the tests. The macOS shell is Electron, so run `npm install` first for `npm run electron` or a mac build.
 
 ## Packaging
 
@@ -153,7 +153,7 @@ Needs Node.js 22.18+ locally, with no third-party dependencies to install. Run `
 npm run dist
 ```
 
-On Windows (Rust and Inno Setup 6) this produces `release/DSH/` and `release/DSH-Setup.exe`; on macOS (Rust and the Xcode command line tools) it produces `release/DSH-X.app` and `release/DSH-X-mac-<arch>.dmg` (Intel: `DSH_MAC_ARCH=x64 npm run dist`).
+On Windows (Rust and Inno Setup 6) this produces `release/DSH/` and `release/DSH-Setup.exe`; on macOS (Xcode command line tools, after `npm install`) it produces `release/DSH-X.app` and `release/DSH-X-mac-<arch>.dmg` (Intel: `DSH_MAC_ARCH=x64 npm run dist`).
 
 Windows builds also write an SBOM and release manifest for local checking (not uploaded to the release). Check the version and artifacts before publishing:
 

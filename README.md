@@ -27,7 +27,7 @@ DSH-X 是 DeepSeek Harness 的第三方轻量桌面启动器：启动项与多�
 - **多种打开方式**：DSH-X 内部标签页、系统浏览器标签页、浏览器独立窗口或桌面窗口。
 - **外观**：浅色 / 深色主题、透明度、开场与启动项动效，以及独立的背景和大肥鱼开关。
 - **更新与恢复**：自更新、故障恢复、可设置保留数量的旧版本清理；启动项当前与上一次使用的版本额外保留。
-- **Windows / macOS**：提供 Windows 安装包与 Apple Silicon / Intel 两种 dmg，支持托盘 / 菜单栏常驻和开机自启，自带 Node / npm / pnpm。
+- **Windows / macOS**：提供 Windows 安装包与 Apple Silicon / Intel 两种 dmg（macOS 13 及以上），支持托盘 / 菜单栏常驻和开机自启，自带 Node / npm / pnpm。
 
 交流 / 反馈：**QQ 群 [993579665](https://qm.qq.com/q/7AD2g70HqS)**（[点击加入](https://qm.qq.com/q/7AD2g70HqS)）
 
@@ -145,7 +145,7 @@ macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`�
 
 ## 开发
 
-本机需要 Node.js 22.18+，无需安装第三方依赖。`npm start` 启动管理页；只起服务用 `npm run server`，测试用 `npm test`。
+本机需要 Node.js 22.18+。启动器本身没有第三方依赖：`npm start` 启动管理页，只起服务用 `npm run server`，测试用 `npm test`。macOS 外壳是 Electron，`npm run electron` 或打 mac 包前先 `npm install`。
 
 ## 打包
 
@@ -153,7 +153,7 @@ macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`�
 npm run dist
 ```
 
-Windows（需要 Rust 与 Inno Setup 6）产出 `release/DSH/` 便携目录和 `release/DSH-Setup.exe`；macOS（需要 Rust 与 Xcode 命令行工具）产出 `release/DSH-X.app` 和 `release/DSH-X-mac-<arch>.dmg`（Intel 版：`DSH_MAC_ARCH=x64 npm run dist`）。
+Windows（需要 Rust 与 Inno Setup 6）产出 `release/DSH/` 便携目录和 `release/DSH-Setup.exe`；macOS（需要 Xcode 命令行工具，先 `npm install`）产出 `release/DSH-X.app` 和 `release/DSH-X-mac-<arch>.dmg`（Intel 版：`DSH_MAC_ARCH=x64 npm run dist`）。
 
 Windows 打包同时生成 SBOM 与发布清单（本地自查，不上传 Release）。发版前检查版本与产物：
 

@@ -28,7 +28,7 @@ codesign -dv --verbose=4 release/DSH-X.app
 | `DSH_MAC_CERT_PASSWORD` | 导出 `.p12` 时设置的密码 |
 | `DSH_MAC_SIGNING_SHA1` | 固定证书的 40 位 SHA-1 指纹（Repository Variable） |
 
-CI 把 `.p12` 导入临时钥匙串，核对指纹，分别签内置 Node 和外层 `.app`，再严格校验签名。缺少任一配置、指纹不匹配或签名校验失败时，tag 构建中止，不上传 dmg。现有 `DSH_RELEASE_KEY` 是**发布清单**的 Ed25519 私钥，与 macOS 代码签名证书无关。
+CI 把 `.p12` 导入临时钥匙串，核对指纹，依次签内置 Node、Electron 的框架与 Helper、外层 `.app`，再严格校验签名。缺少任一配置、指纹不匹配或签名校验失败时，tag 构建中止，不上传 dmg。现有 `DSH_RELEASE_KEY` 是**发布清单**的 Ed25519 私钥，与 macOS 代码签名证书无关。
 
 ## 真机验证 #30
 
