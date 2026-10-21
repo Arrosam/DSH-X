@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { APP_DIR, IS_MAC, IS_WINDOWS, MAC_BUNDLE_ID, appBundle, launcherExecutable, userAppDir } from './platform.js'
+import { APP_DIR, IS_MAC, IS_WINDOWS, MAC_BUNDLE_ID, RUNTIME_NODE, appBundle, launcherExecutable, userAppDir } from './platform.js'
 import { safeFolderConfig, safePolicy, safeS3Config, safeScopeIds, safeStoreType, safeWebdavConfig, safeZipConfig } from './sync.js'
 import { VERSION_CHANNEL, VERSION_CHANNELS } from './version.js'
 
@@ -798,7 +798,7 @@ function launchArgs() {
   // macOS 走 open 而不是直接执行包里的二进制：LaunchServices 负责单实例和把应用带到前台
   if (IS_MAC && exe) return ['/usr/bin/open', '-a', appBundle()]
   if (exe) return [exe]
-  return [process.execPath, join(ROOT, 'start.js')]
+  return [RUNTIME_NODE, join(ROOT, 'start.js')]
 }
 
 export function launchCommand() {
