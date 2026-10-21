@@ -2,7 +2,7 @@ use super::{is_loopback_url, is_web_url, open_in_browser, same_origin, show_wind
 use serde_json::{json, Value};
 use tao::dpi::{LogicalPosition, LogicalSize};
 use tao::event_loop::EventLoopProxy;
-use tao::window::Window;
+use tao::window::{Theme, Window};
 use wry::{PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 #[cfg(target_os = "macos")]
 use wry::WebViewBuilderExtDarwin;
@@ -89,6 +89,8 @@ pub struct BrowserTabs {
     enabled: bool,
     lang: String,
     theme: String,
+    // 设置里的主题换算出来的实际深浅色；占位页是外壳自己画的页，跟不上管理页的 CSS 变量。
+    dark: bool,
     rendered: String,
     header_height: f64,
     geometry: Option<(f64, f64, f64, f64)>,
@@ -110,18 +112,61 @@ pub(super) fn bounds(window: &Window, top: f64, height: Option<f64>) -> Rect {
     }
 }
 
+/// 实际生效的深色状态：显式 light/dark 说了算；system（以及将来新增的未知值）跟随系统。
+/// 抽成纯函数是为了不建窗口也能测——占位页配色判断错了（深色下白屏刺眼）只有用户看得见。
+fn resolve_dark(theme: &str, system_dark: bool) -> bool {
+    match theme {
+        "dark" => true,
+        "light" => false,
+        _ => system_dark,
+    }
+}
+
+/// 「DSH 实例已停止」那张占位页。抽成函数：主题在运行中变化时要能就地重画，不能等下一次 follow。
+fn placeholder_html(lang: &str, dark: bool) -> String {
+    let text = if lang == "en" { "This DSH instance has stopped. Return to the launcher to start it." } else { "此 DSH 实例已停止，请返回启动器启动。" };
+    // 深色沿用启动器 IDLE_PAGE 的同一套配色（底色 #15171c、提示文字 #b9bec9）：同一个外壳里不该有两种黑。
+    let (color, background) = if dark { ("#b9bec9", "#15171c") } else { ("#7182a2", "#f5f8ff") };
+    // 全部内联、不引外链：这张页出现的时机正是实例不在跑，不能再指望任何服务。
+    format!("<!doctype html><meta charset='utf-8'><style>body{{font:16px system-ui;color:{color};background:{background};display:grid;place-items:center;height:90vh}}</style><p>{text}</p>")
+}
+
 impl BrowserTabs {
     pub fn new() -> Self {
-        Self { tabs: vec![], selected: String::new(), enabled: false, lang: "zh".into(), theme: "system".into(), rendered: String::new(), header_height: HEADER_HEIGHT,
+        Self { tabs: vec![], selected: String::new(), enabled: false, lang: "zh".into(), theme: "system".into(), dark: false, rendered: String::new(), header_height: HEADER_HEIGHT,
             geometry: None, presentation: 0, rendered_selection: String::new(), selection_request: None, order_request: None, retired: vec![], overlay: false }
     }
 
     pub fn preferences(&mut self, enabled: bool, lang: &str, theme: &str, window: &Window, manager: &WebView) {
+        let lang_changed = self.lang != lang;
         self.enabled = enabled;
         self.lang = lang.to_string();
         self.theme = theme.to_string();
+        // 状态轮询每次都会走到这里；只有配色或语言真的变了才重画占位页，免得反复重载。
+        self.sync_placeholder(window.theme() == Theme::Dark, lang_changed);
         self.layout(window, manager);
         self.render(manager, false);
+    }
+
+    /// 系统主题变化时由事件循环调用（mode 是否为 system 交给 resolve_dark 判断：
+    /// 显式 light/dark 算出来和系统无关，值没变就什么也不做）。
+    pub fn system_theme_changed(&mut self, window: &Window) {
+        self.sync_placeholder(window.theme() == Theme::Dark, false);
+    }
+
+    /// 重算占位页该用什么配色 / 文案；变了就把正在显示占位页的标签就地重画。
+    /// 主题来自设置（可能跟随系统），语言来自设置；两者都变了才重载。
+    fn sync_placeholder(&mut self, system_dark: bool, lang_changed: bool) {
+        let dark = resolve_dark(&self.theme, system_dark);
+        if dark == self.dark && !lang_changed { return; }
+        self.dark = dark;
+        // 只动占位态（loaded 为空 = 当前显示的就是那张停止页）：运行中的实例页面有自己的配色和
+        // 语言，重载会丢掉用户正在看的内容。closed/retired 的标签不画，马上要释放。
+        for tab in &mut self.tabs {
+            if tab.target.managed && tab.loaded.is_empty() {
+                let _ = tab.view.load_html(&placeholder_html(&self.lang, self.dark));
+            }
+        }
     }
 
     pub fn layout(&mut self, window: &Window, manager: &WebView) {
@@ -318,9 +363,8 @@ impl BrowserTabs {
                 set_memory_active(&tab.view, true);
                 tab.memory_active = true;
                 let result = if url.is_empty() {
-                    let text = if self.lang == "en" { "This DSH instance has stopped. Return to the launcher to start it." } else { "此 DSH 实例已停止，请返回启动器启动。" };
                     // 不在占用的旧端口上反复刷新，以免重启间隙误加载到另一个实例。
-                    tab.view.load_html(&format!("<!doctype html><meta charset='utf-8'><style>body{{font:16px system-ui;color:#7182a2;background:{};display:grid;place-items:center;height:90vh}}</style><p>{text}</p>", if self.theme == "dark" { "#111827" } else { "#f5f8ff" }))
+                    tab.view.load_html(&placeholder_html(&self.lang, self.dark))
                 } else { tab.view.load_url(url) };
                 if result.is_ok() { tab.loaded = url.to_string(); tab.page_title.clear(); }
             }
@@ -431,6 +475,34 @@ mod tests {
         let mut ids = vec!["first".to_string(), "new-a".to_string(), "second".to_string(), "new-b".to_string()];
         reorder(&mut ids, &["closed".into(), "second".into(), "first".into()], String::as_str);
         assert_eq!(ids, ["second", "first", "new-a", "new-b"]);
+    }
+
+    #[test]
+    fn stopped_page_follows_light_dark_and_system() {
+        // 显式主题压过系统；system 与未知值（旧版 node 不带 theme 行）都跟随系统
+        assert!(resolve_dark("dark", false) && resolve_dark("dark", true));
+        assert!(!resolve_dark("light", false) && !resolve_dark("light", true));
+        assert!(!resolve_dark("system", false) && resolve_dark("system", true));
+        assert!(resolve_dark("", true), "缺 theme 行时按跟随系统处理");
+        let zh_light = placeholder_html("zh", false);
+        let zh_dark = placeholder_html("zh", true);
+        assert!(zh_light.contains("此 DSH 实例已停止，请返回启动器启动。") && zh_light.contains("background:#f5f8ff"));
+        assert!(zh_dark.contains("此 DSH 实例已停止，请返回启动器启动。") && zh_dark.contains("background:#15171c"));
+        assert!(!zh_dark.contains("#f5f8ff"), "深色占位页不能带浅色底");
+        let en_light = placeholder_html("en", false);
+        let en_dark = placeholder_html("en", true);
+        assert!(en_light.contains("This DSH instance has stopped. Return to the launcher to start it.") && en_light.contains("background:#f5f8ff"));
+        assert!(en_dark.contains("This DSH instance has stopped. Return to the launcher to start it.") && en_dark.contains("background:#15171c"));
+        assert!(!en_dark.contains("此 DSH"), "英文界面不能冒出中文");
+    }
+
+    #[test]
+    fn system_theme_change_only_moves_system_mode() {
+        // 系统切到深/浅时，显式 light/dark 算出来的值不变：ThemeChanged 里不用再判断 mode。
+        for theme in ["light", "dark"] {
+            assert_eq!(resolve_dark(theme, false), resolve_dark(theme, true));
+        }
+        assert!(!resolve_dark("system", false) && resolve_dark("system", true));
     }
 
     // 需要桌面会话与 WebView2，单独运行这个用例；普通 CI 的纯逻辑测试不强制有桌面。
