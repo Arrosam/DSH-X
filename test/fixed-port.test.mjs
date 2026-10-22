@@ -121,6 +121,18 @@ async function api(path, body) {
   return data
 }
 
+/** 带启动项身份发请求（x-dsh-launch-id）：和页面里点这个启动项走同一条路。 */
+async function scopedApi(launchId, path, body) {
+  const response = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-dsh-launch-id': launchId },
+    body: JSON.stringify(body),
+  })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`)
+  return data
+}
+
 const state = () => api('/api/state')
 const pin = (version, port, profile = 'web') => api('/api/instance-port', { version, profile, port })
 const portOf = (url) => Number(new URL(url).port)
@@ -148,12 +160,7 @@ test('托盘启动和重启沿用启动项固定端口', async () => {
 test('启动项换了版本：固定端口跟着挪到新版，标签标题用启动项名称', async () => {
   const port = await freePort()
   const saved = await api('/api/launch-presets', { name: '换版本环境', version: A, profile: 'work', port })
-  const scoped = async (path, body) => {
-    const response = await fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dsh-launch-id': saved.entry.id }, body: JSON.stringify(body) })
-    const data = await response.json()
-    if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`)
-    return data
-  }
+  const scoped = (path, body) => scopedApi(saved.entry.id, path, body)
   try {
     await scoped('/api/instance-port', { version: A, profile: 'work', port })
     const first = await scoped('/api/start', { version: A, profile: 'work' })
@@ -275,6 +282,10 @@ test('自动端口被占用时重新分配，下一次记住新端口', async ()
   try {
     const first = await api('/api/start', { version: A, profile: 'web' })
     assert.notEqual(portOf(first.url), previous)
+    // 换端口就是换 origin：页面里的本地状态会从默认值重来。日志要提前说清，
+    // 免得用户把它当成「分组方式被重置」这种界面 bug 来报。
+    const log = readFileSync(join(APP, 'manager.log'), 'utf8')
+    assert.match(log, new RegExp(`自动端口 ${previous} 已被占用或保留，将重新分配；页面地址会变`))
     await api('/api/stop', {})
     const next = await api('/api/start', { version: A, profile: 'web' })
     assert.equal(portOf(next.url), portOf(first.url))
@@ -282,6 +293,43 @@ test('自动端口被占用时重新分配，下一次记住新端口', async ()
   } finally {
     await api('/api/stop', {})
     await held.release()
+  }
+})
+
+test('换版本沿用同一个自动端口，页面地址（和本地状态）都不变', async () => {
+  // 前面几条用例已经在 autoPorts 里给 A@web 留了记录
+  const previous = JSON.parse(readFileSync(join(APP, 'settings.json'), 'utf8')).autoPorts[HOME][`${A}@web`]
+  assert.ok(previous, '前置用例留了一条自动端口记录')
+  const first = await api('/api/start', { version: A, profile: 'web' })
+  assert.equal(portOf(first.url), previous)
+  await api('/api/stop', {})
+  // 换到 B：B 自己没有端口记录，但同一个 profile 的旧版本记过。dsh 升级后
+  // auto 启动项走的就是这条路（版本键变了），端口要是跟着变，页面就被重置了。
+  const second = await api('/api/start', { version: B, profile: 'web' })
+  assert.equal(new URL(second.url).origin, new URL(first.url).origin, '换版本不该换 origin')
+  assert.ok(launchedWithPort(previous), '命令行里带的是旧版本记下的端口')
+  const stored = JSON.parse(readFileSync(join(APP, 'settings.json'), 'utf8'))
+  assert.equal(stored.autoPorts[HOME][`${B}@web`], previous, '新版本接着记住同一个端口')
+  const log = readFileSync(join(APP, 'manager.log'), 'utf8')
+  assert.match(log, new RegExp(`复用自动端口：${A}@web → ${previous}`), '日志里留下「端口是从哪个版本沿用来的」')
+  await api('/api/stop', {})
+})
+
+test('启动项换版本（auto 通道升级后的那条路）：沿用换版本前的自动端口', async () => {
+  const saved = await api('/api/launch-presets', { name: '换版本自动端口', version: A, profile: 'work', port: 0 })
+  try {
+    const first = await scopedApi(saved.entry.id, '/api/start', { version: A, profile: 'work' })
+    const origin = new URL(first.url).origin
+    await scopedApi(saved.entry.id, '/api/stop', { version: A, profile: 'work' })
+    await api('/api/launch-presets', { ...saved.entry, version: B })
+    const second = await scopedApi(saved.entry.id, '/api/start', { version: B, profile: 'work' })
+    assert.equal(new URL(second.url).origin, origin, '同一个启动项换版本，页面地址不该变')
+    const log = readFileSync(join(APP, 'manager.log'), 'utf8')
+    assert.match(log, /沿用换版本前的端口/, '沿着启动项的版本变更找回了旧端口')
+    await scopedApi(saved.entry.id, '/api/stop', { version: B, profile: 'work' })
+  } finally {
+    await api('/api/stop', {})
+    await api('/api/launch-presets/remove', { id: saved.entry.id })
   }
 })
 
