@@ -238,6 +238,8 @@ export const DEFAULTS = {
   // 界面语言：zh / en（安装时选的语言写进安装目录的 lang.txt，启动器读一次落到这里）
   lang: '',
   theme: 'system',
+  // 上次新建启动项停在哪个隔离方式档：下次打开「添加启动项」直接落在这里，不用每次重选
+  launchIsolation: 'profile',
   panelTransparency: 30,
   reduceMotion: false,
   hideBackground: false,
@@ -510,6 +512,11 @@ export function safeTheme(value) {
   return value === 'light' || value === 'dark' ? value : 'system'
 }
 
+/** 上次新建启动项选的隔离方式：只认三档，其余回到 Profile 隔离。 */
+export function safeLaunchIsolation(value) {
+  return value === 'home' || value === 'custom' ? value : 'profile'
+}
+
 /** 悬浮窗背景透明度，百分比；历史脏值回到默认值。 */
 export function safePanelTransparency(value) {
   if (value === null || value === undefined || value === '') return DEFAULTS.panelTransparency
@@ -725,6 +732,7 @@ async function saveSettingsNow(patch) {
   merged.dshHomeNames = safeDshHomeNames(merged.dshHomeNames)
   merged.lang = 'lang' in patch ? safeLang(patch.lang) : safeLang(merged.lang)
   merged.theme = safeTheme(merged.theme)
+  merged.launchIsolation = safeLaunchIsolation(merged.launchIsolation)
   merged.panelTransparency = safePanelTransparency(merged.panelTransparency)
   merged.reduceMotion = merged.reduceMotion === true
   merged.hideBackground = merged.hideBackground === true

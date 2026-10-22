@@ -555,55 +555,71 @@
     <form class="ask-card" id="launchForm" role="dialog" aria-modal="true" aria-labelledby="launchDialogTitle" data-dialog-size="medium">
       <div class="dialog-heading launch-dialog-heading"><h2 class="ask-title" id="launchDialogTitle" data-i18n="编辑启动项">编辑启动项</h2><button class="ghost icon-btn dialog-close" id="launchDialogClose" type="button" title="关闭" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
       <div class="launch-modal-fields">
-        <div class="home-field launch-identity-field" id="launchIdentityField">
-          <label for="launchName" data-i18n="名称">名称</label>
-          <div class="launch-name-row"><button class="launch-icon-trigger" id="launchIconTrigger" type="button" title="修改图标" aria-label="修改图标" data-i18n-title="修改图标" data-i18n-aria-label="修改图标" aria-expanded="false" aria-controls="launchIconPopover"></button><input id="launchName" type="text" required maxlength="32" autocomplete="off" data-placeholder-i18n="例如：我的工作环境" /></div>
-          <div class="launch-icon-popover" id="launchIconPopover" hidden><div class="launch-icon-picker" id="launchIconPicker" role="group" aria-label="启动项图标"></div><div class="launch-icon-upload"><button class="ghost icon-btn" id="launchIconUpload" type="button" title="选择图片" aria-label="选择图片" data-i18n-title="选择图片" data-i18n-aria-label="选择图片"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-7 5 8"/></svg></button><button class="ghost icon-btn" id="launchIconReset" type="button" title="恢复默认" aria-label="恢复默认" data-i18n-title="恢复默认" data-i18n-aria-label="恢复默认"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5M4 9a8 8 0 1 1-1 6"/></svg></button></div></div>
-          <input id="launchIconFile" type="file" accept="image/png,image/jpeg,image/webp" hidden /><span class="hint launch-icon-error" id="launchIconHint"></span>
+        <!-- 新建启动项先问「怎么隔离」：三档用 tab 切换，前两档什么都不用填（版本、名称、目录、Profile
+             都由页面代算），直接保存就新建；第三档「自定义」才是原来那张完整表单。编辑老启动项时
+             引导整块藏起来、字段直接露出（见 setLaunchIsolation）。 -->
+        <div class="launch-isolation" id="launchIsolationField">
+          <span class="launch-isolation-title" data-i18n="隔离方式">隔离方式</span>
+          <div class="launch-isolation-tabs" role="tablist" aria-label="隔离方式" data-i18n-aria-label="隔离方式">
+            <button class="launch-isolation-tab" type="button" role="tab" data-isolation="profile" aria-selected="true" data-i18n="Profile 隔离">Profile 隔离</button>
+            <button class="launch-isolation-tab" type="button" role="tab" data-isolation="home" aria-selected="false" data-i18n="完全隔离">完全隔离</button>
+            <button class="launch-isolation-tab" type="button" role="tab" data-isolation="custom" aria-selected="false" data-i18n="自定义">自定义</button>
+          </div>
+          <p class="hint" id="launchIsolationHint"></p>
         </div>
-        <div class="home-pickers">
-          <div class="home-field">
-            <label for="versionTrigger" data-i18n="版本">版本</label>
-            <div class="launch-version-select-row">
-              <div class="select" id="versionPicker">
-                <button type="button" class="select-trigger" id="versionTrigger" aria-haspopup="listbox" aria-expanded="false">
-                  <span class="select-value" id="versionValue" data-i18n="自动最新版本">自动最新版本</span>
-                  <svg class="select-caret" viewBox="0 0 12 8" aria-hidden="true"><path fill="currentColor" d="M0 0h12L6 8z"/></svg>
-                </button>
-                <div class="select-panel" id="versionPanel" role="listbox" hidden></div>
+        <!-- 自定义档就是原来那张完整表单：版本、端口、名称、目录、Profile 全手动挑。切到「自定义」tab
+             才显示，前两档整块藏起来（见 setLaunchIsolation）；编辑老启动项时直接露出来。 -->
+        <div class="launch-custom-fields" id="launchCustomFields">
+          <div class="home-field launch-identity-field" id="launchIdentityField">
+            <label for="launchName" data-i18n="名称">名称</label>
+            <div class="launch-name-row"><button class="launch-icon-trigger" id="launchIconTrigger" type="button" title="修改图标" aria-label="修改图标" data-i18n-title="修改图标" data-i18n-aria-label="修改图标" aria-expanded="false" aria-controls="launchIconPopover"></button><input id="launchName" type="text" required maxlength="32" autocomplete="off" data-placeholder-i18n="例如：我的工作环境" /></div>
+            <div class="launch-icon-popover" id="launchIconPopover" hidden><div class="launch-icon-picker" id="launchIconPicker" role="group" aria-label="启动项图标"></div><div class="launch-icon-upload"><button class="ghost icon-btn" id="launchIconUpload" type="button" title="选择图片" aria-label="选择图片" data-i18n-title="选择图片" data-i18n-aria-label="选择图片"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-7 5 8"/></svg></button><button class="ghost icon-btn" id="launchIconReset" type="button" title="恢复默认" aria-label="恢复默认" data-i18n-title="恢复默认" data-i18n-aria-label="恢复默认"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5M4 9a8 8 0 1 1-1 6"/></svg></button></div></div>
+            <input id="launchIconFile" type="file" accept="image/png,image/jpeg,image/webp" hidden /><span class="hint launch-icon-error" id="launchIconHint"></span>
+          </div>
+          <div class="home-pickers">
+            <div class="home-field">
+              <label for="versionTrigger" data-i18n="版本">版本</label>
+              <div class="launch-version-select-row">
+                <div class="select" id="versionPicker">
+                  <button type="button" class="select-trigger" id="versionTrigger" aria-haspopup="listbox" aria-expanded="false">
+                    <span class="select-value" id="versionValue" data-i18n="自动最新版本">自动最新版本</span>
+                    <svg class="select-caret" viewBox="0 0 12 8" aria-hidden="true"><path fill="currentColor" d="M0 0h12L6 8z"/></svg>
+                  </button>
+                  <div class="select-panel" id="versionPanel" role="listbox" hidden></div>
+                </div>
               </div>
             </div>
-          </div>
-          <!-- 版本类型决定「自动最新版本」挑哪些版本、提醒哪些新版本。三档开关的值是 version.js 里
-               VERSION_CHANNELS 的下标：越往右越不稳定。档名读屏走 aria-valuetext，旁边那份只给眼睛看 -->
-          <div class="home-field launch-channel-field" id="launchChannelField">
-            <label for="launchUpdateChannel" data-i18n="版本类型">版本类型</label>
-            <div class="launch-channel-control">
-              <span class="launch-switch">
-                <input id="launchUpdateChannel" type="range" min="0" max="2" step="1" value="0" />
-                <!-- 原生 range 的圆钮没法用 CSS 过渡：位置由浏览器画，只能换值。所以藏掉原生圆钮，
-                     用这个自己画的跟着 data-channel 走位，点击/键盘换档才有滑动动效；拖动时仍由原生控件接管 -->
-                <span class="launch-switch-knob" aria-hidden="true"></span>
-              </span>
-              <span id="launchUpdateChannelName" aria-hidden="true"></span>
+            <!-- 版本类型决定「自动最新版本」挑哪些版本、提醒哪些新版本。三档开关的值是 version.js 里
+                 VERSION_CHANNELS 的下标：越往右越不稳定。档名读屏走 aria-valuetext，旁边那份只给眼睛看 -->
+            <div class="home-field launch-channel-field" id="launchChannelField">
+              <label for="launchUpdateChannel" data-i18n="版本类型">版本类型</label>
+              <div class="launch-channel-control">
+                <span class="launch-switch">
+                  <input id="launchUpdateChannel" type="range" min="0" max="2" step="1" value="0" />
+                  <!-- 原生 range 的圆钮没法用 CSS 过渡：位置由浏览器画，只能换值。所以藏掉原生圆钮，
+                       用这个自己画的跟着 data-channel 走位，点击/键盘换档才有滑动动效；拖动时仍由原生控件接管 -->
+                  <span class="launch-switch-knob" aria-hidden="true"></span>
+                </span>
+                <span id="launchUpdateChannelName" aria-hidden="true"></span>
+              </div>
             </div>
+            <!-- 管理版本是这一行的辅助动作，放到行尾单独站着；贴着版本下拉会把两个字段挤成三截 -->
+            <button class="ghost icon-btn launch-manage-version" id="launchManageVersions" type="button" title="管理版本" aria-label="管理版本" data-i18n-title="管理版本" data-i18n-aria-label="管理版本"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
+            <p class="hint" id="launchUpdateChannelHint"></p>
           </div>
-          <!-- 管理版本是这一行的辅助动作，放到行尾单独站着；贴着版本下拉会把两个字段挤成三截 -->
-          <button class="ghost icon-btn launch-manage-version" id="launchManageVersions" type="button" title="管理版本" aria-label="管理版本" data-i18n-title="管理版本" data-i18n-aria-label="管理版本"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
-          <p class="hint" id="launchUpdateChannelHint"></p>
-        </div>
-        <div class="home-field">
-          <label for="launchDshHome" data-i18n="dsh 用户目录（会话、记忆和插件隔离）">dsh 用户目录（会话、记忆和插件隔离）</label>
-          <select id="launchDshHome" aria-label="dsh 用户目录" data-i18n-aria-label="dsh 用户目录"></select>
-        </div>
-        <div class="home-pickers">
-          <div class="home-field">
-            <label for="launchProfile">Profile</label>
-            <select id="launchProfile" title="Profile"></select>
+          <div class="home-field" id="launchHomeSelectField">
+            <label for="launchDshHome" data-i18n="dsh 用户目录（会话、记忆和插件隔离）">dsh 用户目录（会话、记忆和插件隔离）</label>
+            <select id="launchDshHome" aria-label="dsh 用户目录" data-i18n-aria-label="dsh 用户目录"></select>
           </div>
-          <div class="home-field port">
-            <label for="launchPort" data-i18n="端口">端口</label>
-            <input id="launchPort" type="number" min="1" max="65535" step="1" inputmode="numeric" />
+          <div class="home-pickers">
+            <div class="home-field" id="launchProfileSelectField">
+              <label for="launchProfile">Profile</label>
+              <select id="launchProfile" title="Profile"></select>
+            </div>
+            <div class="home-field port">
+              <label for="launchPort" data-i18n="端口">端口</label>
+              <input id="launchPort" type="number" min="1" max="65535" step="1" inputmode="numeric" />
+            </div>
           </div>
         </div>
         <label class="toggle launch-auto-launch">
@@ -1450,7 +1466,18 @@
   "自动最新版本和更新提醒只用 RC 和正式版。": "Latest version (auto) and update notifications use RC and Official releases only.",
   "自动最新版本和更新提醒使用 Alpha、RC 和正式版。": "Latest version (auto) and update notifications use Alpha, RC and Official releases.",
   "还没有{chosen}，暂按 {effective} 选择和提醒。{rule}": "There is no {chosen} release yet, so {effective} is used for now. {rule}",
-  "优先使用正在运行的版本，否则选择本机最新已安装版本；只用所选版本类型的版本，未安装时会在首次启动下载该类型的最新版。新版本需要手动更新。": "Keep the running version, otherwise use the latest installed version, using only the selected version type. If none is installed, download the latest of that type on first launch. New releases require a manual update."
+  "优先使用正在运行的版本，否则选择本机最新已安装版本；只用所选版本类型的版本，未安装时会在首次启动下载该类型的最新版。新版本需要手动更新。": "Keep the running version, otherwise use the latest installed version, using only the selected version type. If none is installed, download the latest of that type on first launch. New releases require a manual update.",
+  "隔离方式": "Isolation",
+  "Profile 隔离": "Profile isolation",
+  "完全隔离": "Full isolation",
+  "自定义": "Custom",
+  "将自动新建 Profile「{name}」：沿用全局 dsh 目录，会话与记忆共享，插件与配置独立。": "Profile「{name}」 is created automatically. The global dsh directory is kept: sessions and memories are shared, plugins and config stay separate.",
+  "将自动新建独立目录 {path}，用 Profile web 启动：会话、记忆、插件与配置全部独立。": "A separate directory {path} is created automatically and started with profile web: sessions, memories, plugins and config are all independent.",
+  "数据目录还没就绪，稍后再试": "The data directory is not ready yet. Try again later.",
+  "数据目录": "data directory",
+  "版本、端口、目录和 Profile 都在这里手动选；要新目录先去「管理目录」里添加。": "Set version, port, directory and profile here manually. Add new directories from Manage directories first.",
+  "编辑 Profile…": "Edit profile…",
+  "Profile「{profile}」还没初始化：先用它启动一次，dsh 会建好这个环境，之后就能在这里编辑。": "Profile「{profile}」 is not initialized yet. Launch it once and dsh will create the environment; then you can edit it here.",
 }
 
     function t(zh, vars) {
@@ -1490,6 +1517,8 @@
        const nameInput = document.getElementById('launchName')
        if (nameInput) nameInput.placeholder = t(nameInput.dataset.placeholderI18n)
       syncUiSelects()
+      // 引导说明和「选择目录…」按钮的文案是动态写的，切换语言后要重画
+      paintLaunchIsolation()
     }
 
     // ---- 版本下拉（自绘，替代原生 select）----
@@ -1504,6 +1533,9 @@
     const launchDshHomeEl = document.getElementById('launchDshHome')
     const launchPortEl = document.getElementById('launchPort')
     const launchAutoLaunchEl = document.getElementById('launchAutoLaunch')
+    const launchIsolationFieldEl = document.getElementById('launchIsolationField')
+    const launchIsolationHintEl = document.getElementById('launchIsolationHint')
+    const launchCustomFieldsEl = document.getElementById('launchCustomFields')
     const launchUpdateChannelEl = document.getElementById('launchUpdateChannel')
     const launchChannelFieldEl = document.getElementById('launchChannelField')
     const launchUpdateChannelHintEl = document.getElementById('launchUpdateChannelHint')
@@ -1726,7 +1758,12 @@
         row.id = `${item.select.id}-option-${index}`
         row.role = 'option'
         row.setAttribute('aria-selected', String(option.value === item.select.value))
-        row.textContent = option.textContent
+        // 目录这类长选项只给一行：省略号截断，悬停看标题里的全文，面板不会撑出横向滚动条
+        const label = document.createElement('span')
+        label.className = 'opt-name'
+        label.textContent = option.textContent
+        row.append(label)
+        row.title = option.textContent
         row.addEventListener('mouseenter', () => { item.active = index; paintUiSelectActive(item) })
         row.addEventListener('click', () => chooseUiSelectOption(item, index))
         item.panel.append(row)
@@ -2339,6 +2376,10 @@
       paintLaunchHomePath()
     }
 
+    // 下拉末尾的「编辑 Profile…」不是真 profile，是跳环境页的入口（见 openProfileInEnvironment）；
+    // 值取一个 safeProfile 不会放行的名字，选中后先恢复原值再跳，免得它被当 profile 存下去。
+    const LAUNCH_PROFILE_EDIT = '__edit_profile__'
+
     /**
      * 启动 profile 下拉的选项：全部列出来，保留名（desktop）也能选 —— 它只是 dsh CLI 不让用，
      * 启动器起它时换成了 reserved-profile-boot.mjs（见 server.js 的 CLI_BLOCKED_PROFILES）。
@@ -2362,15 +2403,49 @@
         launchProfile = options.includes(state.profile) ? state.profile : options[0]
       }
       launchProfileEl.innerHTML = options.map((name) =>
-        `<option value="${escapeHtml(name)}"${name === launchProfile ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')
+        `<option value="${escapeHtml(name)}"${name === launchProfile ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('') +
+        `<option value="${LAUNCH_PROFILE_EDIT}">${escapeHtml(t('编辑 Profile…'))}</option>`
       // options 是程序改的，不触发 change：包装器的触发器文字得手动同步一次
       syncUiSelect(launchProfileEl)
     }
 
     launchProfileEl.onchange = () => {
+      if (launchProfileEl.value === LAUNCH_PROFILE_EDIT) {
+        // 占位项不能当 profile：先恢复原选择，免得随后的恢复查询、保存读到它
+        launchProfileEl.value = launchProfile
+        syncUiSelect(launchProfileEl)
+        void openProfileInEnvironment()
+        return
+      }
       launchProfile = launchProfileEl.value
       void loadRecovery(launchProfile)
       render()
+    }
+
+    /**
+     * Profile 下拉末尾的「编辑 Profile…」：收起添加/编辑弹窗，跳到环境页并直接打开这个 Profile。
+     * 启动项可能选的是另一份用户目录，得先把环境页切到同一份目录，否则跳过去打开的是别的环境。
+     */
+    async function openProfileInEnvironment() {
+      const home = launchDshHomeEl.value.trim() || state.dshHome
+      const profile = launchProfile
+      if (!launchDialogEl.hidden) await closeLaunchEditor()
+      await showPane('plugins')
+      if (!launchPluginScope && home && !sameHomePath(pluginTargetHome(), home)) {
+        pluginHome = home === state.dshHome ? '' : home
+        resetPluginView()
+        renderPackGrid()
+        renderPackView()
+      }
+      // 环境页可能还没拉过插件清单（paneLoaders 只 fire-and-forget 地拉），这里等一次再找卡片
+      if (!pluginsLoaded) await loadPlugins()
+      const known = (packState.packs || []).some((item) => item.profile === profile)
+      if (!known) {
+        // 没初始化过的 Profile 在环境页不占卡片（dsh 启动时才会建目录），先告诉人怎么让它出现
+        notify(t('Profile「{profile}」还没初始化：先用它启动一次，dsh 会建好这个环境，之后就能在这里编辑。', { profile }))
+        return
+      }
+      openPack(profile)
     }
     let launchHomeRevision = 0
     async function refreshLaunchHomeProfiles(resetMissing = false) {
@@ -2438,6 +2513,127 @@
 
     function versionList() {
       return visibleVersionList(allVersionList())
+    }
+
+    // ---- 新建启动项：隔离方式引导 ----
+    // 新建最容易踩的坑是随手挑到和现有项相同的「目录 × Profile」，保存时撞上「已有启动项」。
+    // 所以前两档什么都不用填：Profile 隔离在全局目录里挑一个没占用的 Profile 名，完全隔离在数据
+    // 目录的 homes 下开一份新目录，名字全由页面代算；要自己选目录和 Profile 的人切到「自定义」
+    // tab（就是原来的完整表单）。编辑已有启动项不走这层，见 setLaunchIsolation 的 creating 参数。
+    let launchIsolation = 'profile'
+    // 上次新建启动项选的档（设置里存着，开局加载）；下次打开「添加启动项」直接停在这一档
+    let launchIsolationSaved = 'profile'
+    // 引导模式代填的启动项名：用户自己改过就不再覆盖，切档时保留手填的名字。
+    let launchNameAuto = ''
+    const normalizeHomePath = (home) => String(home || '').trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+    const sameHomePath = (left, right) => normalizeHomePath(left) === normalizeHomePath(right)
+
+    /** 完全隔离的默认目录：数据目录的 homes/<名字>；撞名就加序号，免得两次新建落到同一处。 */
+    function suggestIsolatedHome(seed = 'dsh') {
+      const base = String(state.dataDir || '').trim().replace(/[\\/]+$/, '')
+      if (!base) return ''
+      const sep = base.includes('\\') ? '\\' : '/'
+      const slug = String(seed || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'dsh'
+      const taken = [...(state.dshHomes || []), ...launchEntries().map((entry) => entry.dshHome).filter(Boolean)]
+      let path = `${base}${sep}homes${sep}${slug}`
+      for (let n = 2; taken.some((home) => sameHomePath(home, path)); n += 1) path = `${base}${sep}homes${sep}${slug}-${n}`
+      return path
+    }
+
+    /** Profile 隔离的默认名字：挑一个没被占用的，重名往后顺延。 */
+    function suggestIsolatedProfile(seed = '') {
+      const taken = new Set((Array.isArray(state.profiles) ? state.profiles : []).map((name) => String(name).toLowerCase()))
+      const base = String(seed || '').trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '')
+      for (const name of [base, 'work', 'home']) if (name && !taken.has(name)) return name
+      for (let n = 2; n < 100; n += 1) if (!taken.has(`work${n}`)) return `work${n}`
+      return 'work'
+    }
+
+    /** 引导模式给启动项代填的名字：Profile 档用 Profile 名，完全隔离档用目录的最后一段。 */
+    function guidedLaunchName() {
+      if (launchIsolation === 'home') {
+        const home = suggestIsolatedHome()
+        const tail = String(home || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'dsh'
+        return tail.slice(0, 32) || 'dsh'
+      }
+      return (suggestIsolatedProfile() || 'work').slice(0, 32)
+    }
+
+    /**
+     * 切隔离方式只改字段可见性，不动用户已经填好的值：来回切不会把名字/目录清掉。
+     * 前两档整块藏起「自定义」的字段（名称代填），第三档把它们原样露出来。
+     */
+    function setLaunchIsolation(mode, creating = true) {
+      launchIsolation = mode === 'home' || mode === 'custom' ? mode : 'profile'
+      const guided = creating && launchIsolation !== 'custom'
+      launchIsolationFieldEl.hidden = !creating
+      launchCustomFieldsEl.hidden = guided
+      if (guided) {
+        if (!launchNameEl.value.trim() || launchNameEl.value === launchNameAuto) launchNameEl.value = guidedLaunchName()
+        launchNameAuto = launchNameEl.value.trim()
+      }
+      // 引导模式不显示名称输入，也就不能让它挡着提交；自定义和编辑仍按老规矩必填。
+      launchNameEl.required = !guided
+      paintLaunchIsolation()
+    }
+
+    /** tab 选中态、说明行一起刷新（切界面语言后 hint 也要跟着重画）。 */
+    function paintLaunchIsolation() {
+      for (const tab of document.querySelectorAll('.launch-isolation-tab')) {
+        tab.setAttribute('aria-selected', String(tab.dataset.isolation === launchIsolation))
+      }
+      let hint
+      if (launchIsolation === 'profile') {
+        hint = t('将自动新建 Profile「{name}」：沿用全局 dsh 目录，会话与记忆共享，插件与配置独立。', { name: suggestIsolatedProfile() })
+      } else if (launchIsolation === 'home') {
+        hint = t('将自动新建独立目录 {path}，用 Profile web 启动：会话、记忆、插件与配置全部独立。', { path: suggestIsolatedHome() || t('数据目录') })
+      } else {
+        hint = t('版本、端口、目录和 Profile 都在这里手动选；要新目录先去「管理目录」里添加。')
+      }
+      if (launchIsolationHintEl.textContent === hint) return
+      launchIsolationHintEl.textContent = hint
+      // 换档时说明行淡入一下，文字别硬跳；测试沙箱里的元素桩没有 classList 就不做动画。
+      if (launchIsolationHintEl.classList) {
+        launchIsolationHintEl.classList.remove('isolation-hint-in')
+        void launchIsolationHintEl.offsetWidth
+        launchIsolationHintEl.classList.add('isolation-hint-in')
+      }
+    }
+
+    launchIsolationFieldEl.onclick = (event) => {
+      const tab = event.target.closest?.('.launch-isolation-tab')
+      if (!tab) return
+      setLaunchIsolation(tab.dataset.isolation)
+      // 记住这一档：下次打开「添加启动项」直接停在这里。编辑老启动项时引导区藏着，点不到。
+      if (editingLaunchId) return
+      // 本地先记住、再写盘：同一页面里紧接着点「＋」时也要直接落在这一档，不能等刷新
+      launchIsolationSaved = launchIsolation
+      queueSetting('launchIsolation', launchIsolation)
+    }
+
+    /**
+     * 引导式新建的保存前准备：算出这次要用的 { name, profile, dshHome }。
+     * 都走现有接口（建 Profile 由服务端 ensureProfile 完成），页面不用先建环境再存启动项。
+     */
+    async function prepareGuidedLaunch() {
+      if (launchIsolation === 'profile') {
+        const name = suggestIsolatedProfile()
+        launchProfile = name
+        return { name, profile: name, dshHome: '' }
+      }
+      const home = suggestIsolatedHome()
+      if (!home) throw new Error(t('数据目录还没就绪，稍后再试'))
+      // 服务端会规范化路径（分隔符、大小写），后面的登记和保存都用它回传的那个。
+      const data = await getJson(`/api/launch-home/profiles?home=${encodeURIComponent(home)}`)
+      const realHome = data.home || home
+      const profiles = Array.isArray(data.profiles) ? data.profiles : []
+      // listProfiles 总会带上 web，所以新目录也能直接用模板 profile 启动（dsh 会自动初始化）。
+      const profile = profiles.includes('web') ? 'web' : (profiles[0] || 'web')
+      const known = [...(state.dshHomes || []), ...launchEntries().map((entry) => entry.dshHome).filter(Boolean)]
+      if (!known.some((item) => sameHomePath(item, realHome))) await post('/api/dsh-homes/add', { home: realHome })
+      launchProfile = profile
+      const name = (String(realHome).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'dsh').slice(0, 32)
+      return { name, profile, dshHome: realHome }
     }
 
     /**
@@ -3180,6 +3376,8 @@
       userPicked = true
       launchProfile = entry?.profile || 'web'
       paintLaunchHomes(entry?.dshHome || '')
+      // 编辑老启动项只走自定义档（它的目录/Profile 组合可能本来就不在引导范围里），新建才从引导开始。
+      setLaunchIsolation(entry ? 'custom' : launchIsolationSaved, !entry)
       launchPortEl.value = entry?.port ? String(entry.port) : ''
       launchAutoLaunchEl.checked = entry?.autoLaunch === true
       launchUpdateChannelEl.value = String(UPDATE_CHANNELS.indexOf(launchChannel(entry)))
@@ -3227,14 +3425,22 @@
       if (launchSaveEl.disabled) return
       launchSaveEl.disabled = true
       try {
+        // 新建按隔离引导走时，目录和 Profile 由 prepareGuidedLaunch 算；编辑和「自定义」档还是
+        // 原来的下拉值。引导模式不再刷新下拉——它已经把新目录/新 Profile 交给服务端处理了。
+        const guided = !editingLaunchId && launchIsolation !== 'custom'
+        const target = guided ? await prepareGuidedLaunch() : null
         // 手填目录后直接按回车也要先刷新 Profile，不能沿用上一份目录的环境列表。
-        if (!await refreshLaunchHomeProfiles(true)) return
+        if (!guided && !await refreshLaunchHomeProfiles(true)) return
         const data = await post('/api/launch-presets', {
-          id: editingLaunchId || undefined, name: launchNameEl.value, icon: launchIcon,
-          version: versionValue || 'auto', profile: launchProfile, port: launchPortEl.value.trim(),
-          dshHome: launchDshHomeEl.value.trim(),
+          id: editingLaunchId || undefined, name: guided ? target.name : launchNameEl.value, icon: launchIcon,
+          version: versionValue || 'auto',
+          profile: guided ? target.profile : launchProfile,
+          port: launchPortEl.value.trim(),
+          dshHome: guided ? target.dshHome : launchDshHomeEl.value.trim(),
           autoLaunch: launchAutoLaunchEl.checked,
           updateChannel: draftLaunchChannel(),
+          // 让服务端保存前补建缺失的 Profile：一次请求就落定，不会出现「Profile 建了、启动项没存上」。
+          ...(guided ? { ensureProfile: true } : {}),
         })
         updateLaunchEntry(data.entry)
         launchSaveEl.disabled = false
@@ -3523,6 +3729,8 @@
         running,
         profile: typeof data.profile === 'string' ? data.profile : (state.profile || ''),
         dshHome: typeof data.dshHome === 'string' ? data.dshHome : (state.dshHome || ''),
+        // 老服务进程的 state 里没有 dataDir（后加的字段），保留旧值；完全隔离的默认目录靠它算
+        dataDir: typeof data.dataDir === 'string' ? data.dataDir : (state.dataDir || ''),
         dshHomes: Array.isArray(data.dshHomes) ? data.dshHomes : (state.dshHomes || []),
         dshHomeNames: data.dshHomeNames || state.dshHomeNames || {},
         profilesByHome: data.profilesByHome && typeof data.profilesByHome === 'object'
@@ -3554,6 +3762,8 @@
       if (!data.installing) installProgress = data.progress || null
       if ('pluginProgress' in data) pluginProgress = data.pluginProgress || null
       paintLaunchProfiles()
+      // 新建面板开着时目录/Profile 可能在别处变了（比如刚在「管理目录」里加了目录），补一次候选
+      if (!launchDialogEl.hidden) paintLaunchIsolation()
       if (!userPicked) picked = preferredPick()
       render()
       if (!launchPluginScope && previousPluginHome !== pluginTargetHome()) {
@@ -4192,6 +4402,9 @@
           themeEls.forEach((input) => { input.checked = input.value === savedTheme })
         }
       }
+      if ('launchIsolation' in data) {
+        launchIsolationSaved = data.launchIsolation === 'home' || data.launchIsolation === 'custom' ? data.launchIsolation : 'profile'
+      }
       if ('panelTransparency' in data) {
         savedPanelTransparency = Number(data.panelTransparency)
         if (!pendingSettings.has('panelTransparency')) showPanelTransparency(savedPanelTransparency)
@@ -4349,6 +4562,11 @@
           if (!('panelTransparency' in data)) throw new Error(t('当前启动器服务尚未更新，请重启启动器后重试。'))
           savedPanelTransparency = Number(data.panelTransparency)
           if (!pendingSettings.has('panelTransparency')) showPanelTransparency(savedPanelTransparency)
+        }
+        if ('launchIsolation' in patch) {
+          if (!('launchIsolation' in data)) throw new Error(t('当前启动器服务尚未更新，请重启启动器后重试。'))
+          // 以服务端归一化后的值为准（旧服务读回来是脏值时也能落回 Profile 隔离）
+          launchIsolationSaved = data.launchIsolation === 'home' || data.launchIsolation === 'custom' ? data.launchIsolation : 'profile'
         }
         for (const { key, input, apply } of visualSettings) {
           if (!(key in patch)) continue

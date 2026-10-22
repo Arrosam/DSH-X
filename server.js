@@ -96,6 +96,7 @@ import {
   safeInstancePorts,
   safeLaunchPresets,
   safeLaunchIcon,
+  safeLaunchIsolation,
   safeKeepVersions,
   safeLang,
   safeOpenMode,
@@ -1050,6 +1051,8 @@ async function publicSettings() {
     args: stored.args ?? '',
     lang: LANG,
     theme: THEME,
+    // 上次新建启动项选的隔离档，页面打开「添加启动项」时默认停在它上面
+    launchIsolation: safeLaunchIsolation(stored.launchIsolation),
     panelTransparency: PANEL_TRANSPARENCY,
     reduceMotion: REDUCE_MOTION,
     hideBackground: HIDE_BACKGROUND,
@@ -1286,8 +1289,14 @@ async function saveLaunchPresetNow(body) {
   const profile = safeProfile(body.profile)
   const dshHome = safeDshHome(body.dshHome)
   const home = dshHome || defaultHome()
-  if (!listProfiles(join(home, 'profiles')).includes(profile)) throw new Error(`profile ${profile} 不存在`)
   if (dshHome && dshHome !== defaultHome()) await ensureWritableDir(dshHome)
+  // 「添加启动项」的隔离方式引导：Profile 隔离/完全隔离只让人填 Profile 名字，不存在就按名字建。
+  // 建在 home 对应的目录作用域里（和 /api/profiles/create 的 x-dsh-home 同一套语义），页面
+  // 不用先建 Profile 再存启动项——两步之间的失败会留下半截环境。
+  if (body.ensureProfile === true && !listProfiles(join(home, 'profiles')).includes(profile)) {
+    await launchScope.run({ home }, () => createProfile(profile))
+  }
+  if (!listProfiles(join(home, 'profiles')).includes(profile)) throw new Error(`profile ${profile} 不存在`)
   const portText = String(body.port ?? '').trim()
   const port = portText && portText !== '0' ? safePort(portText) : 0
   // 没带这个字段就沿用原来的通道（同 autoLaunch）：只改别的字段的调用方，比如「更新到新版」时
@@ -1418,6 +1427,7 @@ async function saveManagerSettings(body) {
     ...('webBind' in body ? { webBind: safeWebBind(body.webBind) } : {}),
     ...('lang' in body ? { lang: safeLang(body.lang) } : {}),
     ...('theme' in body ? { theme: safeTheme(body.theme) } : {}),
+    ...('launchIsolation' in body ? { launchIsolation: safeLaunchIsolation(body.launchIsolation) } : {}),
     ...('panelTransparency' in body ? { panelTransparency: safePanelTransparency(body.panelTransparency) } : {}),
     ...('reduceMotion' in body ? { reduceMotion: body.reduceMotion === true } : {}),
     ...('hideBackground' in body ? { hideBackground: body.hideBackground === true } : {}),
