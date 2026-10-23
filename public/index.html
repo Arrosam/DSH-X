@@ -741,9 +741,11 @@
     <div class="ask-card" role="alertdialog" aria-modal="true" aria-labelledby="noticeTitle" data-dialog-size="small">
       <h2 class="ask-title" id="noticeTitle" data-i18n="操作失败">操作失败</h2>
       <p class="notice-text" id="noticeText"></p>
+      <div id="noticeCards" hidden style="max-height:60vh;overflow:auto;overflow-wrap:anywhere"></div>
       <pre class="notice-detail" id="noticeDetail" hidden></pre>
       <div class="ask-actions">
         <button type="button" class="ghost" id="noticeCopy" hidden></button>
+        <button type="button" class="ghost" id="noticePlan" hidden></button>
         <button type="button" class="primary" id="noticeOk" data-i18n="确定">确定</button>
       </div>
     </div>
@@ -1288,6 +1290,58 @@
   "{text}（退出码 {code}）": "{text} (exit code {code})",
   "{text}，以下是 dsh 退出前的输出：": "{text}. Output from dsh before it exited:",
   "查看错误信息": "Show error",
+  "启动诊断": "Startup diagnosis",
+  "复验中，请等待。": "Verification in progress. Please wait.",
+  "正在禁用并复验…": "Disabling and verifying…",
+  "正在处理并复验…": "Processing and verifying…",
+  "复验尚未完成；当前是否仍在进行未确认。": "Verification has not completed; whether it is still running is unknown.",
+  "复验未完成：执行复验时发生错误。": "Verification did not complete because an error occurred.",
+  "复验通过：本次启动未再记录上述插件问题。": "Verification passed: this startup did not report the plugin issues again.",
+  "复验完成，但仍有问题或未达到可用条件。": "Verification completed, but issues remain or readiness conditions were not met.",
+  "缺少复验结果，无法确认是否通过。": "No verification result is available; success cannot be confirmed.",
+  "此次回退或复验未完成，无法确认最新结果。": "This rollback or verification did not complete; the latest result cannot be confirmed.",
+  "旧记录缺少可信的本次回退复验结果。": "This legacy record has no reliable verification result for this rollback.",
+  "内容与原备份匹配，续完成回退记录": "Content matches the original backup; rollback recording was completed without moving it again",
+  "禁用这些插件": "Disable these plugins",
+  "仅跳过这些插件并关闭相关功能；不保证恢复启动或解除其他等待，结果以复验为准。": "Skip these plugins and turn off their features. This does not guarantee startup recovery or resolve other pending services; check verification results.",
+  "功能状态": "Feature status",
+  "正在回退并复验，请等待。": "Rolling back and verifying. Please wait.",
+  "已禁用以绕过故障，相关功能已关闭；请查看剩余问题。": "Disabled to bypass the failure. Related features are off; review the remaining issues.",
+  "运行中插件诊断": "Plugin diagnostics while running",
+  "查看解决方案": "View solutions",
+  "复制修复方案": "Copy repair plan",
+  "基于本次诊断生成；请先审阅，不会执行任何修改。": "Generated from this diagnosis; review it first. No changes will be executed.",
+  "重新核对方案": "Recheck plan",
+  "修复方案（仅建议，不执行）": "Repair plan (advice only, no execution)",
+  "方案已过期或无法验证，请重新打开最新诊断。": "The plan is stale or unverifiable. Reopen the latest diagnosis.",
+  "配置无法验证，不能生成方案。": "Configuration cannot be verified; plan generation is unavailable.",
+  "证据": "Evidence",
+  "已确认": "Confirmed",
+  "未知与前置核对": "Unknowns and prerequisites",
+  "影响": "Impact",
+  "回退": "Rollback",
+  "验收": "Acceptance",
+  "校验范围": "Freshness scope",
+  "实例仍在运行，插件仍在等待或有跳过记录": "The instance is running; plugins are waiting or have skip records",
+  "实例仍在运行，但日志报告插件异常": "The instance is running, but its log reports plugin issues",
+  "必需插件阻塞链（日志证据）": "Required plugin blocking chain (log evidence)",
+  "必需": "required",
+  "缺少服务": "missing service",
+  "同名插件被拒绝（线索）": "Rejected plugin with the same name (clue)",
+  "直接失败": "Direct failures",
+  "版本不兼容，已被 Harness 禁用": "Disabled by Harness: incompatible versions",
+  "被跳过的插件包": "Skipped bundles",
+  "等待服务（受影响项，不等于根因）": "Waiting for services (affected entries, not necessarily causes)",
+  "修复建议（不会自动执行）": "Suggested repairs (not executed automatically)",
+  "实际加载来源尚未确认；先核对来源和兼容版本，不要豁免版本检查或批量禁用插件。": "The actual loaded source is unconfirmed. Check its origin and compatible versions; do not bypass version checks or disable plugins in bulk.",
+  "配置报告 serviceVersion 缺失；仅核对字段定义文件及引用的环境变量，不代填或改写。": "The configuration reports a missing serviceVersion. Only inspect the field definition file and referenced environment variable; do not fill in or rewrite values.",
+  "本次启动未传入 DSH_CLIENT_VERSION；字段是否引用此变量及定义文件，以已核实来源证据为准。": "DSH_CLIENT_VERSION was absent from this launch environment. Whether the field references this variable, and where it is defined, must be established from verified source evidence.",
+  "优先修复直接失败和被拒绝的服务提供者，再检查等待项；当前未证明所有等待项属于同一根因。": "Repair failed or rejected service providers first, then check waiting entries. They have not all been attributed to one cause.",
+  "日志还报告了不存在的接口。请核对涉及插件与 Harness 的兼容版本；启动成功也不代表该功能正常。": "The log also reports an unavailable interface. Check plugin and Harness compatibility; successful startup alone does not verify that feature.",
+  "证据已截断或不完整，未显示的项目不代表正常。": "Evidence is truncated or incomplete; omitted entries are not confirmed healthy.",
+  "启动入口": "Launch entry",
+  "Harness CLI 路径": "Harness CLI path",
+  "原始输出": "Original output",
   "复制错误信息": "Copy",
   "已复制": "Copied",
   "{name} 已{state}{changed}。": "{name} {state}.{changed}",
@@ -1982,7 +2036,90 @@
     const noticeTextEl = document.getElementById('noticeText')
     const noticeDetailEl = document.getElementById('noticeDetail')
     const noticeCopyEl = document.getElementById('noticeCopy')
-    function notify(message, title = t('操作失败'), detail = '') {
+    const noticePlanEl = document.getElementById('noticePlan')
+    const noticeCardsEl = document.getElementById('noticeCards')
+    const REPAIR_PLAN_CHECK_DELAY = 2000
+    const repairPlanView = { sequence: 0, binding: null, plan: null, timer: null, busy: false, mode: '', preview: null }
+    function resetRepairPlan() {
+      clearTimeout(repairPlanView.timer)
+      repairPlanView.sequence += 1
+      repairPlanView.binding = null
+      repairPlanView.plan = null
+      repairPlanView.busy = false
+      repairPlanView.mode = ''
+      repairPlanView.preview = null
+      noticeCardsEl.hidden = true
+      noticeCardsEl.replaceChildren()
+      noticePlanEl.hidden = true
+    }
+    function configureRepairPlan(failure) {
+      if (!failure.binding) {
+        return
+      }
+      repairPlanView.binding = failure.binding
+      noticePlanEl.hidden = false
+      noticePlanEl.disabled = !failure.binding.profileFingerprint
+      noticePlanEl.textContent = t('查看解决方案')
+      noticePlanEl.title = noticePlanEl.disabled ? t('配置无法验证，不能生成方案。') : ''
+    }
+    function repairPlanText(plan) {
+      const lines = [t('修复方案（仅建议，不执行）')]
+      const target = repairPlanView.binding
+      lines.push(`${target.version} / ${target.profile}`, target.home)
+      for (const [label, values] of [['证据', plan.evidence], ['已确认', plan.confirmed], ['未知与前置核对', plan.unknown]]) {
+        lines.push('', t(label), ...(values || []))
+      }
+      for (const [index, step] of (plan.steps || []).entries()) {
+        lines.push('', `${index + 1}. ${step.action}`, `${t('影响')}: ${step.impact}`, `${t('回退')}: ${step.rollback}`, `${t('验收')}: ${step.verify}`)
+      }
+      lines.push('', t('验收'), ...(plan.acceptance || []), '', t('校验范围'), plan.scope)
+      return lines.join('\n')
+    }
+    async function verifyRepairPlan(checkOnly = false) {
+      if (!repairPlanView.binding || repairPlanView.busy || noticeEl.hidden) {
+        return
+      }
+      clearTimeout(repairPlanView.timer)
+      const sequence = repairPlanView.sequence
+      repairPlanView.busy = true
+      noticePlanEl.disabled = true
+      try {
+        const result = await post(checkOnly ? '/api/diagnosis/plan/check' : '/api/diagnosis/plan', { binding: repairPlanView.binding })
+        if (sequence !== repairPlanView.sequence) {
+          return
+        }
+        if (!checkOnly) {
+          repairPlanView.mode = 'plan'
+          noticeCardsEl.hidden = true
+          noticeDetailEl.hidden = false
+          repairPlanView.plan = result.plan
+          noticeTitleEl.textContent = t('修复方案（仅建议，不执行）')
+          noticeTextEl.textContent = t('基于本次诊断生成；请先审阅，不会执行任何修改。')
+          noticeCopyEl.textContent = t('复制修复方案')
+          noticeDetailEl.textContent = repairPlanText(result.plan)
+          noticeDetailEl.scrollTop = 0
+        }
+        noticePlanEl.textContent = t('重新核对方案')
+        noticePlanEl.disabled = false
+        // 外部编辑配置不一定触发SSE，打开中的方案也必须重新核验。
+        repairPlanView.timer = setTimeout(() => { void verifyRepairPlan(true) }, REPAIR_PLAN_CHECK_DELAY)
+      } catch {
+        if (sequence === repairPlanView.sequence) {
+          noticeDetailEl.textContent = t('方案已过期或无法验证，请重新打开最新诊断。')
+          noticeDetailEl.scrollTop = 0
+          repairPlanView.plan = null
+          repairPlanView.binding = null
+          noticePlanEl.disabled = true
+        }
+      } finally {
+        if (sequence === repairPlanView.sequence) {
+          repairPlanView.busy = false
+        }
+      }
+    }
+    noticePlanEl.onclick = () => { void verifyRepairPlan(Boolean(repairPlanView.plan)) }
+    function notify(message, title = t('操作失败'), detail = '', fromTop = false) {
+      resetRepairPlan()
       noticeTitleEl.textContent = title
       noticeTextEl.textContent = message == null ? '' : String(message)
       noticeDetailEl.textContent = detail
@@ -1992,7 +2129,7 @@
       noticeEl.classList.toggle('has-detail', Boolean(detail))
       showDialog(noticeEl)
       // 报错一般在输出的最后几行，打开就停在底部
-      noticeDetailEl.scrollTop = noticeDetailEl.scrollHeight
+      noticeDetailEl.scrollTop = fromTop ? 0 : noticeDetailEl.scrollHeight
     }
     noticeCopyEl.onclick = async () => {
       try {
@@ -2018,28 +2155,626 @@
       const code = failure.exit?.code
       return code == null ? text : t('{text}（退出码 {code}）', { text, code })
     }
-    /** 把 dsh 退出前的输出摆出来：原因基本都在这段里，光一句「启动失败」看不出来。 */
-    function showFailure(failure) {
+    /** 诊断只生成文字，日志中的 HTML、命令和包名都不能变成可执行操作。 */
+    function diagnosisText(report) {
+      if (!report) {
+        return ''
+      }
+      const lines = [t('启动诊断')]
+      if (report.context?.entry) {
+        lines.push(`${t('启动入口')}: ${report.context.entry}`)
+      }
+      if (report.context?.harnessEntry && report.context.harnessEntry !== report.context.entry) {
+        lines.push(`${t('Harness CLI 路径')}: ${report.context.harnessEntry}`)
+      }
+      if (report.blockingChains?.length) {
+        lines.push('', t('必需插件阻塞链（日志证据）'))
+        for (const chain of report.blockingChains) {
+          lines.push(`${chain.id} (${t('必需')}) → ${t('缺少服务')}: ${chain.service}`)
+          if (chain.rejectedRow) {
+            lines.push(`${t('同名插件被拒绝（线索）')}: ${chain.rejectedRow.id} (${chain.rejectedRow.package})`)
+          }
+        }
+      }
+      const sections = [
+        ['直接失败', report.failed, entry => `${entry.id}${entry.required ? ' (' + t('必需') + ')' : ''} (${entry.package}): ${entry.reason}`],
+        ['版本不兼容，已被 Harness 禁用', report.rejected, entry => `${entry.id} (${entry.package}) / Harness ${entry.runtime}: ${entry.requirements}`],
+        ['被跳过的插件包', report.skipped?.entries, entry => `${entry.package}: ${entry.reason}`],
+        ['等待服务（受影响项，不等于根因）', report.waiting, entry => `${entry.id}${entry.required ? ' (' + t('必需') + ')' : ''}: ${entry.missing.join(', ')}`],
+      ]
+      for (const [label, entries, format] of sections) {
+        if (entries?.length) {
+          lines.push('', `${t(label)} (${entries.length})`)
+          for (const entry of entries) {
+            lines.push(format(entry))
+          }
+        }
+      }
+      lines.push('', t('修复建议（不会自动执行）'))
+      const advice = {
+        telemetry_configuration: '配置报告 serviceVersion 缺失；仅核对字段定义文件及引用的环境变量，不代填或改写。',
+        incompatible_packages: '实际加载来源尚未确认；先核对来源和兼容版本，不要豁免版本检查或批量禁用插件。',
+        waiting_services: '优先修复直接失败和被拒绝的服务提供者，再检查等待项；当前未证明所有等待项属于同一根因。',
+        module_interface: '日志还报告了不存在的接口。请核对涉及插件与 Harness 的兼容版本；启动成功也不代表该功能正常。',
+      }
+      for (const item of report.advice || []) {
+        if (advice[item.code]) {
+          lines.push(t(advice[item.code]))
+        }
+        if (item.code === 'telemetry_configuration' && report.context?.profile === 'desktop' && report.context.clientVersionPresent === false) {
+          lines.push(t('本次启动未传入 DSH_CLIENT_VERSION；字段是否引用此变量及定义文件，以已核实来源证据为准。'))
+        }
+        if (item.code === 'module_interface') {
+          for (const evidence of report.evidence || []) {
+            if (/is not a function/.test(evidence.text)) {
+              lines.push(`[${evidence.line}] ${evidence.text}`)
+            }
+          }
+        }
+      }
+      if (!report.advice?.length && report.primary) {
+        lines.push(report.primary.summary, report.primary.remedy)
+      }
+      if (report.truncated) {
+        lines.push('', t('证据已截断或不完整，未显示的项目不代表正常。'))
+      }
+      return lines.join('\n')
+    }
+    /** 原弹窗保留输出，诊断放前面；不改变启动、重试或恢复入口。 */
+    function showFailure(failure, running = false) {
       const output = (failure.tail || []).join('\n')
-      const text = failureText(failure)
-      notify(output ? t('{text}，以下是 dsh 退出前的输出：', { text }) : text, t('启动失败'), output)
+      const diagnosis = diagnosisText(failure.diagnosis)
+      const detail = [diagnosis, output ? `${diagnosis ? t('原始输出') + '\n' : ''}${output}` : ''].filter(Boolean).join('\n\n')
+      const text = running ? t(failure.message || '运行中插件诊断') : failureText(failure)
+      notify(text, t(running ? '运行中插件诊断' : '启动失败'), detail, Boolean(diagnosis))
+      configureRepairPlan(failure)
+      showRepairCards(failure)
+    }
+
+    function cardLine(card, label, value, multiline = false) {
+      if (!value) {
+        return
+      }
+      const line = document.createElement('p')
+      if (multiline) {
+        line.style.whiteSpace = 'pre-wrap'
+      }
+      const heading = document.createElement('strong')
+      heading.textContent = `${t(label)}：`
+      line.append(heading, document.createTextNode(String(value)))
+      card.append(line)
+    }
+    function evidenceDetails(card, label, value) {
+      const details = document.createElement('details')
+      const summary = document.createElement('summary')
+      const text = document.createElement('pre')
+      summary.textContent = t(label)
+      text.style.whiteSpace = 'pre-wrap'
+      text.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+      details.append(summary, text)
+      card.append(details)
+    }
+    function repairCard(component) {
+      const card = document.createElement('section')
+      card.style.cssText = 'border:1px solid var(--line,#ddd);border-radius:12px;padding:14px;margin:10px 0'
+      const heading = document.createElement('h3')
+      heading.textContent = component
+      heading.style.cssText = 'font-size:14px;margin:0 0 8px'
+      card.append(heading)
+      return card
+    }
+    function repairLabel(component) {
+      const names = {
+        '@deepseek-ai/dsh-credentials-local': '账号与密钥读取',
+        '@deepseek-ai/dsh-session-persistence-jsonl': '会话记录保存',
+        '@deepseek-ai/dsh-subprocess-local': '命令执行',
+        '@deepseek-ai/dsh-host-product-telemetry-otel': '产品运行情况上报',
+        '@deepseek-ai/dsh-client-product-analytics': '产品使用情况收集',
+        'desktop-product-telemetry': '产品运行情况上报',
+        'product-analytics': '产品使用情况收集',
+      }
+      return t(names[component] || component || '未命名组件')
+    }
+    function solutionStepText(step) {
+      if (step.operation === 'uninstall_introducer') {
+        return `${t('官方卸载引入者')} ${step.owner.name}@${step.owner.version}；${t('重算安装依赖，可能联网；失败也可能部分修改文件。')}`
+      }
+      if (step.operation === 'archive_package') {
+        return `${t('备份当前插件文件，并使用已核实兼容的版本')}：${step.beforeVersion || t('未确认')} → ${step.afterVersion || t('未确认')}`
+      }
+
+      if (step.operation === 'disable_rows') {
+        return `${t(step.rows?.length === 1 ? '只关闭此条目' : '一起关闭')}：${(step.rows || []).map(row => repairLabel(row.component || row.id)).join('、') || t('依赖范围未确认')}`
+      }
+      return t('没有已确认的执行步骤')
+    }
+    function repairPresentation(action) {
+      const buttons = { package: '更新旧插件', 'disable-optional': '禁用这些插件', 'uninstall-introducer': '卸载依赖引入者' }
+      return {
+        title: repairLabel(action.component || action.id),
+        recommendation: action.disabledReason ? t('当前证据不满足操作条件，不能执行此方案。') : (action.solution?.steps || []).map(solutionStepText).join('；') || t('尚无已确认方案'),
+        rollback: action.kind === 'uninstall-introducer' ? t('此卸载不支持一键回退；恢复需另行确认重新安装，原版本可能重新引入冲突。') : action.solution?.rollback ? t('可恢复本次备份；目标有新内容时拒绝覆盖。') : t('回退细节未记录'),
+        button: t(['runtime-schema-leaf', 'runtime-import-leaf'].includes(action.proof) ? '禁用此故障插件' : buttons[action.kind] || '查看证据'),
+      }
+    }
+    function dependencyText(edge) {
+      return `${repairLabel(edge.from.component || edge.from.id)} → ${repairLabel(edge.to.component || edge.to.id)}（${t('左侧依赖右侧')}，${edge.service}）`
+    }
+    function waitingProviderText(preview, service, consumer) {
+      const providers = (preview.runtimeState?.requiredDependencyChains || []).flatMap(chain => chain.edges).filter(edge => edge.service === service && edge.from === consumer.id).map(edge => edge.to)
+      return providers.length ? [...new Set(providers)].join('、') : t('尚未核实')
+    }
+    function observationText(item) {
+      if (item.field || item.validation) {
+        const validation = item.validation
+        const descriptions = { missing: '缺少必填值', type: '类型不符合要求', range: '超出允许范围', enum: '不在允许的选项中', validation: '未通过配置校验' }
+        const detail = validation?.expected || validation?.constraint
+        return `${t('配置校验失败')}：${item.field || t('字段位置未提取')} ${t(descriptions[validation?.kind || 'missing'])}${detail ? `（${detail}）` : ''}`
+      }
+      if (item.kind === 'version_rejection') {
+        return `${item.rowId}：${t('日志拒绝此版本')} ${item.package}；Harness ${item.runtime}`
+      }
+      return `${item.rowId || ''}：${item.reason || t('详情未记录')}`
+    }
+    function confirmationText(item) {
+      if (item.kind === 'installed_dependency') {
+        const state = item.disabled === true ? t('已禁用但仍安装') : item.disabled === false ? t('未全部禁用') : t('启用状态未核实')
+        const relation = item.verifiedInstallation && item.field !== 'peerDependencies' ? t('安装依赖') : t('依赖声明，尚不能单独归责')
+        return `${item.owner}@${item.version}（${state}） → ${item.target.name}@${item.target.version}；${relation}；${item.path}`
+      }
+      if (item.kind === 'fatal_import_before_apply') {
+        return t('同一导入错误触发致命退出；目标非启动必需，apply 尚未开始。模块顶层可能已执行。')
+      }
+      if (item.kind === 'configuration_source') {
+        const origin = item.environment?.variable ? `process.env.${item.environment.variable}` : item.environment ? t('复杂表达式，来源未确认') : t('配置字段')
+        const missing = item.missing === true ? t('校验时缺值') : item.missing === false ? t('校验时存在值，约束见错误证据') : t('校验时字段状态未记录')
+        return `${item.field} ← ${origin} · ${missing} · ${t('当前有效配置来源')}：${item.path || t('未确认')}${item.line ? ':' + item.line : ''}${item.fieldDeclared === false ? ' · ' + t('此层未显式声明该字段') : ''}${item.overridden?.length ? ' · ' + t('覆盖此前配置层') + '：' + item.overridden.join(' → ') : ''}`
+      }
+      if (item.kind === 'schema_before_execution') {
+        return `${item.rowId}：${t('本次首次配置校验失败，尚未执行，非启动必需条目')}`
+      }
+      if (item.kind === 'unregistered_service_declaration') {
+        return `${item.rowId}：${t('配置校验失败，构造尚未执行')} → ${t('构造声明提供服务')} ${item.service} → ${t('本次观察服务未注册')} → ${(item.consumers || []).map(consumer => consumer.id).join('、') || t('尚未确认等待者')}；${t('这是声明与等待的关联推断，不是已执行注册证据，也不用于放宽禁用条件。')}`
+      }
+      if (['captured_spawn_environment', 'captured_validation_environment'].includes(item.source) && item.kind === 'launch_variable_presence') {
+        const presence = item.present === true ? '已传入' : item.present === false ? '未传入' : '是否传入未记录'
+        return `${t(item.source === 'captured_validation_environment' ? '本次配置求值前的进程环境' : '本次启动')}：${item.variable} ${t(presence)}`
+      }
+      return ''
+    }
+    function recordedChangeText(change) {
+      if (change.operation === 'archive_package') {
+        return `${t('已将插件文件移入备份')}；${t('原版本')} ${change.before?.version || t('未记录')}`
+      }
+      if (change.operation === 'resolved_package') {
+        return `${t('操作后实际解析版本')}：${change.after?.version || t('未记录')}；${change.path || t('未记录')}`
+      }
+      if (change.operation === 'package_inventory_changed') {
+        return `${change.before?.name || change.after?.name}：${change.before?.version || t('不存在')} → ${change.after?.present === false ? t('已移除') : change.after?.version || t('未记录')}；${change.path}`
+      }
+      if (change.operation === 'installation_manifest_changed') {
+        return `${t('安装清单或配置已变化')}：${change.path}`
+      }
+      if (change.operation === 'set_launch_variable') {
+        return `${t('已写入启动适配')}：${change.after?.variable} = ${change.after?.value}`
+      }
+      if (change.operation === 'disable_rows') {
+        return `${t('已写入禁用项')}：${(change.rows || []).map(repairLabel).join('、')}`
+      }
+      const labels = { confirm_restored_backup: '内容与原备份匹配，续完成回退记录', backup_patch: '已保留原配置', restore_backup: '已恢复本次备份', set_launch_adapter: '旧记录确认已写入启动适配', patch_written: '旧记录确认已写入配置补丁' }
+      return t(labels[change.operation] || '已记录文件操作') + (change.after?.version ? `：${change.after.version}` : '')
+    }
+    function renderRepairActionGroups(preview, sequence) {
+      const groups = new Map()
+      for (const action of preview.actions) {
+        const key = action.component || action.id
+        if (!groups.has(key)) {
+          groups.set(key, [])
+        }
+        groups.get(key).push(action)
+      }
+      const cards = []
+      const actionCards = new Map()
+      for (const actions of groups.values()) {
+        const first = repairPresentation(actions[0])
+        const problem = actions[0].problem
+        const card = repairCard(first.title)
+        for (const action of actions) {
+          actionCards.set(action.id, card)
+        }
+        const kinds = { configuration: '配置问题', compatibility: '插件版本不兼容', plugin: '插件激活异常', unclassified: '问题类型未确认' }
+        cardLine(card, '问题类型', t(kinds[problem?.classification?.kind] || '问题类型未确认'))
+        cardLine(card, '本次事实', problem?.observations?.map(observationText).join('；') || t('没有结构化日志证据，不能推断原因。'))
+        const confirmations = problem?.confirmations || []
+        const roots = confirmations.filter(item => item.kind === 'installed_dependency' && item.verifiedInstallation && item.field !== 'peerDependencies').map(item => `${item.owner}@${item.version}（${t(item.disabled === true ? '已禁用但仍安装' : item.disabled === false ? '未全部禁用' : '启用状态未核实')}） → ${item.target.name}@${item.target.version}`)
+        cardLine(card, '已核实依赖来源', roots.join('；'))
+        evidenceDetails(card, '配置来源与完整证据', confirmations.map(confirmationText).filter(Boolean).join('；'))
+        const rules = { loader_rejection: '启动日志明确拒绝了该插件版本', schema_missing: '配置校验报告缺少必填字段', schema_type: '配置校验报告字段类型不符', schema_range: '配置校验报告数值或长度越界', schema_enum: '配置校验报告选项不符', schema_validation: '配置校验失败，具体约束尚未确认', activation_report: '日志报告组件未激活', insufficient_evidence: '证据不足，未形成判断' }
+        cardLine(card, '规则判断', t(rules[problem?.classification?.ruleId] || '证据不足，未形成判断'))
+        if (problem?.unknowns?.length) {
+          cardLine(card, '未确认', problem.unknowns.map(item => item.detail).join('；'))
+        }
+        if (problem?.dependencies?.length) {
+          cardLine(card, '已核依赖关系', problem.dependencies.map(dependencyText).join('；'))
+        }
+        const available = actions.filter(action => !action.disabledReason).length
+        cardLine(card, '处理方式', `${t('本卡可直接执行')} ${available} · ${t('本卡受限')} ${actions.length - available}；${t('只执行你确认的方案。')}`)
+        const related = preview.actions.filter(action => action.kind === 'uninstall-introducer' && action.owner?.name && !actions.includes(action) && action.affectedComponents?.includes(actions[0].component))
+        for (const action of related) {
+          const link = document.createElement('button')
+          link.type = 'button'
+          link.className = 'ghost'
+          link.textContent = `${t('查看统一卸载方案')}：${action.owner.name}（${t(action.disabledReason ? '当前不可执行' : '可执行，需确认')}）`
+          link.onclick = () => {
+            const destination = actionCards.get(action.id)
+            if (destination) {
+              destination.tabIndex = -1
+              destination.scrollIntoView({ block: 'start' })
+              destination.focus({ preventScroll: true })
+            }
+          }
+          cardLine(card, '关联方案', `${t('此故障也在该引入者的同一次卸载影响范围内')}：${action.owner.name}；${t('不会单独重复卸载。')}`)
+          card.append(link)
+        }
+        const options = document.createElement('div')
+        options.style.display = 'grid'
+        options.style.gridTemplateColumns = actions.length > 1 ? 'repeat(auto-fit,minmax(min(230px,100%),1fr))' : '1fr'
+        options.style.gap = '12px'
+        for (const action of actions) {
+          const presentation = repairPresentation(action)
+          const option = document.createElement('section')
+          if (actions.length > 1) {
+            option.style.cssText = 'border:1px solid var(--line,#ddd);border-radius:8px;padding:12px;min-width:0'
+            const heading = document.createElement('h4')
+            heading.textContent = presentation.button
+            option.append(heading)
+          }
+          const button = document.createElement('button')
+          button.type = 'button'
+          button.className = 'primary'
+          button.style.cssText = 'flex:0 0 auto;width:auto;min-width:90px'
+          button.textContent = presentation.button + (action.disabledReason ? '（' + t('当前不可执行') + '）' : '')
+          button.disabled = Boolean(action.disabledReason)
+          button.onclick = () => {
+            void executeRepair(preview, action, sequence, button)
+          }
+          option.append(button)
+          cardLine(option, '方案', presentation.recommendation)
+          cardLine(option, '功能影响', action.disabledReason || !action.solution?.steps?.length ? t('此方案当前不可执行，尚未修改任何组件。') : action.kind === 'uninstall-introducer' ? t('移除引入者的安装声明及不再需要的依赖；不能直接重新启用它。预计影响不是保证删除范围，实际结果以执行后核对为准。') : action.solution?.effects?.bypass ? t('仅跳过这些插件并关闭相关功能；不保证恢复启动或解除其他等待，结果以复验为准。') : t('不禁用组件；实际结果以复验为准。'))
+          if (!action.disabledReason && ['runtime-schema-leaf', 'runtime-import-leaf'].includes(action.proof)) {
+            cardLine(option, '禁用范围', t('只处理此故障条目；等待组件不关闭，是否恢复可用以复验结果为准。'))
+          }
+          if (action.kind === 'uninstall-introducer') {
+            cardLine(option, '同一次卸载处理', (action.affectedComponents || []).join('、'))
+            cardLine(option, '预计影响启用项', `${(action.affected || []).length}：` + (action.affected || []).map(entry => `${entry.id}${entry.required ? ' (' + t('必需') + ')' : ''}`).join('、'))
+          }
+          if (!action.disabledReason && (action.solution?.rollback || action.kind === 'uninstall-introducer')) {
+            cardLine(option, '回退', presentation.rollback)
+          }
+          cardLine(option, '禁修原因', action.disabledReason)
+          evidenceDetails(option, '修改位置与证据', { component: action.component, solution: action.solution, affected: action.affected, observations: problem?.observations, confirmations: problem?.confirmations, classification: problem?.classification, capability: problem?.capability })
+          options.append(option)
+        }
+        card.append(options)
+        cards.push(card)
+      }
+      return cards
+    }
+    async function showRepairCards(failure) {
+      repairPlanView.mode = 'cards'
+      const sequence = repairPlanView.sequence
+      noticeCardsEl.hidden = false
+      noticeDetailEl.hidden = true
+      noticeTextEl.textContent = t('正在核对组件来源；核对完成前不会执行修改。')
+      for (const row of [...(failure.diagnosis?.failed || []), ...(failure.diagnosis?.rejected || [])]) {
+        const card = repairCard(row.package || row.id)
+        cardLine(card, '原因', row.reason || row.id)
+        cardLine(card, '状态', t('来源核对中'))
+        noticeCardsEl.append(card)
+      }
+      if (!failure.binding) {
+        noticeTextEl.textContent = t('此诊断缺少可验证的目标，无法执行修复。')
+        return
+      }
+      try {
+        const preview = await post('/api/diagnosis/repair/preview', { binding: failure.binding })
+        if (sequence !== repairPlanView.sequence || repairPlanView.mode !== 'cards') {
+          return
+        }
+        repairPlanView.preview = preview
+        noticeCardsEl.replaceChildren()
+        noticeTextEl.textContent = `${t('当前启动项')} · ${preview.target.profile} · ${preview.target.version}`
+        evidenceDetails(noticeCardsEl, '启动项数据位置', preview.target.home)
+        cardLine(noticeCardsEl, '影响', t('修复时会重启这个启动项，正在进行的任务会中断。每次只处理你确认的这一项。'))
+        const waitingDetails = document.createElement('details')
+        const waitingSummary = document.createElement('summary')
+        waitingSummary.textContent = t('其他等待与初始化状态（不是已确认故障，不会默认禁用）')
+        waitingDetails.append(waitingSummary)
+        if (preview.runtimeState?.phase === 'initializing' && preview.runtimeState.requiredInactive?.length) {
+          const initialization = repairCard(t('启动初始化尚未完成'))
+          cardLine(initialization, '观察到的状态', preview.runtimeState.requiredInactive.join('、'))
+          cardLine(initialization, '证据范围', t('这些组件在致命退出时尚未激活，不等于它们有故障，也不证明由当前插件阻塞；不会随此操作禁用。'))
+          waitingDetails.append(initialization)
+        }
+        for (const chain of preview.runtimeState?.requiredDependencyChains || []) {
+          const dependency = repairCard(t('已确认必需服务依赖阻塞'))
+          cardLine(dependency, '实际服务绑定', chain.edges.map(edge => `${t('消费者')} ${edge.from} → ${t('服务')} ${edge.service} → ${t('提供者插件')} ${edge.to}`).join('\n'))
+          cardLine(dependency, '处理范围', t('已确认故障目标位于此必需服务依赖链；禁止单项禁用该目标。其他等待者不加入禁用范围。'))
+          noticeCardsEl.append(dependency)
+        }
+        for (const chain of preview.blockingChains || []) {
+          if (preview.runtimeState?.requiredDependencyChains?.some(confirmed => confirmed.edges.some(edge => edge.from === chain.id && edge.service === chain.service))) {
+            continue
+          }
+          const card = repairCard(t('必需组件等待服务'))
+          cardLine(card, '日志事实', t('此项被日志标为必需，当前等待所列服务；服务提供者仍需依据加载证据核对。'))
+          evidenceDetails(card, '技术依赖关系', `${chain.id} → ${chain.service}`)
+          evidenceDetails(card, '受影响项', preview.waiting.filter(row => row.missing?.includes(chain.service)).map(row => `${row.id || row.package}：${t('等待服务')} ${(row.missing || []).join('、')}`).join('\n'))
+          waitingDetails.append(card)
+        }
+        for (const card of renderRepairActionGroups(preview, sequence)) {
+          noticeCardsEl.append(card)
+        }
+        if (preview.waitingServices?.length) {
+          const waitingCard = repairCard(t('本次等待状态（日志证据）'))
+          cardLine(waitingCard, '证据范围', t('等待本身不是故障；仅已确认的依赖链用于归因，其他等待项的原因仍未确认，不会默认禁用这些组件。'))
+          for (const relation of preview.waitingServices) {
+            for (const consumer of relation.consumers) {
+              cardLine(waitingCard, consumer.required === true ? '必需组件等待' : consumer.required === false ? '一般组件等待' : '必需性未确认', `${repairLabel(consumer.component || consumer.id)} ${t('等待服务')} ${relation.service}`)
+              const declarations = (relation.declarations || []).filter(item => item.consumers.some(itemConsumer => itemConsumer.id === consumer.id && itemConsumer.component === consumer.component))
+              if (declarations.length === 1) {
+                cardLine(waitingCard, '声明依赖链', `${declarations[0].id}（${t('配置校验失败，构造尚未执行')}） → ${relation.service}（${t('声明提供，当前未注册')}） → ${consumer.id}（${t('等待')}）`)
+                cardLine(waitingCard, '证据限制', t('这是声明与等待的关联推断，不是已执行注册证据，也不用于放宽禁用条件。'))
+              } else {
+                cardLine(waitingCard, '服务提供者', `${consumer.id} → ${relation.service}：${waitingProviderText(preview, relation.service, consumer)}`)
+              }
+            }
+          }
+          cardLine(waitingCard, '未确认', t('当前日志列表不是完整依赖闭包。'))
+          evidenceDetails(waitingCard, '等待证据', preview.waitingServices)
+          waitingDetails.append(waitingCard)
+        }
+        if (waitingDetails.children.length > 1) {
+          noticeCardsEl.append(waitingDetails)
+        }
+        evidenceDetails(noticeCardsEl, '技术影响说明', preview.impact)
+        evidenceDetails(noticeCardsEl, '原始证据与输出', noticeDetailEl.textContent)
+        noticeCardsEl.scrollTop = 0
+      } catch (error) {
+        if (sequence === repairPlanView.sequence && repairPlanView.mode === 'cards') {
+          noticeTextEl.textContent = error.message
+        }
+      }
+    }
+    async function executeRepair(preview, action, sequence, actionButton) {
+      if (repairPlanView.busy) {
+        return
+      }
+      repairPlanView.busy = true
+      const originalLabel = actionButton.textContent
+      try {
+        const presentation = repairPresentation(action)
+        if (action.kind === 'uninstall-introducer') {
+          presentation.recommendation += `\n${t('同一次卸载处理')}：${(action.affectedComponents || []).join('、')}\n${t('预计影响启用项')}：${(action.affected || []).map(entry => `${entry.id}${entry.required ? ' (' + t('必需') + ')' : ''} → ${entry.replacement || t('替代未确认')}`).join('\n')}\n${t('移除引入者的安装声明及不再需要的依赖；不能直接重新启用它。预计影响不是保证删除范围，实际结果以执行后核对为准。')}`
+        }
+        const approved = await appConfirm(`${preview.target.version} / ${preview.target.profile}\n${preview.target.home}\n\n${presentation.title}${action.kind === 'package' ? '\n' + t('插件版本') + '：' + action.currentVersion + ' → ' + action.targetVersion + '\n' + t('Harness 版本保持不变') : ''}\n${presentation.recommendation}\n${t('技术组件')}：${action.component}${action.solution?.effects?.dependencies?.length ? '\n' + action.solution.effects.dependencies.map(dependencyText).join('\n') : ''}\n${t('实际位置')}：${action.source}\n${t('备份位置')}：${action.backup}\n\n${t('修复时会重启这个启动项，正在进行的任务会中断。每次只处理你确认的这一项。')}\n${presentation.rollback}`, { title: t('确认修复此项'), parent: noticeEl })
+        if (!approved || sequence !== repairPlanView.sequence) {
+          return
+        }
+        noticeTextEl.textContent = t('正在修复并复验，请等待。')
+        actionButton.textContent = t(action.kind === 'disable-optional' ? '正在禁用并复验…' : action.kind === 'uninstall-introducer' ? '正在卸载并复验…' : '正在处理并复验…')
+        for (const button of noticeCardsEl.querySelectorAll('button')) {
+          button.disabled = true
+        }
+        const record = await post('/api/diagnosis/repair/execute', { id: preview.id, actionId: action.id })
+        if (sequence === repairPlanView.sequence) {
+          showRepairHistory([record])
+        }
+      } catch (error) {
+        if (sequence === repairPlanView.sequence) {
+          if (error.repairRecord?.id === preview.id && error.repairRecord.action?.id === action.id) {
+            showRepairHistory([error.repairRecord])
+            noticeTextEl.textContent = error.message
+            return
+          }
+          noticeTextEl.textContent = error.message + '\n' + t('未取得本次持久记录，不能据此认定未发生修改；请查看修复记录或重新获取当前诊断。')
+          actionButton.textContent = originalLabel
+          for (const button of noticeCardsEl.querySelectorAll('button')) {
+            button.disabled = true
+          }
+          appendCurrentDiagnosisButton(noticeCardsEl, preview.target)
+        }
+      } finally {
+        if (sequence === repairPlanView.sequence) {
+          repairPlanView.busy = false
+        }
+      }
+    }
+    function verificationText(record, active = false) {
+      if (active) {
+        return t('复验中，请等待。')
+      }
+      if (record.verificationStatus === 'pending') {
+        return t('复验尚未完成；当前是否仍在进行未确认。')
+      }
+      if (record.verificationStatus === 'failed') {
+        return t('复验未完成：执行复验时发生错误。')
+      }
+      if (record.status === 'rolled_back' && !record.verificationStatus && record.outcome?.bypassed) {
+        return t('旧记录缺少可信的本次回退复验结果。')
+      }
+      if (record.outcome?.status === 'resolved') {
+        return t('复验通过：本次启动未再记录上述插件问题。')
+      }
+      if (record.outcome?.status === 'partial' || record.outcome?.status === 'unresolved') {
+        return t(record.outcome.ready === true && record.outcome.alive === true ? '复验完成：已恢复启动，仍有下列插件问题。' : record.outcome.ready === false || record.outcome.alive === false ? '复验完成：尚未恢复启动。' : '复验完成：仍有问题，启动状态未记录。')
+      }
+      return t('缺少复验结果，无法确认是否通过。')
+    }
+    function appendCurrentDiagnosisButton(parent, target) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'ghost'
+      button.textContent = t('重新获取当前诊断')
+      button.onclick = async () => {
+        const sequence = repairPlanView.sequence
+        button.disabled = true
+        try {
+          const current = await getJson('/api/state')
+          if (sequence !== repairPlanView.sequence) {
+            return
+          }
+          const matches = item => item && item.home === target.home && item.profile === target.profile && item.version === target.version
+          const warning = (current.instances || []).find(item => matches(item) && item.diagnosticWarning)?.diagnosticWarning
+          const failure = warning || (matches(current.failure) ? current.failure : null)
+          if (failure) {
+            showFailure(failure, Boolean(warning))
+          } else {
+            noticeTextEl.textContent = t('当前未取得此目标的新诊断；不复用旧方案，也不据此认定故障已消失。')
+          }
+        } catch (error) {
+          if (sequence === repairPlanView.sequence) {
+            noticeTextEl.textContent = error.message
+          }
+        } finally {
+          if (sequence === repairPlanView.sequence) {
+            button.disabled = false
+          }
+        }
+      }
+      parent.append(button)
+    }
+    function repairChangeSummary(changes) {
+      const removed = changes.filter(change => change.operation === 'package_inventory_changed' && change.after?.present === false).length
+      const manifests = changes.filter(change => change.operation === 'installation_manifest_changed').length
+      const resolved = changes.filter(change => change.operation === 'resolved_package').length
+      const others = changes.length - removed - manifests - resolved
+      return [[t('包移除'), removed], [t('清单或配置变更'), manifests], [t('解析变更'), resolved], [t('其他已记录操作'), others]].map(([label, count]) => `${label} ${count}`).join(' · ')
+    }
+    function showRepairHistory(records = state.diagnosticRepairs || []) {
+      notify(t('结果与回退记录会在管理器重启后保留。'), t('修复记录'), '', true)
+      repairPlanView.mode = 'history'
+      noticeEl.classList.add('has-detail')
+      noticeCardsEl.hidden = false
+      for (const record of records) {
+        const presentation = repairPresentation(record.action)
+        const actionTitle = record.action.kind === 'uninstall-introducer' ? t('卸载引入者') + ' ' + (record.action.owner?.name || t('对象未记录')) : presentation.button + ' · ' + presentation.title
+        const card = repairCard(actionTitle)
+        cardLine(card, '目标', `${record.target.version} / ${record.target.profile}`)
+        evidenceDetails(card, '启动项数据位置', record.target.home)
+        cardLine(card, '执行状态', t(({ applied: '已执行', applied_verification_failed: '已执行，复验失败', prepared: '已准备', uninstalling: '正在卸载', uninstall_failed: '卸载失败', interrupted: '执行中断', rolled_back: '已回退' })[record.status] || record.status))
+        evidenceDetails(card, '目标位置', record.action.source)
+        evidenceDetails(card, '技术组件', record.action.component)
+        const recorded = record.recorded || { changes: [], rollbackChanges: [], unknowns: [t('此记录未提供结构化执行事实，不能用原建议代替。')] }
+        cardLine(card, '实际改动汇总', repairChangeSummary(recorded.changes))
+        const changes = document.createElement('details')
+        const changesSummary = document.createElement('summary')
+        changesSummary.textContent = `${t('已记录修改')} (${recorded.changes.length})`
+        changes.append(changesSummary)
+        for (const change of recorded.changes) {
+          cardLine(changes, '已记录修改', recordedChangeText(change))
+          evidenceDetails(changes, '修改前后与位置', change)
+        }
+        for (const change of recorded.rollbackChanges || []) {
+          cardLine(changes, '回退操作', recordedChangeText(change))
+        }
+        cardLine(card, '未记录', (recorded.unknowns || []).join('；'))
+        if (record.status === 'rolled_back') {
+          cardLine(card, '本次操作', t('已撤销上述修复，恢复本次备份。'))
+        }
+        const verification = document.createElement('section')
+        cardLine(verification, '复验结果', verificationText(record))
+        if (record.verificationStatus === 'complete' && record.outcome) {
+          const restored = record.outcome.ready === true && record.outcome.alive === true
+          const failed = record.outcome.ready === false || record.outcome.alive === false
+          cardLine(verification, '启动结果', t(restored ? '已恢复启动，复验观察结束时进程仍在运行。' : failed ? '未恢复启动或进程已退出。' : '本记录未提供启动状态。'))
+          cardLine(verification, '启动错误', record.outcome.message)
+        }
+        const contradictoryLegacy = record.status === 'rolled_back' && !record.verificationStatus && record.outcome?.bypassed
+        if (record.outcome?.bypassed && !contradictoryLegacy) {
+          cardLine(verification, '功能状态', t('已禁用以绕过故障，相关功能已关闭；请查看剩余问题。'))
+        }
+        const remaining = contradictoryLegacy ? null : record.outcome?.remaining
+        cardLine(verification, '剩余问题', remaining ? [['直接失败', remaining.failed], ['版本不兼容', remaining.rejected], ['必需阻塞', remaining.required], ['等待服务', remaining.waiting], ['跳过', remaining.skipped]].map(([label, count]) => `${t(label)} ${count}`).join(' · ') : record.verificationError || record.error)
+        const remainingNames = contradictoryLegacy ? null : record.outcome?.remainingItems
+        if (remainingNames) {
+          cardLine(verification, '剩余项目', [['直接失败', 'failed'], ['版本不兼容', 'rejected'], ['必需阻塞', 'required'], ['等待服务', 'waiting'], ['跳过', 'skipped']].filter(([, key]) => remainingNames[key]?.length).map(([label, key]) => `${t(label)}：${remainingNames[key].map(repairLabel).join('、')}`).join('；'))
+        }
+        cardLine(verification, '验收范围', contradictoryLegacy ? null : record.outcome?.limitation)
+        card.append(verification)
+        card.append(changes)
+        evidenceDetails(card, '备份位置', record.action.backup)
+        if (record.verificationStatus === 'failed' || record.error) {
+          appendCurrentDiagnosisButton(card, record.target)
+        }
+        if (record.action.kind === 'uninstall-introducer') {
+          cardLine(card, '卸载结果', record.error || t(['applied', 'applied_verification_failed'].includes(record.status) ? '官方卸载命令完成' : '尚未确认官方卸载命令完成'), true)
+          cardLine(card, '核对范围', record.installationEvidenceScope || record.installationEvidenceError)
+          cardLine(card, '回退', presentation.rollback)
+          noticeCardsEl.append(card)
+          continue
+        }
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'ghost'
+        button.textContent = t('回退此项')
+        button.disabled = record.status === 'rolled_back'
+        button.onclick = async () => {
+          if (!await appConfirm(`${record.target.version} / ${record.target.profile}\n${record.target.home}\n${presentation.title}${record.action.kind === 'package' ? '\n' + t('将恢复插件版本') + '：' + record.action.currentVersion : ''}${record.action.kind === 'disable-optional' ? '\n' + t('将恢复这些行的备份状态') + '：' + (record.action.rows || []).map(repairLabel).join('、') : ''}\n${t('将停止目标实例并恢复本次备份；新内容存在时拒绝覆盖。')}\n${record.action.backup}`, { title: t('确认回退'), parent: noticeEl })) {
+            return
+          }
+          button.disabled = true
+          noticeTextEl.textContent = t('正在回退并复验，请等待。')
+          verification.replaceChildren()
+          cardLine(verification, '复验结果', verificationText(record, true))
+          const sequence = repairPlanView.sequence
+          try {
+            const result = await post('/api/diagnosis/repair/rollback', { id: record.id })
+            if (sequence === repairPlanView.sequence) {
+              showRepairHistory([result])
+            }
+          } catch (error) {
+            if (sequence === repairPlanView.sequence) {
+              if (error.repairRecord?.id === record.id) {
+                showRepairHistory([error.repairRecord])
+                noticeTextEl.textContent = error.message
+                return
+              }
+              noticeTextEl.textContent = error.message
+              verification.replaceChildren()
+              cardLine(verification, '复验结果', t('此次回退或复验未完成，无法确认最新结果。'))
+              button.disabled = false
+            }
+          }
+        }
+        card.append(button)
+        noticeCardsEl.append(card)
+      }
+      noticeCardsEl.scrollTop = 0
     }
     /** 启动这条线上的报错出口：带着 dsh 输出的走 showFailure，其余照旧只显示一句话。 */
     function notifyError(error) {
       if (error?.failure) showFailure(error.failure)
       else notify(error.message)
     }
-    document.getElementById('noticeOk').onclick = () => { void hideDialog(noticeEl) }
+    document.getElementById('noticeOk').onclick = () => {
+      resetRepairPlan()
+      void hideDialog(noticeEl)
+    }
 
     // 样式化确认弹窗，替代浏览器原生确认框：WebView/桌面窗口里原生框跟整套界面割裂。
     const confirmDialogEl = document.getElementById('confirmDialog')
     let confirmResolve = null
-    function appConfirm(message, { title = t('确认操作') } = {}) {
+    function appConfirm(message, { title = t('确认操作'), parent = null } = {}) {
       return new Promise((resolve) => {
         confirmResolve = resolve
         document.getElementById('confirmTitle').textContent = title
         document.getElementById('confirmText').textContent = message == null ? '' : String(message)
-        showDialog(confirmDialogEl)
+        if (parent) {
+          showPackDialog(confirmDialogEl, null, parent)
+        } else {
+          showDialog(confirmDialogEl)
+        }
         document.getElementById('confirmCancel').focus()
       })
     }
@@ -2047,15 +2782,27 @@
       if (confirmDialogEl.hidden || confirmDialogEl.dataset.dialogClosing) return
       const resolve = confirmResolve
       confirmResolve = null
-      if (await hideDialog(confirmDialogEl)) resolve?.(ok)
+      if (packDialogContext.has(confirmDialogEl)) {
+        await hidePackDialog(confirmDialogEl)
+        if (confirmDialogEl.hidden) {
+          resolve?.(ok)
+        }
+      } else if (await hideDialog(confirmDialogEl)) {
+        resolve?.(ok)
+      }
     }
     document.getElementById('confirmOk').onclick = () => settleConfirm(true)
     document.getElementById('confirmCancel').onclick = () => settleConfirm(false)
     confirmDialogEl.onclick = (event) => { if (event.target === confirmDialogEl) settleConfirm(false) }
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return
-      if (!noticeEl.hidden) void hideDialog(noticeEl)
-      else if (!confirmDialogEl.hidden) settleConfirm(false)
+      if (!confirmDialogEl.hidden) {
+        settleConfirm(false)
+      }
+      else if (!noticeEl.hidden) {
+        resetRepairPlan()
+        void hideDialog(noticeEl)
+      }
       else if (!versionManageDialogEl.hidden) void closeVersionManager()
       else if (!launchDialogEl.hidden) closeLaunchEditor()
     })
@@ -2100,6 +2847,9 @@
         const error = new Error(data.error || res.statusText)
         // 启动失败时服务端会把 dsh 的输出尾巴一起带回来（见 showFailure）
         if (data.failure) error.failure = data.failure
+        if (data.repairRecord) {
+          error.repairRecord = data.repairRecord
+        }
         throw error
       }
       return data
@@ -3519,6 +4269,18 @@
       if (!hintEl.textContent && failure && !failureLive) {
         hintEl.innerHTML = `<span class="hint-fail">${escapeHtml(failureText(failure))}</span> · <button type="button" data-failure>${escapeHtml(t('查看错误信息'))}</button>`
       }
+      const warnings = state.instances.filter(item => item.diagnosticWarning)
+      if (warnings.length) {
+        const links = warnings.map((item, index) => `<button type="button" data-diagnostic-warning="${index}">${escapeHtml(item.version + '/' + item.profile)} · ${escapeHtml(t('查看错误信息'))}</button>`)
+        hintEl.insertAdjacentHTML('beforeend', `${hintEl.textContent ? ' · ' : ''}${[...new Set(warnings.map(item => t(item.diagnosticWarning.message || '运行中插件诊断')))].map(escapeHtml).join(' · ')} · ${links.join(' · ')}`)
+      }
+      if (state.diagnosticRepairs?.length) {
+        const historyButton = document.createElement('button')
+        historyButton.type = 'button'
+        historyButton.textContent = t('修复记录与回退')
+        historyButton.onclick = () => showRepairHistory()
+        hintEl.append(document.createTextNode(hintEl.textContent ? ' · ' : ''), historyButton)
+      }
       const fixed = stateAutoFix()
       if (!hintEl.textContent && fixed) hintEl.textContent = t('启动时自动禁用了：{names}（环境页可恢复）', { names: fixed })
       if (!hintEl.textContent && state.health?.failed?.length) hintEl.textContent = t('⚠ 页面自检：{failed}/{total} 个插件包加载失败', { failed: state.health.failed.length, total: state.health.total })
@@ -3649,6 +4411,13 @@
     removeEl.onclick = () => { void uninstallVersion(selected()) }
     hintEl.addEventListener('click', (event) => {
       if (event.target.closest('[data-failure]') && state.failure) showFailure(state.failure)
+      const warningButton = event.target.closest('[data-diagnostic-warning]')
+      if (warningButton) {
+        const warning = state.instances.filter(item => item.diagnosticWarning)[Number(warningButton.dataset.diagnosticWarning)]
+        if (warning) {
+          showFailure(warning.diagnosticWarning, true)
+        }
+      }
     })
     document.getElementById('clear').onclick = () => logView.clear()
     document.getElementById('exportLogs').onclick = async () => {
@@ -3751,6 +4520,7 @@
         recovery: state.recovery,
         health: data.health ?? null,
         failure: data.failure ?? null,
+        diagnosticRepairs: Array.isArray(data.diagnosticRepairs) ? data.diagnosticRepairs : [],
         loaded: true,
       }
       if (previouslyRunning !== launcherRunning()) {
@@ -4712,7 +5482,7 @@
           t('请帮我自检本机 DSH-X（DeepSeek Harness 启动器）环境：先只读检查，不要改文件、不要重启 dsh。'),
           '',
           t('用 dsh-x-selfcheck 技能跑一次体检，命令：'),
-          `node "${script}" --json`,
+          `node "${script}" --json --port ${location.port || (location.protocol === 'https:' ? '443' : '80')}`,
           '',
           t('这个路径来自管理页的技能清单；如果找不到技能，先告诉我，别自己装或改环境。'),
           '',
@@ -5667,11 +6437,11 @@
 
     // ---- 装整合包 / 导出 ----
     const packDialogContext = new Map()
-    function showPackDialog(dialog, focus) {
+    function showPackDialog(dialog, focus, explicitParent = null) {
       if (!dialog.hidden && !dialog.dataset.dialogClosing) return
       closeUiSelect()
       // 启动项弹窗里的「管理目录…」也走这条线：它当父层，目录管理当子层，关掉后焦点回到下拉。
-      const parent = [profileDialogEl, packInstallDialog, packDetailDialog, packImportDialog, packExportDialog, launchPluginsDialogEl, pluginHomesDialogEl, launchDialogEl].find((one) => one !== dialog && !one.hidden && !one.dataset.dialogClosing && !one.classList.contains('is-underlay'))
+      const parent = explicitParent || [profileDialogEl, packInstallDialog, packDetailDialog, packImportDialog, packExportDialog, launchPluginsDialogEl, pluginHomesDialogEl, launchDialogEl].find((one) => one !== dialog && !one.hidden && !one.dataset.dialogClosing && !one.classList.contains('is-underlay'))
       packDialogContext.set(dialog, { parent, origin: document.activeElement })
       dialog.classList.toggle('is-child-dialog', Boolean(parent))
       if (parent) dialog.style.zIndex = Math.max(Number(getComputedStyle(dialog).zIndex), Number(getComputedStyle(parent).zIndex) + 2)

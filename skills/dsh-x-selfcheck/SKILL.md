@@ -31,7 +31,7 @@ node <skill目录>/scripts/selfcheck.mjs
 |---|---|
 | `--json` | 输出机器可读 JSON（给 AI 解析用），字段契约见下 |
 | `--verbose` | 人读报告里展开通过项明细 |
-| `--net` | 额外探测外网/代理（会 POST 管理页 `/api/proxy/test`；管理页没跑时脚本零依赖、直连探测，不走系统代理） |
+| `--net` | 额外探测外网/代理：管理页可用时 POST `/api/proxy/test`；未指定 `--port` 且管理页未连接时才由脚本直连探测，不走系统代理；指定端口但未连接时不直连，报告目标探测未执行 |
 | `--no-logs` | 跳过日志分析（日志很大或用户不让读时） |
 | `--port <n>` | 指定管理页端口（默认依次尝试 `PORT` 环境变量、settings.json、3780） |
 | `--profile <name>` | 指定 profile（默认取管理页状态、settings.json、内置 `web`） |
@@ -80,9 +80,9 @@ node <skill目录>/scripts/selfcheck.mjs
 
 | 报告/日志信号 | 通常怎么办 |
 |---|---|
-| `cordis.patch.yml 不是合法的条目列表` | 补丁层 YAML 坏了；让用户在管理页「恢复档」里还原备份，别手改 |
+| `cordis.patch.yml 不是合法的条目列表` | 仅发现顶层形状不符合预期，YAML 语法及字段未验证；列出文件和证据，由用户确认后自行处理，不据此恢复或改写配置 |
 | `failed to import loader entry` / 插件 import 失败 | 插件树单点故障会让 dsh 秒退；去插件页关掉/重装对应插件 |
-| `插件与 dsh 版本不兼容` | 旧插件 peerDependencies 不适配当前 dsh，dsh 启动会跳过那一行；升级插件或换 dsh 版本 |
+| `插件与 dsh 版本不兼容` | 日志拒绝了插件版本；保持当前 Harness，核对实际加载版本及来源，建议升级插件，或在依赖和必需性核实后由用户确认禁用/卸载；证据不足不执行 |
 | `Cannot find module` / `-4094` / junction 读不了 | pnpm 链接悬空；管理页的启动自愈会处理，仍有问题再清 profile 的 `node_modules` 重装 |
 | 端口已占用 | 看报告给的占用者；改设置里的实例端口，别和管理页端口撞 |
 | `页面自检：…失败` | 客户端插件包缺失/损坏；按 health.failed 里的 URL 定位 |
@@ -91,8 +91,8 @@ node <skill目录>/scripts/selfcheck.mjs
 
 ## 边界
 
-- 管理页没在跑时脚本仍能工作，但只能看文件层面（settings、版本目录、profile、manager.log）；`state`/`health`/插件清单等实时状态为空，报告会标「无管理页」。
-- 日志可能很大：默认走管理页 `/api/logs/export`（服务端已脱敏），否则直接读 `manager.log.1` + `manager.log`；进报告前脚本会再脱敏一遍。
+- 未指定 `--port` 时，管理页没在跑仍可检查本地文件（settings、版本目录、profile、manager.log），实时状态未知。指定 `--port` 后只使用该目标提供的来源证据，不回退当前终端的配置、日志、用户目录或技能目录；缺证报告未核实。目标 `/api/settings` 返回的是有效设置，原始设置文件的位置及语法未验证。
+- 日志默认走管理页 `/api/logs/export`（服务端已脱敏）；仅未指定 `--port` 时，接口不可用才回退本地 `manager.log.1` + `manager.log`。显式目标不可达或日志接口失败则报告缺少目标日志；进报告前脚本会再脱敏一遍。
 - 不替代启动器自带的自检：页面自检、`/api/proxy/test`、启动自愈、恢复档各司其职，这个脚本只汇总事实。
 - 不要为了自检去重启 dsh 或改 profile；报告只提示「哪里可能有问题」，改动前先征得用户同意。
 

@@ -26,6 +26,9 @@ test('安装包会带上整合包配方，且不带上插件源码', async () =>
     assert.ok(!existsSync(join(out, 'plugins')), '插件源码不进安装包')
     // 启动器源码与静态资源同样在（同一个清单，顺手一起钉住）
     assert.ok(existsSync(join(out, 'server.js')), '启动器源码在')
+    assert.ok(existsSync(join(out, 'startup-diagnosis.js')), '诊断模块随启动器一起复制')
+    assert.ok(existsSync(join(out, 'repair-plan.js')), '修复方案模块随启动器一起复制')
+    assert.ok(existsSync(join(out, 'diagnostic-command-error.js')), '诊断命令错误模块随启动器一起复制')
     assert.ok(existsSync(join(out, 'reserved-profile-boot.mjs')), '起 desktop profile 用的绕行入口在')
     assert.ok(existsSync(join(out, 'public', 'index.html')), '管理页在')
     const hookResult = spawnSync(process.execPath, ['--import', pathToFileURL(join(out, 'perf', 'register.mjs')).href, '--eval', ''], {
