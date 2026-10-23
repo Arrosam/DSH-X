@@ -12,6 +12,7 @@
   "scripts": {
     "start": "node start.js",
     "server": "node server.js",
+    "electron": "electron shell/main.mjs",
     "test": "node --test",
     "dist": "node scripts/pack.mjs",
     "release:manifest": "node scripts/release-manifest.mjs make",
@@ -20,5 +21,9 @@
     "release:check": "node scripts/release-manifest.mjs check-tag"
   },
   "author": "yyh",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.9.1"
+  }
 }

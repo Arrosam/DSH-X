@@ -100,6 +100,11 @@ jobs:
         run: |
           if [ -f scripts/pack-mac.mjs ]; then echo "ready=yes" >> "$GITHUB_OUTPUT"; else echo "ready=no" >> "$GITHUB_OUTPUT"; echo "scripts/pack-mac.mjs 还不存在（PR #25 未合并），跳过 mac 打包"; fi
 
+      # mac 外壳是 Electron（shell/）：打包要 devDependencies 里的 electron 与 @electron/packager
+      - name: 安装打包依赖
+        if: steps.probe.outputs.ready == 'yes'
+        run: npm ci
+
       - name: 跑测试
         if: steps.probe.outputs.ready == 'yes'
         run: npm test

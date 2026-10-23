@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
@@ -16,13 +16,41 @@ export const IS_MAC = process.platform === 'darwin'
 /** 自带运行时里 node 的文件名。两个平台都是扁平布局：<安装目录>/node/<它>，npm/pnpm 在同目录的 node_modules 里。 */
 export const NODE_BINARY = IS_WINDOWS ? 'node.exe' : 'node'
 
+/** 管理服务是不是跑在 Electron 主进程里（macOS 外壳，见 shell/main.mjs）。 */
+export const IN_ELECTRON = Boolean(process.versions.electron)
+
+/**
+ * 拉子进程（dsh、npm、pnpm）用的 node。
+ *
+ * 普通情况下就是正在跑的这个 node。Electron 外壳里 process.execPath 是 Electron 本体：
+ * 拿它去跑 dsh 得额外设 ELECTRON_RUN_AS_NODE，而且 Node 版本会跟着 Electron 走，
+ * 和 Windows 版、和 dsh 测过的运行时不一致。所以那边改用自带运行时（node/node），
+ * 源码运行（npm run electron）时没有自带运行时，就用 PATH 上的 node；
+ * DSH_RUNTIME_NODE 可以显式指定。都找不到返回空串——不在这里抛：本模块被所有人 import，
+ * 一抛整个外壳连错误窗口都开不出来；由外壳在启动时检查并说明（见 shell/main.mjs）。
+ */
+export function runtimeNode(env = process.env, root = ROOT, inElectron = IN_ELECTRON) {
+  if (!inElectron) return process.execPath
+  if (env.DSH_RUNTIME_NODE) return env.DSH_RUNTIME_NODE
+  const bundled = join(root, 'node', NODE_BINARY)
+  if (existsSync(bundled)) return bundled
+  for (const dir of String(env.PATH || '').split(delimiter).filter(Boolean)) {
+    const candidate = join(dir, NODE_BINARY)
+    if (existsSync(candidate)) return candidate
+  }
+  return ''
+}
+
+/** 进程启动时定一次；server.js / registry.js / settings.js 都从这里取，别再各自读 process.execPath。 */
+export const RUNTIME_NODE = runtimeNode()
+
 /** 每用户目录的名字（settings.json、manager.log、webview 数据都在它下面；Rust 外壳里有同名常量）。 */
 const APP_DIR_NAME = 'DSH'
 
 /** macOS 包的名字和 bundle id：Info.plist、LaunchAgent、自更新都认它们。 */
 export const MAC_APP_NAME = 'DSH-X.app'
 export const MAC_BUNDLE_ID = 'io.github.yyh-001.dsh-x'
-/** 外壳可执行文件名（Cargo.toml 的 [[bin]] name）。 */
+/** 外壳可执行文件名（Windows：Cargo.toml 的 [[bin]] name；macOS：Electron 包的 executableName）。 */
 export const LAUNCHER_NAME = 'DSH'
 
 /**

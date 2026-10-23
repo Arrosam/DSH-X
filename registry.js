@@ -8,6 +8,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { DEFAULTS, DOWNLOAD_SOURCES, loadSettingsSync } from './settings.js'
+import { RUNTIME_NODE } from './platform.js'
 // 版本列表、tarball 都走带代理的 fetch（见 proxy.js）；回环地址它自动直连
 import { netFetch, proxyEnv } from './proxy.js'
 // 版本比较在 version.js（零依赖），这里转出去保持老调用方不用改
@@ -206,7 +207,7 @@ function npmCli(home) {
 }
 
 function npmHomes() {
-  return [...new Set([LOCAL_NODE, dirname(process.execPath)])]
+  return [...new Set([LOCAL_NODE, dirname(RUNTIME_NODE)])]
 }
 
 function foundNpm() {
@@ -242,7 +243,7 @@ export function describeNpmFailure(text) {
 
 function runNpm(cli, args, { cwd, onLog, env } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--require', join(APP_ROOT, 'stdio-unblock.cjs'), cli, ...args], {
+    const child = spawn(RUNTIME_NODE, ['--require', join(APP_ROOT, 'stdio-unblock.cjs'), cli, ...args], {
       cwd,
       env: {
         ...process.env,

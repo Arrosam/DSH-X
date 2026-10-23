@@ -121,7 +121,7 @@ import {
 } from './settings.js'
 // 带代理的 fetch：Node 的全局 fetch 既不看系统代理也不看 HTTP_PROXY，外网请求都走 netFetch
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
-import { APP_DIR, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, NODE_BINARY, appBundle } from './platform.js'
+import { APP_DIR, IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, NODE_BINARY, RUNTIME_NODE, appBundle } from './platform.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -217,8 +217,19 @@ let pendingLogEvents = []
 let logEventTimer = null
 
 const clients = new Set()
+/**
+ * 宿主（拉起本服务的外壳）提供的钩子。默认值对应「子进程 + stdout 标记行」那条老路
+ * （Windows 的 Rust 外壳 DSH.exe 读这几行）；macOS 的 Electron 外壳和服务在同一个进程，
+ * 用 setHost 直接换成函数调用，不再走管道。
+ */
 let host = {
   onWake: async () => {},
+  /** 把 dsh 的界面装进外壳主窗口的标签页（openMode=internal）。 */
+  openTab: (tab) => { process.stdout.write(`__DSH_TAB__ ${JSON.stringify(tab)}\n`) },
+  /** 把地址装进外壳的独立 DSH 窗口（openMode=window）。 */
+  openWindow: (url) => { process.stdout.write(`${OPEN_SIGNAL} ${url}\n`) },
+  /** 收尾之后结束服务。外壳同进程时由它决定怎么退（先关窗口、托盘），默认直接退进程。 */
+  exit: (code = 0) => process.exit(code),
 }
 const logs = []
 /**
@@ -757,7 +768,7 @@ function finishSelfUpdate(staged) {
   emit('selfUpdate', { phase: 'install', latest: staged.latest })
   // 此时安装目录里已经没有属于我们的进程占着文件了
   setTimeout(() => {
-    shutdown().finally(() => process.exit(0))
+    shutdown().finally(() => host.exit(0))
   }, 900)
   return { latest: staged.latest, file: staged.file }
 }
@@ -808,8 +819,10 @@ async function installMacUpdate(staged) {
   }
 
   const logFd = openSync(join(tmpdir(), 'DSH-X-install.log'), 'w')
-  // 外壳（Contents/MacOS/DSH）是我们的父进程，它在我们退出后才退
-  spawn('/bin/sh', ['-c', MAC_SWAP_SCRIPT, 'dsh-x-update', String(process.ppid), String(process.pid), bundle, next], {
+  // 外壳（Contents/MacOS/DSH）要等它退出才能换包。Rust 外壳是我们的父进程、在我们之后才退；
+  // Electron 外壳和服务是同一个进程，父进程是 launchd，等它只会白白耗满超时。
+  const shellPid = IN_ELECTRON ? process.pid : process.ppid
+  spawn('/bin/sh', ['-c', MAC_SWAP_SCRIPT, 'dsh-x-update', String(shellPid), String(process.pid), bundle, next], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
   }).unref()
@@ -1535,7 +1548,7 @@ export function dshEnv(version, options = {}) {
   const env = {
     ...process.env,
     DSH_HOME: home,
-    DSH_NODE: process.execPath,
+    DSH_NODE: RUNTIME_NODE,
     DSH_BIN: binPath(version),
     DSH_VERSION: version,
     DSH_PROFILE: PROFILE_NAME,
@@ -1632,7 +1645,7 @@ function pnpmStoreVersion(dir) {
 function probeStoreVersion(dir) {
   const cli = join(dir, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs')
   const [command, args] = existsSync(cli)
-    ? [process.execPath, [cli, 'store', 'path']]
+    ? [RUNTIME_NODE, [cli, 'store', 'path']]
     : process.platform === 'win32'
       ? ['cmd', ['/c', 'pnpm', 'store', 'path']]
       : ['pnpm', ['store', 'path']]
@@ -1730,7 +1743,7 @@ export function writeDshShims(version, options = {}) {
   if (!existsSync(bin)) return ''
   try {
     mkdirSync(target, { recursive: true })
-    const node = process.execPath
+    const node = RUNTIME_NODE
     writeFileSync(join(target, 'dsh.cmd'), `@ECHO off\r\n"${node}" "${bin}" %*\r\n`)
     const sh = join(target, 'dsh')
     writeFileSync(sh, `#!/bin/sh\nexec "${node}" "${bin}" "$@"\n`)
@@ -1815,7 +1828,7 @@ export function applySystemPath(enabled) {
 export function withBundledRuntime(pathValue, preferredPnpm = '') {
   const bundled = join(ROOT, 'node')
   // 源码运行也得把正在用的 node 交给 pnpm 的 shim；桌面应用启动时 PATH 可能没有 node。
-  const dir = existsSync(join(bundled, NODE_BINARY)) ? bundled : dirname(process.execPath)
+  const dir = existsSync(join(bundled, NODE_BINARY)) ? bundled : dirname(RUNTIME_NODE)
   // 原 PATH 已经完整保留，只补固定位置；再筛整条 PATH 会重复探测每个目录的 pnpm 后缀。
   const parts = [...String(pathValue).split(delimiter).filter(Boolean), ...pnpmCandidates('')]
   return orderRuntimePaths(parts, dir, preferredPnpm).join(delimiter)
@@ -2315,7 +2328,7 @@ function spawnDsh(version, extra, profile = '', options = {}) {
   writeDshShims(version)
   // 用户开了「加到系统 PATH」的话，稳定目录里那份也跟着当前版本走
   if (SYSTEM_PATH) writeDshShims(version, { dir: systemBinDir() })
-  return spawn(process.execPath, dshArgs(version, extra, profile), {
+  return spawn(RUNTIME_NODE, dshArgs(version, extra, profile), {
     cwd: home,
     env: dshEnv(version, options),
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -4702,13 +4715,13 @@ function openExternal(target, mode = OPEN_MODE) {
   if (openRoute(mode, shellWindowHost(), internalTabsHost()) === 'internal') {
     const instance = instanceList().find((proc) => proc.url && new URL(proc.url).origin === new URL(url).origin)
     const tab = instance ? internalTabTarget(instance, launchNameOf(instance)) : { id: new URL(url).origin, title: 'DSH', url, status: 'running', managed: false }
-    // 认证地址只在本机管道中传递；标题和实例身份都不包含 token，也不写入日志或设置。
-    process.stdout.write(`__DSH_TAB__ ${JSON.stringify(tab)}\n`)
+    // 认证地址只在本机管道或同进程调用中传递；标题和实例身份都不包含 token，也不写入日志或设置。
+    host.openTab(tab)
     return
   }
   // 内嵌窗口：地址交给原生外壳自己的窗口，连浏览器进程都不起（见 OPEN_SIGNAL）
   if (openRoute(mode, shellWindowHost()) === 'window') {
-    process.stdout.write(`${OPEN_SIGNAL} ${url}\n`)
+    host.openWindow(url)
     return
   }
   if (mode === 'app' && /^https?:/i.test(url)) {
@@ -5123,7 +5136,7 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/quit') {
     // 托盘的「退出」走这里：先把响应发出去，再收尾退出，否则调用方只会看到连接被掐断
     send(res, 200, { ok: true })
-    shutdown().finally(() => process.exit(0))
+    shutdown().finally(() => host.exit(0))
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/install') {
