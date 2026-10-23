@@ -17,6 +17,7 @@ import {
 import { packager } from '@electron/packager'
 import { LAUNCHER_NAME, MAC_APP_NAME, MAC_BUNDLE_ID, NODE_BINARY } from '../platform.js'
 import { macSigningIdentity, signMacBundle } from './mac-signing.mjs'
+import { pruneMacElectron } from './electron-prune.mjs'
 
 /**
  * macOS 打包：release/DSH-X.app + release/DSH-X-mac-<arch>.dmg。
@@ -190,6 +191,9 @@ async function assemble(shellApp) {
   rmSync(join(CONTENTS, 'Resources', 'electron.icns'), { force: true })
   buildIcon(join(CONTENTS, 'Resources', ICON_FILE))
   patchInfoPlist(join(CONTENTS, 'Info.plist'))
+  // 签名之前裁剪 Electron 自带的多语言与软件渲染（见 electron-prune.mjs 的理由）
+  const prunedBytes = pruneMacElectron(BUNDLE)
+  if (prunedBytes > 0) console.log(`已裁剪 Electron 运行时：省下 ${(prunedBytes / 1048576).toFixed(1)} MB`)
   signMacBundle(BUNDLE)
   console.log(`已打包到 ${BUNDLE}`)
 }
@@ -315,7 +319,8 @@ function buildDmg() {
   }
 
   rmSync(DMG, { force: true })
-  run('hdiutil', ['convert', rw, '-format', 'UDZO', '-imagekey', 'zlib-level=9', '-o', DMG])
+  // UDBZ（bzip2）比 UDZO（zlib-9）压得更小，Chromium 的大二进制上大概再省 5%
+  run('hdiutil', ['convert', rw, '-format', 'UDBZ', '-o', DMG])
   rmSync(rw, { force: true })
   console.log(`安装包: ${DMG}`)
 }

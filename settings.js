@@ -782,11 +782,12 @@ async function saveSettingsNow(patch) {
   try {
     await writeFile(temporary, JSON.stringify(merged, null, 2))
     // Windows 的短暂读句柄可能拒绝替换，等读者放手再试；始终保留原文件供读取。
+    // 全量测试并行跑（几十个服务同时起落）时这种争用会持续更久，所以多留几轮退避。
     for (let attempt = 0; ; attempt++) {
       try { await rename(temporary, SETTINGS_FILE); break }
       catch (error) {
-        if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 5) throw error
-        await new Promise((resolve) => setTimeout(resolve, 15 * (attempt + 1)))
+        if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 10) throw error
+        await new Promise((resolve) => setTimeout(resolve, 15 * Math.min(attempt + 1, 6)))
       }
     }
   } finally {
