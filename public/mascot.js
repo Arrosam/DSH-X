@@ -93,6 +93,7 @@
   const active = () => !failed && !reduced.matches && !document.hidden
     && !document.documentElement.classList.contains('reduce-motion')
     && !document.documentElement.classList.contains('big-fish-hidden')
+    && !document.documentElement.classList.contains('launcher-idle')
     && !document.body.classList.contains('subpage-open');
   const refreshRect = () => { rect = host.getBoundingClientRect(); };
   new ResizeObserver(refreshRect).observe(host);

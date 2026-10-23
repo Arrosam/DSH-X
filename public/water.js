@@ -93,6 +93,7 @@
   let frame=0,last=0,time=0,slot=0,lastRipple=-1,lost=false;
   const active=()=>!lost&&!document.hidden&&!reduced.matches
     &&!document.documentElement.classList.contains('reduce-motion')
+    &&!document.documentElement.classList.contains('launcher-idle')
     &&!document.documentElement.classList.contains('background-hidden');
   function draw(){
     gl.uniform2f(uniforms.resolution,canvas.width,canvas.height);
