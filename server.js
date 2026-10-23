@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { accessSync, chmodSync, closeSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
+import { createRequire } from 'node:module'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
@@ -14,6 +15,11 @@ import { cmpVer, currentRegistry, describeNpmFailure, installSpec, listPackage, 
 import pkg from './package.json' with { type: 'json' }
 import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionInChannel } from './version.js'
 import { createLogWriter } from './log-writer.js'
+import { createStartupDiagnosis } from './startup-diagnosis.js'
+import { bindDiagnosis, checkedRepairPlan, profileFingerprint } from './repair-plan.js'
+import { DiagnosticRepairs, verificationSummary } from './repair-actions.js'
+import { recordedChanges } from './repair-evidence.js'
+import { describeDiagnosticCommandFailure } from './diagnostic-command-error.js'
 import {
   disableRowId,
   listPlugins,
@@ -303,6 +309,7 @@ function redact(text, secrets = []) {
 
 /** 失败信息里单行输出的上限：node 报错会把出错的那行源码原样打出来，压缩过的包一行能有几百 KB。 */
 const FAILURE_LINE_MAX = 2000
+const DIAGNOSIS_UPDATE_DELAY = 100
 
 /** 终端颜色之类的转义序列：页面不解析它们，原样显示就是一串 [90m 乱码。 */
 const ANSI_RE = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
@@ -313,6 +320,19 @@ const ANSI_RE = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
  */
 export function publicFailure(failure, secrets = secretValues) {
   if (!failure) return null
+  const sanitizeDiagnosis = (value) => {
+    if (typeof value === 'string') {
+      const text = redact(value.replace(ANSI_RE, ''), secrets)
+      return text.length > FAILURE_LINE_MAX ? `${text.slice(0, FAILURE_LINE_MAX)}…` : text
+    }
+    if (Array.isArray(value)) {
+      return value.map(sanitizeDiagnosis)
+    }
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeDiagnosis(item)]))
+    }
+    return value
+  }
   return {
     at: failure.at,
     version: failure.version,
@@ -324,6 +344,8 @@ export function publicFailure(failure, secrets = secretValues) {
       const text = redact(line, secrets).replace(ANSI_RE, '')
       return text.length > FAILURE_LINE_MAX ? `${text.slice(0, FAILURE_LINE_MAX)}…` : text
     }),
+    ...(failure.diagnosis ? { diagnosis: sanitizeDiagnosis(failure.diagnosis) } : {}),
+    ...(failure.binding ? { binding: sanitizeDiagnosis(failure.binding) } : {}),
   }
 }
 
@@ -838,10 +860,17 @@ async function installMacUpdate(staged) {
 export async function shutdown() {
   // 等 stopAll 把进程确实收掉再走：这几秒的耐心换的是不留下孤儿 dsh（它一脱离，下次启动
   // 就会撞上被占着的插件文件和端口，用户还找不到是谁）。上限覆盖「终止 → 强制终止」两段。
-  await Promise.race([
-    stopAll(),
-    new Promise((resolve) => setTimeout(resolve, STOP_EXIT_TIMEOUT_MS + STOP_KILL_GRACE_MS + 1000)),
-  ])
+  let timer
+  try {
+    await Promise.race([
+      stopAll(),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, STOP_SHUTDOWN_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
   await notifyShutdown()
 }
 
@@ -922,8 +951,125 @@ function instanceInfo(proc) {
     status: proc.status,
     url: proc.url,
     startedAt: proc.startedAt,
+    diagnosticWarning: publicFailure(proc.diagnosticWarning),
   }
 }
+
+/** 方案只引用本管理进程持有的诊断；新启动期间旧失败也不能充当当前证据。 */
+function diagnosticForAttempt(attemptId) {
+  if (typeof attemptId !== 'string' || !/^[a-f0-9]{32}$/.test(attemptId)) {
+    return null
+  }
+  const all = instanceList()
+  const running = all.find(proc => proc.diagnosticContext?.attemptId === attemptId)
+  if (running && running.status !== 'running') {
+    return null
+  }
+  const diagnostic = running?.diagnosticWarning || (lastFailure?.binding?.attemptId === attemptId ? lastFailure : null)
+  if (!diagnostic || startingProfiles.has(`${diagnostic.home}\0${diagnostic.profile}`)) {
+    return null
+  }
+  const replacement = all.find(proc => proc.home === diagnostic.home && proc.profile === diagnostic.profile && proc.version === diagnostic.version)
+  if (replacement && replacement.diagnosticContext?.attemptId !== attemptId) {
+    return null
+  }
+  const currentPaths = launchScope.run({ home: diagnostic.home }, () => ({
+    entry: bootEntry(diagnostic.version, diagnostic.profile),
+    harnessEntry: binPath(diagnostic.version),
+  }))
+  if (currentPaths.entry !== diagnostic.binding.entry || currentPaths.harnessEntry !== diagnostic.binding.harnessEntry) {
+    return null
+  }
+  if (running) {
+    // 输出批次尚未推送时也必须用最新证据，不能让100ms缓存保鲜旧方案。
+    const report = running.diagnosis.report()
+    return { ...diagnostic, diagnosis: report, binding: bindDiagnosis(running.diagnosticContext, report) }
+  }
+  return diagnostic
+}
+
+const REPAIR_OBSERVATION_MS = 2000
+const diagnosticRepairs = new DiagnosticRepairs({
+  dataDir: () => DATA,
+  lookup: diagnosticForAttempt,
+  assertAvailable(target) {
+    if (binPath(target.version) !== target.harnessEntry) {
+      throw new Error('目标运行时位置已变化，请重新诊断。')
+    }
+    const key = `${target.home}\0${target.profile}`
+    if (startingProfiles.has(key) || maintainingProfiles.has(key) || pluginBusy || syncRunning || packInstalling || optimizingVersion) {
+      throw new Error('目标正在启动或修改，稍后重新预览。')
+    }
+    if (instanceList().some(proc => proc.home === target.home && proc.profile === target.profile && (proc.version !== target.version || proc.status === 'stopping'))) {
+      throw new Error('同一 profile 有其他实例使用，禁止修复共享目录。')
+    }
+  },
+  async exclusive(target, operation) {
+    // 来源探针是异步的，取得独占前再同步核对一次，关闭普通启动插入的窗口。
+    diagnosticRepairs.options.assertAvailable(target)
+    const key = `${target.home}\0${target.profile}`
+    if (maintainingProfiles.has(key)) {
+      throw new Error('目标已有修改操作。')
+    }
+    maintainingProfiles.add(key)
+    try {
+      return await launchScope.run({ home: target.home, confirmedRepair: true }, operation)
+    } finally {
+      maintainingProfiles.delete(key)
+      await emitState()
+    }
+  },
+  async stop(target) {
+    const owned = instanceList().filter(proc => proc.home === target.home && proc.profile === target.profile && proc.version === target.version)
+    await stop(target.version, target.profile, target.home)
+    for (const proc of owned) {
+      try {
+        process.kill(proc.child.pid, 0)
+      } catch (error) {
+        if (error.code === 'ESRCH') {
+          continue
+        }
+      }
+      throw new Error('目标进程尚未确认退出，未修改文件。')
+    }
+  },
+  async verify(target) {
+    let ready = false
+    let message = ''
+    let started
+    try {
+      await startNow(target.version, target.profile, proc => {
+        started = proc
+      })
+      ready = true
+      await new Promise(resolveWait => setTimeout(resolveWait, REPAIR_OBSERVATION_MS))
+    } catch (error) {
+      message = error.message || String(error)
+    }
+    // 复验只读本次真正拉起的进程，不能借同一目标的旧失败或并发实例补齐结果。
+    const context = started?.diagnosticContext
+    if (!context?.attemptId || context.home !== target.home || context.profile !== target.profile || context.version !== target.version) {
+      throw new Error(message || '未取得本次启动的诊断证据，复验未完成。')
+    }
+    const report = started.diagnosis?.report()
+    if (!report) {
+      throw new Error(message || '未取得本次启动的诊断证据，复验未完成。')
+    }
+    const alive = Boolean(instanceList().includes(started) && started.status === 'running' && started.child.exitCode === null)
+    return { ...verificationSummary(ready, alive, report), message, observationMs: REPAIR_OBSERVATION_MS, limitation: '仅复验启动和初始插件诊断；未验证登录、工作区或模型业务。' }
+  },
+  async installationExclusive(target, operation) {
+    const require = createRequire(target.harnessEntry)
+    const { withFileLock } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-atomic-write')))
+    return withFileLock(join(target.home, 'profiles', target.profile, 'package.json'), operation)
+  },
+  async uninstall(target, name) {
+    if (homeDir() !== target.home || binPath(target.version) !== target.harnessEntry) {
+      throw new Error('卸载目标与当前独占范围不一致。')
+    }
+    await runPluginCommand(target.version, ['remove', name], `dsh plugin remove ${name}`, { profile: target.profile, lockedDiagnosticTarget: target })
+  },
+})
 
 /**
  * 兼容旧接口只认一个地址的地方：最近起来的那个在跑的实例；
@@ -987,6 +1133,7 @@ async function snapshotDefault() {
     autoFix: autoFixForHome(),
     health: lastHealth,
     failure: publicFailure(lastFailure),
+    diagnosticRepairs: publicFailure({ message: '', diagnosis: diagnosticRepairs.history().map(record => ({ ...record, recorded: recordedChanges(record) })) }).diagnosis,
     dataDir: DATA,
     progress: installProgress,
     pluginProgress: pluginProgress ? { ...pluginProgress, name: pluginProgressName, profile: pluginProgressProfile } : null,
@@ -1418,6 +1565,9 @@ async function dropInstancePorts(version) {
 }
 
 async function saveManagerSettings(body) {
+  if (diagnosticRepairs.busy.size) {
+    throw new Error('正在确认修复或回退，结束后再修改启动设置。')
+  }
   let systemPathResult
   if (body.dataDir) {
     const dir = safeDataDir(body.dataDir)
@@ -2328,9 +2478,22 @@ function spawnDsh(version, extra, profile = '', options = {}) {
   writeDshShims(version)
   // 用户开了「加到系统 PATH」的话，稳定目录里那份也跟着当前版本走
   if (SYSTEM_PATH) writeDshShims(version, { dir: systemBinDir() })
+  // #59 起统一用自带运行时（RUNTIME_NODE）拉起 dsh；#61 的诊断上下文仍要在这之前建好 env。
+  const env = dshEnv(version, options)
+  if (options.diagnosticContext) {
+    env.DSH_X_DIAGNOSTIC_ATTEMPT = options.diagnosticContext.attemptId
+    // 取本次实际传入的入口和环境存在性，不扫描另一套安装，也不记录变量值。
+    Object.assign(options.diagnosticContext, {
+      version,
+      profile,
+      entry: bootEntry(version, profile),
+      harnessEntry: env.DSH_BIN,
+      clientVersionPresent: Boolean(env.DSH_CLIENT_VERSION),
+    })
+  }
   return spawn(RUNTIME_NODE, dshArgs(version, extra, profile), {
     cwd: home,
-    env: dshEnv(version, options),
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
@@ -2484,7 +2647,7 @@ async function checkVersionUpdates({ force = false } = {}) {
   const remote = await fetchRemote({ force })
   const installed = listedVersions(await loadConfig())
   const stored = await loadSettings()
-  const plan = channelPlans(installed)[widestUpdateChannel(safeLaunchPresets(stored.launchPresets))]
+  const plan = followedUpdatePlans(installed, safeLaunchPresets(stored.launchPresets))[0]
   const current = plan.installed[0] || ''
   return {
     checkedAt: new Date().toISOString(),
@@ -2501,14 +2664,19 @@ async function checkVersionUpdates({ force = false } = {}) {
 }
 
 /**
- * 所有启动项里最不稳定的那个通道。它收的版本恰好是每个启动项所收版本的并集，
- * 所以不分启动项的「本机有没有新版 dsh」按它问，才不会漏掉任何一个启动项该看到的版本。
- * 退档后的类型 =「选的类型」和「已知版本里最稳定那一类」中更不稳定的那个，随选择单调，
- * 选得最不稳定的那个退档后仍是最不稳定的，所以按选的类型取最宽、再查它的计划就够了。
+ * 各启动项所跟通道分别比较自己的已装版本；不能让已最新的 Alpha 遮住正式版更新。
+ * 标量接口仍返回一个代表计划：有更新时取最新候选，无更新时沿用最宽通道。
  */
-function widestUpdateChannel(presets) {
+function followedUpdatePlans(installed, presets) {
   const followed = new Set(presets.map((entry) => safeUpdateChannel(entry.updateChannel)))
-  return VERSION_CHANNELS.findLast((channel) => followed.has(channel)) || DEFAULT_UPDATE_CHANNEL
+  if (!followed.size) {
+    followed.add(DEFAULT_UPDATE_CHANNEL)
+  }
+  const plans = channelPlans(installed)
+  const selected = VERSION_CHANNELS.filter((channel) => followed.has(channel)).reverse().map((channel) => plans[channel])
+  const updates = selected.filter((plan) => isNewer(plan.latest, plan.installed[0] || ''))
+  updates.sort((left, right) => cmpVer(parseVer(right.latest), parseVer(left.latest)))
+  return updates.length ? updates : [selected[0]]
 }
 
 /**
@@ -2528,10 +2696,15 @@ export async function pendingUpdate() {
     await fetchRemote()
     // 跟「自动最新版本」比：同一类型里已装的最高版本才是自动项在用的，类型以外的版本（比如装着的
     // 更高的 Alpha）不能拿来比，否则只选正式版的人会因为它被挡掉正式版的更新提示
-    const plan = channelPlans(listedVersions(await loadConfig()))[widestUpdateChannel(safeLaunchPresets(stored.launchPresets))]
-    const current = plan.installed[0] || ''
-    const latest = plan.latest
-    if (isNewer(latest, current) && skipped.dsh !== latest) found.dsh = { current, latest }
+    const plans = followedUpdatePlans(listedVersions(await loadConfig()), safeLaunchPresets(stored.launchPresets))
+    for (const plan of plans) {
+      const current = plan.installed[0] || ''
+      const latest = plan.latest
+      if (isNewer(latest, current) && skipped.dsh !== latest) {
+        found.dsh = { current, latest }
+        break
+      }
+    }
   } catch { /* 拉不到远端就当没更新 */ }
   try {
     const self = await checkSelfUpdate()
@@ -2691,12 +2864,19 @@ async function runPluginCommand(ver, args, label, options = {}) {
   const profile = options.profile || PROFILE_NAME
   const onProgress = options.onProgress || emitPluginProgress
   // 保留名（desktop）：CLI 会拒，改用同一份目录的别名（见 ensureProfileAlias）
-  const cliProfile = CLI_BLOCKED_PROFILES.has(profile.toLowerCase()) ? ensureProfileAlias(profile) : ''
+  const cliProfile = !options.lockedDiagnosticTarget && CLI_BLOCKED_PROFILES.has(profile.toLowerCase()) ? ensureProfileAlias(profile) : ''
   // 先按这份 profile 记的 store 挑 pnpm（#12）：挑得出来就用它，挑不出来按老规矩「系统优先」
   const pnpmDir = await preferredPnpmDir(profile).catch(() => '')
   pushLog(`插件命令使用 DSH ${ver} · profile ${profile}`)
   return new Promise((resolve, reject) => {
-    const child = spawnDsh(ver, ['plugin', '--profile', cliProfile || profile, ...args], '', { pnpmDir })
+    const target = options.lockedDiagnosticTarget
+    if (target && (homeDir() !== target.home || target.profile !== profile || target.version !== ver || binPath(ver) !== target.harnessEntry || args.length !== 2 || args[0] !== 'remove')) {
+      reject(new Error('诊断卸载的目标身份不一致。'))
+      return
+    }
+    const child = target
+      ? spawn(process.execPath, [join(ROOT, 'repair-uninstall.mjs'), target.harnessEntry, target.home, profile, args[1]], { cwd: profileDirOf(profile), env: dshEnv(ver, { pnpmDir }), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      : spawnDsh(ver, ['plugin', '--profile', cliProfile || profile, ...args], '', { pnpmDir })
     // 留一份输出尾巴挂在错误上：只报退出码的话调用方没法判断是哪种失败，只能瞎猜着重试
     const tail = []
     // 兼容拒绝常在输出开头；尾部可能只剩诊断文件路径，另留有界的首段用于解释原因。
@@ -2732,7 +2912,8 @@ async function runPluginCommand(ver, args, label, options = {}) {
       for (const line of Object.values(pending)) keepLine(decodeProcessOutput(line))
       if (code === 0) resolve()
       else {
-        const error = new Error(describePluginFailure(`${diagnostics}\n${tail.join('\n')}`, label, code))
+        const describeFailure = target ? describeDiagnosticCommandFailure : describePluginFailure
+        const error = new Error(describeFailure(`${diagnostics}\n${tail.join('\n')}`, label, code))
         error.tail = tail.slice(-40)
         reject(error)
       }
@@ -3588,6 +3769,10 @@ async function optimizeVersion(version) {
 const STOP_EXIT_TIMEOUT_MS = 5000
 /** 第一次终止没生效后的加时：再给这么久；还活着就报错，绝不静默丢掉跟踪记录。 */
 const STOP_KILL_GRACE_MS = 3000
+/** taskkill 本身可能挂起，两次命令等待都必须计入退出预算。 */
+const STOP_COMMAND_TIMEOUT_MS = STOP_EXIT_TIMEOUT_MS + STOP_KILL_GRACE_MS
+const STOP_SHUTDOWN_MARGIN_MS = 1000
+const STOP_SHUTDOWN_TIMEOUT_MS = STOP_COMMAND_TIMEOUT_MS * 2 + STOP_EXIT_TIMEOUT_MS + STOP_KILL_GRACE_MS + STOP_SHUTDOWN_MARGIN_MS
 
 /**
  * 等子进程真的退出（'exit' 事件），返回是否退出。
@@ -3649,7 +3834,7 @@ async function killTree(pid, child, force = true) {
         return finish(false)
       }
       // taskkill 自己也可能挂住（比如卡在别的句柄上），别让它拖住收尾
-      timer = setTimeout(() => finish(false), STOP_EXIT_TIMEOUT_MS + STOP_KILL_GRACE_MS)
+      timer = setTimeout(() => finish(false), STOP_COMMAND_TIMEOUT_MS)
       task.on('error', () => finish(false))
       task.on('exit', (code) => finish(code === 0))
     })
@@ -3687,7 +3872,7 @@ async function terminateProcess(proc) {
   return false
 }
 
-function attachProcess(version, profile, child) {
+function attachProcess(version, profile, child, diagnosticContext) {
   const key = instanceKey(version, profile)
   let ready
   const proc = {
@@ -3699,6 +3884,10 @@ function attachProcess(version, profile, child) {
     status: 'starting',
     url: null,
     tail: [],
+    diagnosis: createStartupDiagnosis(diagnosticContext, line => redact(line, secretValues)),
+    diagnosticWarning: null,
+    diagnosticTimer: null,
+    diagnosticContext,
     exit: null,
     startedAt: Date.now(),
     ready: new Promise((resolve) => { ready = resolve }),
@@ -3706,7 +3895,34 @@ function attachProcess(version, profile, child) {
   instances.set(key, proc)
   // 一个组合一个实例，日志里要能看出是哪一行是哪台在说话（多开时尤其）
   const tag = `[${version}/${profile}] `
+  const scheduleDiagnosis = () => {
+    if (proc.status === 'running' && !proc.diagnosticTimer) {
+      // 按输出批次发布，普通日志不刷新诊断；实例退出时取消，不能污染下一次启动。
+      proc.diagnosticTimer = setTimeout(() => {
+        proc.diagnosticTimer = null
+        if (instances.get(key) !== proc) {
+          return
+        }
+        const report = proc.diagnosis.report()
+        if (!report.failed.length && !report.waiting.length && !report.rejected.length && !report.skipped.entries.length && !report.advice.length) {
+          return
+        }
+        proc.diagnosticWarning = {
+          at: Date.now(), version, profile, home: proc.home,
+          message: report.failed.length || report.rejected.length
+            ? '实例仍在运行，但日志报告插件异常'
+            : '实例仍在运行，插件仍在等待或有跳过记录',
+          diagnosis: report,
+          binding: bindDiagnosis(diagnosticContext, report),
+        }
+        void emitState()
+      }, DIAGNOSIS_UPDATE_DELAY)
+    }
+  }
   const onLine = (line) => {
+    if (proc.diagnosis.addLine(line)) {
+      scheduleDiagnosis()
+    }
     if (line.trim()) {
       proc.tail.push(line)
       if (proc.tail.length > 200) proc.tail.shift()
@@ -3716,6 +3932,7 @@ function attachProcess(version, profile, child) {
     if (match && proc.status === 'starting') {
       proc.url = match[1]
       proc.status = 'running'
+      scheduleDiagnosis()
       proc.readyAt = performance.now()
       ready()
       emitState()
@@ -3724,6 +3941,8 @@ function attachProcess(version, profile, child) {
   // 管道的 chunk 没有行/UTF-8 边界；逐块 split 会截断中文、错误码，甚至整个就绪 URL。
   for (const input of [child.stdout, child.stderr]) createInterface({ input, crlfDelay: Infinity }).on('line', onLine)
   child.on('exit', (code, signal) => {
+    clearTimeout(proc.diagnosticTimer)
+    proc.diagnosticTimer = null
     proc.exit = { code, signal }
     ready()
     pushLog(`${tag}已退出 code=${code ?? '-'} signal=${signal ?? '-'}`)
@@ -3840,7 +4059,7 @@ async function selfCheckPage(url, version) {
 }
 
 /** 起一个 web 子进程并等到它打印就绪 URL；失败时把子进程输出尾巴留给 AI 当证据。 */
-async function bootOnce(ver, prof) {
+async function bootOnce(ver, prof, onStarted) {
   const startedAt = performance.now()
   await mkdir(homeDir(), { recursive: true })
   const alongside = instances.size > 0
@@ -3860,9 +4079,17 @@ async function bootOnce(ver, prof) {
       : `复用自动端口：${remembered.key} → ${reused}（沿用换版本前的端口，页面里的本地状态才留得住）`)
   }
   assertStartupActive()
-  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned || reused), prof)
+  const diagnosticContext = {
+    attemptId: randomBytes(16).toString('hex'),
+    version: ver,
+    profile: prof,
+    home: homeDir(),
+    fingerprint: profileFingerprint(homeDir(), prof),
+  }
+  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned || reused), prof, { diagnosticContext })
   const spawnAt = performance.now()
-  const proc = attachProcess(ver, prof, child)
+  const proc = attachProcess(ver, prof, child, diagnosticContext)
+  onStarted?.(proc)
   await emitState()
   try {
     const result = await waitUntilReady(proc, ver)
@@ -3891,7 +4118,9 @@ async function bootOnce(ver, prof) {
       message: conflict || (error instanceof Error ? error.message : String(error)),
       exit: proc.exit,
       tail: (proc.tail || []).slice(-120),
+      diagnosis: proc.diagnosis.report(),
     }
+    failure.binding = bindDiagnosis(diagnosticContext, failure.diagnosis)
     lastFailure = failure
     if (conflict) {
       // 端口冲突时说清是哪个端口、谁占着——这正是固定端口最可能出的岔子
@@ -3914,7 +4143,7 @@ async function bootOnce(ver, prof) {
  * 启动某个「版本 × profile」。多开：已经在跑的那个组合不会被动，新组合在旁边另起一个
  * （同一组合重复点启动只会拿回已经在跑的那个）。
  */
-async function startNow(version, profile = PROFILE_NAME) {
+async function startNow(version, profile = PROFILE_NAME, onStarted) {
   const ver = safeVersion(version)
   const prof = safeProfile(profile)
   // 保留名（desktop）也能起：入口换成 RESERVED_BOOT，见 CLI_BLOCKED_PROFILES
@@ -3938,7 +4167,7 @@ async function startNow(version, profile = PROFILE_NAME) {
   const config = await loadConfig()
   if (!listedVersions(config).includes(ver)) throw new Error(`${ver} 未安装`)
   if (!existsSync(binPath(ver))) throw new Error('找不到官方入口 lib/bin.js')
-  return bootOnce(ver, prof)
+  return bootOnce(ver, prof, onStarted)
 }
 
 /** 一次启动尝试里最多按错误自动禁用几个插件（避免连环禁用不可收拾）。 */
@@ -5103,6 +5332,44 @@ async function handleApi(req, res, url) {
   }
 
   const body = req.method === 'POST' ? await readJson(req) : {}
+  if (req.method === 'POST' && ['/api/diagnosis/repair/preview', '/api/diagnosis/repair/execute', '/api/diagnosis/repair/rollback'].includes(url.pathname)) {
+    try {
+      let result
+      if (url.pathname.endsWith('/preview')) {
+        result = await diagnosticRepairs.preview(body.binding)
+      } else {
+        try {
+          if (url.pathname.endsWith('/execute')) {
+            result = await diagnosticRepairs.execute(body.id, body.actionId)
+          } else {
+            result = await diagnosticRepairs.rollback(body.id)
+          }
+        } finally {
+          // 复验过程中的状态早于最终历史落盘；响应前再发布一次，重开记录才能看到最终结果。
+          await emitState()
+        }
+      }
+      const exposed = result.action ? { ...result, recorded: recordedChanges(result) } : result
+      send(res, 200, publicFailure({ message: '', diagnosis: exposed }).diagnosis)
+    } catch (error) {
+      // 已落盘的修改不能因复验失败而在当前界面消失；仅返回本次请求对应的记录。
+      const record = error.repairRecord
+      const matching = !url.pathname.endsWith('/preview') && record && record.id === body.id && (url.pathname.endsWith('/rollback') || record.action?.id === body.actionId)
+      const repairRecord = matching ? publicFailure({ message: '', diagnosis: { ...record, recorded: recordedChanges(record) } }).diagnosis : null
+      send(res, 409, { error: publicFailure({ message: String(error.message || error) }).message, ...(repairRecord ? { repairRecord } : {}) })
+    }
+    return
+  }
+  if (req.method === 'POST' && ['/api/diagnosis/plan', '/api/diagnosis/plan/check'].includes(url.pathname)) {
+    const result = checkedRepairPlan(body.binding, diagnosticForAttempt, LANG, url.pathname.endsWith('/check'))
+    const exposed = publicFailure({ message: '', diagnosis: result.body.plan, binding: result.body.binding })
+    send(res, result.status, {
+      ...result.body,
+      ...(result.body.plan ? { plan: exposed.diagnosis } : {}),
+      ...(result.body.binding ? { binding: exposed.binding } : {}),
+    })
+    return
+  }
   if (req.method === 'POST' && url.pathname === '/api/pending/skip') {
     send(res, 200, await skipPendingUpdate(body))
     return

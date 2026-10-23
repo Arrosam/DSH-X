@@ -29,9 +29,9 @@ function run(args, options = {}) {
 }
 
 /** 假管理页测试要在同进程里开 http server，spawnSync 会堵住事件循环，所以这里用异步版。 */
-function runAsync(args) {
+function runAsync(args, script = SCRIPT) {
   return new Promise((resolvePromise) => {
-    const child = spawn(process.execPath, [SCRIPT, ...args], { cwd: ROOT, env: process.env })
+    const child = spawn(process.execPath, [script, ...args], { cwd: ROOT, env: process.env, timeout: 60_000 })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', (chunk) => {
@@ -40,8 +40,26 @@ function runAsync(args) {
     child.stderr.on('data', (chunk) => {
       stderr += chunk
     })
+    child.on('error', (error) => resolvePromise({ status: 3, stdout, stderr: String(error) }))
     child.on('close', (status) => resolvePromise({ status, stdout, stderr }))
   })
+}
+
+/** 占住动态端口并返回非管理页响应，不能把宿主服务当作测试环境。 */
+async function runWithoutManager(args, script = SCRIPT) {
+  const server = createServer((request, response) => {
+    response.writeHead(404)
+    response.end('isolated selfcheck fixture')
+  })
+  await new Promise((resolveListen, rejectListen) => {
+    server.once('error', rejectListen)
+    server.listen(0, '127.0.0.1', resolveListen)
+  })
+  try {
+    return await runAsync([...args, '--port', String(server.address().port)], script)
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose))
+  }
 }
 
 function jsonReply(response, value) {
@@ -151,8 +169,8 @@ test('不认识参数时按「脚本自身出错」退出（3），不静默吞�
   assert.match(result.stderr, /不认识的参数/)
 })
 
-test('--json 输出结构稳定，summary 计数与退出码自洽', () => {
-  const result = run(['--json', '--no-logs'])
+test('--json 输出结构稳定，summary 计数与退出码自洽', async () => {
+  const result = await runWithoutManager(['--json', '--no-logs'])
   assert.notEqual(result.status, 3, result.stderr)
   const data = JSON.parse(result.stdout)
   assert.equal(data.tool, 'dsh-x-selfcheck')
@@ -182,8 +200,8 @@ test('--json 输出结构稳定，summary 计数与退出码自洽', () => {
   assert.equal(result.status, expectedExit, '进程退出码要和 JSON 里报告的一致')
 })
 
-test('--json 不泄露凭据形态的字符串', () => {
-  const result = run(['--json', '--no-logs'])
+test('--json 不泄露凭据形态的字符串', async () => {
+  const result = await runWithoutManager(['--json', '--no-logs'])
   assert.notEqual(result.status, 3, result.stderr)
   const text = result.stdout
   assert.doesNotMatch(text, /sk-[A-Za-z0-9_-]{16,}/, '疑似 API key 泄漏')
@@ -192,17 +210,16 @@ test('--json 不泄露凭据形态的字符串', () => {
   assert.doesNotMatch(text, /["']?(?:password|secret)\s*[:=]\s*["'][^"']{8,}/i)
 })
 
-test('管理页连不上时给降级报告（默认端口指向空端口）', () => {
-  // 用一个几乎不可能被占用的端口，只验证「管理页没跑」不会让脚本崩掉
-  const result = run(['--json', '--no-logs', '--port', '9'])
+test('目标不是管理页时给降级报告（独占动态端口）', async () => {
+  const result = await runWithoutManager(['--json', '--no-logs'])
   assert.notEqual(result.status, 3, result.stderr)
   const data = JSON.parse(result.stdout)
   assert.equal(data.target.managerFound, false)
   assert.ok(data.checks.length > 0)
 })
 
-test('人类报告有标题、分区和退出码说明', () => {
-  const result = run(['--no-logs'])
+test('人类报告有标题、分区和退出码说明', async () => {
+  const result = await runWithoutManager(['--no-logs'])
   assert.notEqual(result.status, 3, result.stderr)
   assert.match(result.stdout, /DSH-X 环境自检/)
   assert.match(result.stdout, /退出码/)
@@ -247,7 +264,7 @@ test('管理页在跑但 /api/state 失败时，不把实例状态误报成「�
   }
 })
 
-test('从 junction/symlink 路径运行也能正常执行（安装后的实际调用方式）', () => {
+test('从 junction/symlink 路径运行也能正常执行（安装后的实际调用方式）', async () => {
   // Node 的 ESM 入口按 realpath 解析，经链接启动时 argv[1] 是链接路径、import.meta.url 是真实路径。
   // 主守卫必须比较 realpath，否则 SKILL.md 推荐的 junction 安装会静默 exit 0、零输出。
   const temp = mkdtempSync(join(tmpdir(), 'dsh-selfcheck-link-'))
@@ -259,11 +276,7 @@ test('从 junction/symlink 路径运行也能正常执行（安装后的实际�
     assert.equal(help.status, 0, help.stderr)
     assert.ok(help.stdout.length > 100, '经链接运行时 main() 必须真的执行，不能静默 exit 0')
     assert.match(help.stdout, /--json/)
-    const json = spawnSync(process.execPath, [linkedScript, '--json', '--no-logs', '--port', '9'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 60_000,
-    })
+    const json = await runWithoutManager(['--json', '--no-logs'], linkedScript)
     assert.notEqual(json.status, 3, json.stderr)
     const data = JSON.parse(json.stdout)
     assert.equal(data.tool, 'dsh-x-selfcheck')

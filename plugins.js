@@ -196,7 +196,7 @@ export function looksLikeEntryList(text) {
 }
 
 /** 追加一行禁用/强制启用（纯文本变换，便于一次写多行）。 */
-function appendRowBlock(text, rowId, disabled) {
+export function appendRowBlock(text, rowId, disabled) {
   const row = block(rowId, disabled)
   const core = String(text ?? '').trim()
   if (core === '') return { ok: true, text: row }

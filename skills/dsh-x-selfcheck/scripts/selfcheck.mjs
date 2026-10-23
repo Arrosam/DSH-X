@@ -151,6 +151,20 @@ function ageText(at) {
 export function mask(text) {
   if (text === undefined || text === null) return ''
   let out = String(text)
+  // 日志中的 JSON 键和值都可能带转义；先完整消费字符串，避免只遮住引号前半段。
+  // 解码仅用于识别键名，不执行日志内容，也不改动非敏感字段。
+  const sensitiveKey = /^(?:(?:aws[_-])?(?:secret[_-]?access[_-]?key|secret[_-]?key|access[_-]?key(?:id)?(?:[_-]?secret)?|session[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret)|token|api[_-]?key|secret|password|passwd|authorization|cookie|set-cookie)$/i
+  out = out.replace(/("(?:\\.|[^"\\])*"\s*:\s*)("(?:\\.|[^"\\])*"|[^\s,}\]{]+)/g, (match, prefix) => {
+    const key = /^"(?:\\.|[^"\\])*"/.exec(prefix)?.[0]
+    try {
+      if (key && sensitiveKey.test(JSON.parse(key))) {
+        return `${prefix}"***"`
+      }
+    } catch {
+      // 不合法的键不冒充 JSON；后续仍按已有普通文本规则脱敏。
+    }
+    return match
+  })
   out = out.replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-***')
   out = out.replace(/\bak-[A-Za-z0-9_-]{6,}/g, 'ak-***')
   // AWS 访问密钥 ID（AKIA…）与临时凭据（ASIA…）：没有「:」或「=」也照样是凭据
@@ -415,11 +429,17 @@ async function collectLogs(appDir, manager, opts) {
     if (!result.error) {
       return { source: `管理页 /api/logs/export（${formatBytes(Buffer.byteLength(result.value, 'utf8'))}，服务端已脱敏）`, text: result.value, error: '', skipped: false }
     }
+    if (opts.port) {
+      return { source: `${manager.base}/api/logs/export`, text: '', error: result.error }
+    }
     const fallback = readLogFiles(appDir)
     return {
       ...fallback,
       source: fallback.text ? `${fallback.source}（接口失败：${result.error}，退回读本地文件）` : fallback.source,
     }
+  }
+  if (opts.port) {
+    return { source: '', text: '', error: '指定管理页未连接，未读取其他环境的日志' }
   }
   return readLogFiles(appDir)
 }
@@ -439,10 +459,12 @@ function readLogFiles(appDir) {
 
 async function buildContext(opts) {
   const startedAt = Date.now()
-  const appDir = userAppDir()
+  const appDir = opts.port ? '' : userAppDir()
   const ctx = { startedAt, opts, appDir, settingsFile: null, settings: {}, manager: null, state: null }
 
-  ctx.settingsFile = loadSettingsFile(appDir)
+  ctx.settingsFile = opts.port
+    ? { path: '', exists: false, json: false, value: null, error: '指定管理页的设置文件位置及原始内容未核实' }
+    : loadSettingsFile(appDir)
   ctx.settings = ctx.settingsFile.value || {}
 
   const envPort = Number(process.env.PORT || 0)
@@ -461,10 +483,18 @@ async function buildContext(opts) {
 
   if (ctx.manager) {
     const base = ctx.manager.base
-    const [stateResult, selfResult] = await Promise.all([
+    const [stateResult, selfResult, settingsResult] = await Promise.all([
       requestJson(`${base}/api/state`, { timeout: 8000 }),
       requestJson(`${base}/api/self`, { timeout: 12000 }),
+      opts.port ? requestJson(`${base}/api/settings`, { timeout: 8000 }) : Promise.resolve(null),
     ])
+    if (opts.port) {
+      const value = settingsResult?.value
+      const valid = value && typeof value === 'object' && !Array.isArray(value) && value.listenPort === ctx.manager.port
+      ctx.settingsResult = valid ? settingsResult : { error: settingsResult?.error || '目标设置缺少匹配的监听端口证据' }
+      ctx.settings = valid ? value : {}
+      ctx.settingsPort = valid ? Number(value.port || 0) : 0
+    }
     ctx.state = stateResult.value || null
     ctx.stateError = stateResult.error || ''
     ctx.selfResult = selfResult
@@ -480,24 +510,26 @@ async function buildContext(opts) {
   }
 
   ctx.logs = await collectLogs(appDir, ctx.manager, opts)
-  ctx.installDir = installDirFromLogs(ctx.logs.text) || installDirFromAppDir(appDir)
+  ctx.installDir = installDirFromLogs(ctx.logs.text) || (opts.port ? '' : installDirFromAppDir(appDir))
 
   // 版本目录：管理页的 DATA 最权威，其次 settings，再按启动器同款规则推断
   const stateDataDir = absolutePath(ctx.state?.dataDir)
   const settingsDataDir = absolutePath(ctx.settings.dataDir)
-  const envDataDir = absolutePath(process.env.DSH_VERSIONS_DATA)
+  const envDataDir = opts.port ? '' : absolutePath(process.env.DSH_VERSIONS_DATA)
   if (stateDataDir) ctx.dataDir = { dir: stateDataDir, source: '管理页 /api/state' }
   else if (typeof ctx.settings.dataDir === 'string' && ctx.settings.dataDir.trim()) {
     ctx.dataDir = settingsDataDir
-      ? { dir: settingsDataDir, source: 'settings.json 的 dataDir' }
+      ? { dir: settingsDataDir, source: opts.port ? '管理页 /api/settings' : 'settings.json 的 dataDir' }
       : { dir: '', source: `settings.json 的 dataDir「${oneLine(ctx.settings.dataDir, 80)}」不是绝对路径，会被忽略` }
   } else if (envDataDir) ctx.dataDir = { dir: envDataDir, source: '环境变量 DSH_VERSIONS_DATA' }
-  else ctx.dataDir = { dir: inferDataDir(ctx), source: '按启动器规则推断' }
+  else ctx.dataDir = opts.port
+    ? { dir: '', source: '指定管理页未提供版本目录证据' }
+    : { dir: inferDataDir(ctx), source: '按启动器规则推断' }
 
   ctx.dshHome = resolveDshHome(ctx)
   ctx.profiles = resolveProfiles(ctx)
   ctx.profile = opts.profile || ctx.state?.profile || ctx.settings.profile || DEFAULT_PROFILE
-  ctx.profileDir = join(ctx.dshHome.dir, 'profiles', ctx.profile)
+  ctx.profileDir = ctx.dshHome.dir ? join(ctx.dshHome.dir, 'profiles', ctx.profile) : ''
   ctx.dshHomes = resolveExtraHomes(ctx)
   return ctx
 }
@@ -521,13 +553,19 @@ function resolveDshHome(ctx) {
   const fromState = absolutePath(ctx.state?.dshHome)
   if (fromState) return { dir: fromState, source: '管理页 /api/state' }
   const fromSettings = absolutePath(ctx.settings.dshHome)
-  if (fromSettings) return { dir: fromSettings, source: 'settings.json 的 dshHome' }
+  if (fromSettings) return { dir: fromSettings, source: ctx.opts.port ? '管理页 /api/settings' : 'settings.json 的 dshHome' }
+  if (ctx.opts.port) {
+    return { dir: '', source: '指定管理页未提供 DSH_HOME 证据' }
+  }
   return { dir: join(homedir(), '.dsh'), source: '默认 ~/.dsh' }
 }
 
 function resolveProfiles(ctx) {
   const fromState = Array.isArray(ctx.state?.profiles) ? ctx.state.profiles : []
   if (fromState.length) return [...fromState].sort()
+  if (!ctx.dshHome.dir) {
+    return []
+  }
   const dir = join(ctx.dshHome.dir, 'profiles')
   // 与启动器 listProfiles（server.js:3980-3993）同口径：跳 node_modules 与点开头目录，
   // 目录里必须有 package.json 才算 profile —— 否则 pnpm 的 node_modules 会被当成 profile 报出来。
@@ -611,7 +649,9 @@ function checkEnvironment(report, ctx) {
     `${process.platform} · ${process.arch} · Node ${process.version}（脚本用内置模块，零依赖）`,
   )
 
-  if (!ctx.appDir) {
+  if (ctx.opts.port) {
+    report.add('environment', 'app-dir', 'info', '目标设置文件来源未核实', ctx.settingsFile.error, '仅使用指定管理页返回的有效设置；未读取当前终端的设置或日志')
+  } else if (!ctx.appDir) {
     report.add(
       'environment',
       'app-dir',
@@ -633,7 +673,12 @@ function checkEnvironment(report, ctx) {
     report.add('environment', 'app-dir', 'ok', '启动器数据目录', ctx.appDir)
   }
 
-  if (ctx.settingsFile.exists && ctx.settingsFile.json) {
+  if (ctx.opts.port) {
+    const detail = ctx.settingsResult?.error || (ctx.manager
+      ? `${ctx.manager.base}/api/settings（原始设置文件语法未验证）`
+      : '指定管理页未连接，未读取当前终端的设置')
+    report.add('environment', 'settings', ctx.settingsResult?.value ? 'info' : 'warn', ctx.settingsResult?.value ? '已读取目标管理页有效设置' : '目标管理页设置未取得', detail)
+  } else if (ctx.settingsFile.exists && ctx.settingsFile.json) {
     report.add('environment', 'settings', 'ok', 'settings.json 合法', ctx.settingsFile.path)
     const issues = validateSettings(ctx.settings)
     if (issues.length) {
@@ -701,7 +746,7 @@ function checkManager(report, ctx) {
   if (ctx.manager) {
     const viaEnv = ctx.envPort && ctx.envPort === ctx.manager.port
     const viaSettings = ctx.settingsPort && ctx.settingsPort === ctx.manager.port
-    const source = viaEnv ? '端口来自环境变量 PORT' : viaSettings ? '端口来自 settings.json' : '端口是兜底值'
+    const source = ctx.opts.port ? '端口由 --port 明确指定' : viaEnv ? '端口来自环境变量 PORT' : viaSettings ? '端口来自 settings.json' : '端口是兜底值'
     report.add(
       'manager',
       'manager-up',
@@ -933,10 +978,10 @@ function checkData(report, ctx) {
           const parts = []
           if (missingOnDisk.length) parts.push(`config 记录但磁盘没有：${missingOnDisk.join('、')}`)
           if (extraOnDisk.length) parts.push(`磁盘上有但 config 没记录：${extraOnDisk.join('、')}`)
-          const globalDsh = detectGlobalDsh()
+          const globalDsh = ctx.opts.port ? '' : detectGlobalDsh()
           const note = globalDsh
             ? `检测到系统全局 dsh（${globalDsh}），这些版本很可能就是它，不是被删了`
-            : '管理页没在跑，分不清「系统全局 dsh」和「目录被手动删掉」'
+            : '未取得管理页版本状态，分不清「系统全局 dsh」和「目录被手动删掉」'
           report.add('data', 'config-versions', 'info', 'config.json 与版本目录有出入', `${parts.join('；')}（${note}）`, '先别按缺失删除；启动管理页后再跑一次，它会按 managed 标记判断')
         } else {
           report.add('data', 'config-json', 'ok', 'config.json 与已装版本一致', `${configPath}（${listed.length} 个版本）`)
@@ -1023,6 +1068,10 @@ function listPatchBackups(profileDir) {
 
 function checkHome(report, ctx) {
   const home = ctx.dshHome.dir
+  if (!home) {
+    report.add('home', 'dsh-home', 'warn', 'DSH_HOME 未确定', ctx.dshHome.source)
+    return
+  }
   if (!isDir(home)) {
     report.add('home', 'dsh-home', 'warn', 'DSH_HOME 不存在', `${home}（来源：${ctx.dshHome.source}）`, 'dsh 首次启动会自动创建；但如果这里应该是你原来的数据目录，说明路径指错了（设置里的 dshHome 与环境变量 DSH_HOME 会对调）')
     return
@@ -1085,7 +1134,7 @@ function checkHome(report, ctx) {
       report.add('home', 'profile-patch', 'warn', 'cordis.patch.yml 不是合法的条目列表', patchPath, 'dsh 只在顶层是「- id: …」条目列表时才认；手动编辑坏了会让整个补丁层失效，可在管理页恢复档里还原备份')
     } else {
       const disables = readPatchDisables(patchPath)
-      report.add('home', 'profile-patch', 'ok', 'cordis.patch.yml 合法', `${patchPath}${disables.length ? `（${disables.length} 条禁用行）` : ''}`)
+      report.add('home', 'profile-patch', 'info', 'cordis.patch.yml 顶层形状检查通过', `${patchPath}${disables.length ? `（${disables.length} 条禁用行）` : ''}；YAML 语法与字段有效性未验证`)
     }
   }
 
@@ -1406,7 +1455,11 @@ function scanSkillRoot(root) {
 
 function checkSkills(report, ctx) {
   const payload = ctx.skillsResult?.value
-  const roots = payload?.roots?.length ? payload.roots : skillRoots(ctx.dshHome.dir)
+  if (ctx.opts.port && !Array.isArray(payload?.roots)) {
+    report.add('skill', 'skill-roots', 'warn', '目标技能目录未核实', ctx.skillsResult?.error || '指定管理页未提供技能目录；未扫描当前终端的技能目录')
+    return
+  }
+  const roots = ctx.opts.port ? payload.roots : payload?.roots?.length ? payload.roots : skillRoots(ctx.dshHome.dir)
   const scans = roots.map((root) => scanSkillRoot(root))
 
   const missingRoots = roots.filter((root) => !isDir(root.dir))
@@ -1522,20 +1575,24 @@ function checkSkills(report, ctx) {
 
 function checkNetworkConfig(report, ctx) {
   const settings = ctx.settings
-  const mode = String(settings.proxyMode || 'system')
-  const lines = [`proxyMode=${mode}`, `downloadSource=${settings.downloadSource || 'mirror'}`, `updateSource=${settings.updateSource || 'mirror'}`]
-  if (mode === 'manual') {
-    if (!String(settings.proxyUrl || '').trim()) {
-      report.add('network', 'proxy', 'warn', '手动代理模式但没填地址', lines.join(' · '), '管理页所有外网请求都会失败；填上形如 http://127.0.0.1:7890 的 http 代理，或把模式改成「跟随系统」')
-    } else {
-      lines.push(`proxyUrl=${oneLine(settings.proxyUrl, 120)}`)
-      report.add('network', 'proxy', 'info', '网络代理配置', lines.join(' · '))
-    }
+  if (ctx.opts.port && !ctx.settingsResult?.value) {
+    report.add('network', 'proxy', 'warn', '目标网络配置未核实', ctx.settingsResult?.error || '指定管理页未提供设置；不使用当前终端的网络配置')
   } else {
-    report.add('network', 'proxy', 'info', '网络代理配置', lines.join(' · '), mode === 'off' ? '不走代理：直连 GitHub/npm 失败时就是这里' : '跟随系统代理；浏览器能上、启动器不能上时优先查这个')
-  }
-  if (settings.downloadSource === 'official' && mode === 'off') {
-    report.add('network', 'proxy-guess', 'info', '官方源 + 不走代理', '国内直连 npmjs/github 经常超时', '装插件/更新失败时考虑切镜像源或开代理')
+    const mode = String(settings.proxyMode || 'system')
+    const lines = [`proxyMode=${mode}`, `downloadSource=${settings.downloadSource || 'mirror'}`, `updateSource=${settings.updateSource || 'mirror'}`]
+    if (mode === 'manual') {
+      if (!String(settings.proxyUrl || '').trim()) {
+        report.add('network', 'proxy', 'warn', '手动代理模式但没填地址', lines.join(' · '), '管理页所有外网请求都会失败；填上形如 http://127.0.0.1:7890 的 http 代理，或把模式改成「跟随系统」')
+      } else {
+        lines.push(`proxyUrl=${oneLine(settings.proxyUrl, 120)}`)
+        report.add('network', 'proxy', 'info', '网络代理配置', lines.join(' · '))
+      }
+    } else {
+      report.add('network', 'proxy', 'info', '网络代理配置', lines.join(' · '), mode === 'off' ? '不走代理：直连 GitHub/npm 失败时就是这里' : '跟随系统代理；浏览器能上、启动器不能上时优先查这个')
+    }
+    if (settings.downloadSource === 'official' && mode === 'off') {
+      report.add('network', 'proxy-guess', 'info', '官方源 + 不走代理', '国内直连 npmjs/github 经常超时', '装插件/更新失败时考虑切镜像源或开代理')
+    }
   }
 
   // 同步：只取公开字段，绝不能把 s3/webdav 的密钥整段带出来
@@ -1605,6 +1662,11 @@ async function checkNetworkProbe(report, ctx) {
       detail || '（没有返回细节）',
       value.ok ? '' : '检查代理设置/下载源；直连失败多试镜像是国内常见情况（见管理页「设置 → 网络」）',
     )
+    return
+  }
+
+  if (ctx.opts.port) {
+    report.add('network', 'net-probe', 'warn', '目标网络探测未执行', '指定管理页未连接，不用当前终端的直连结果代替目标环境')
     return
   }
 
@@ -1720,7 +1782,7 @@ function checkLogs(report, ctx) {
   for (const item of warns) {
     const hint =
       item.key === 'plugin-incompatible'
-        ? '旧插件声明了不兼容当前 dsh 的 peerDependencies，dsh 启动时会自动跳过对应行（日志里的 disabling profile plugin row）；升级插件到支持当前 dsh 的版本，或换回兼容的 dsh 版本'
+        ? '日志记录插件版本与 dsh 不兼容；核对本次实例的实际加载来源后，优先检查是否有支持当前 dsh 的插件升级。禁用或卸载需先核对依赖与影响范围并由用户确认，本自检不会执行修改'
         : '按报错修对应插件/依赖；实例还在跑的话不急着动，先看「实例」一节的启动失败记录'
     report.add('log', `log-${item.key}`, 'warn', `日志里有「${item.label}」（${item.count} 次）`, logFindingDetail(item), hint)
   }

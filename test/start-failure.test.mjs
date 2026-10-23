@@ -50,12 +50,22 @@ test('没走到拉起子进程的失败（未安装之类）只有一句话，�
   assert.deepEqual(shown, { at: 1, version: '1.2.3', profile: 'web', home: '/h', message: '1.2.3 未安装', exit: null, tail: [] })
 })
 
+test('结构化诊断的所有层级都脱敏，原始报告不修改', () => {
+  const secret = 'known-private-value'
+  const diagnosis = { context: { entry: secret }, failed: [{ package: secret, reason: '\u001b[31msk-abcdefghijklmnop' }], advice: [{ text: secret }] }
+  const shown = publicFailure({ diagnosis }, [secret])
+  assert.ok(!JSON.stringify(shown).includes(secret))
+  assert.ok(!JSON.stringify(shown).includes('sk-abcdefghijklmnop'))
+  assert.equal(shown.diagnosis.failed[0].reason, 'sk-***')
+  assert.equal(diagnosis.context.entry, secret)
+})
+
 test('提示框能带一段可复制的输出，启动这条线上的报错都走它', () => {
   assert.match(html, /<pre class="notice-detail" id="noticeDetail" hidden><\/pre>/, '提示框里有放输出的地方')
   assert.match(html, /<button type="button" class="ghost" id="noticeCopy" hidden><\/button>/, '旁边有复制按钮')
   // 「复制」在词典里已经是启动项的「Duplicate」，按钮用自己的词条
   assert.match(html, /noticeCopyEl\.textContent = t\('复制错误信息'\)/)
-  assert.match(html, /function notify\(message, title = t\('操作失败'\), detail = ''\)/)
+  assert.match(html, /function notify\(message, title = t\('操作失败'\), detail = '', fromTop = false\)/)
   // 输出只能当文本塞进去：里面什么字符都可能有
   assert.match(html, /noticeDetailEl\.textContent = detail/)
   assert.match(html, /if \(data\.failure\) error\.failure = data\.failure/, 'post() 把服务端带回来的失败信息挂到 Error 上')
