@@ -160,7 +160,7 @@ export function safeProxyUrl(value) {
  * - tab：系统默认浏览器的标签页；
  * - app：用 Chromium 系浏览器的应用窗口打开（Chrome/Edge 的 --app=…，没有地址栏，更像
  *   一个 App）。找不到 Chrome/Edge 就退回标签页，所以这个选项是「尽量」而不是「必须」；
- * - window：装进启动器自己的窗口（原生外壳再开一个 WebView2 窗口承载 dsh 界面），完全不
+ * - window：装进启动器自己的窗口（原生外壳再开一个窗口承载 dsh 界面），完全不
  *   经过浏览器进程——关窗口、托盘、退出都由启动器自己说了算。它只在原生外壳托管下成立
  *   （外壳设了 DSH_APP_WINDOW=1，并在 stdout 上收约定标记），源码运行（npm start）时选它
  *   会安静地退回标签页，不会开出一个没人管的窗口。
@@ -658,19 +658,36 @@ function mergeStoredSettings(stored) {
   return merged
 }
 
+/** Windows 上设置文件正被 rename 覆盖时，读会短暂撞上共享冲突，这不是“文件坏了”。 */
+function settingsReadContention(error) {
+  return Boolean(error) && ['EPERM', 'EACCES', 'EBUSY'].includes(error.code)
+}
+
+function sleepSyncMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
 export function loadSettingsSync() {
-  try {
-    return mergeStoredSettings(JSON.parse(readFileSync(SETTINGS_FILE, 'utf8')))
-  } catch {
-    return { ...DEFAULTS }
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return mergeStoredSettings(JSON.parse(readFileSync(SETTINGS_FILE, 'utf8')))
+    } catch (error) {
+      // 读失败但文件其实没坏（另一个进程正在替换）时重试；真坏了（没有错误码的 JSON 解析错、
+      // 文件不存在）才回默认值。否则并行保存时随便一次读都会把设置“清空”。
+      if (!settingsReadContention(error) || attempt >= 10) return { ...DEFAULTS }
+      sleepSyncMs(10 * Math.min(attempt + 1, 5))
+    }
   }
 }
 
 export async function loadSettings() {
-  try {
-    return mergeStoredSettings(JSON.parse(await readFile(SETTINGS_FILE, 'utf8')))
-  } catch {
-    return { ...DEFAULTS }
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return mergeStoredSettings(JSON.parse(await readFile(SETTINGS_FILE, 'utf8')))
+    } catch (error) {
+      if (!settingsReadContention(error) || attempt >= 10) return { ...DEFAULTS }
+      await new Promise((resolve) => setTimeout(resolve, 10 * Math.min(attempt + 1, 5)))
+    }
   }
 }
 
