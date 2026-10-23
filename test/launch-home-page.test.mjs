@@ -186,3 +186,60 @@ test('环境修复和重启带启动项作用域，仅重启对应目录的实�
     ['/api/stop', '1.0.0', 'work'], ['/api/start', '1.0.0', 'work'],
   ])
 })
+
+test('Profile 下拉末项是「编辑 Profile…」，选中它不当作 profile', () => {
+  const { context: c } = editor()
+  const editOption = '__edit_profile__'
+  c.paintLaunchProfiles()
+  assert.match(c.launchProfileEl.innerHTML, /<option value="web" selected>web<\/option>/)
+  assert.match(c.launchProfileEl.innerHTML, new RegExp(`<option value="${editOption}">编辑 Profile…</option>$`))
+  let jumped = 0
+  c.openProfileInEnvironment = () => { jumped += 1 }
+  c.launchProfileEl.value = editOption
+  c.launchProfileEl.onchange()
+  assert.equal(c.launchProfile, 'web', '占位项不能混进当前 profile')
+  assert.equal(c.launchProfileEl.value, 'web', '选中跳转项后选择要还原')
+  assert.equal(jumped, 1, '选中后跳到环境页')
+})
+
+test('编辑 Profile…：收起弹窗，环境页切到启动项选的那份目录并打开那张卡', async () => {
+  const { context: c, calls } = editor()
+  let pane = ''
+  let opened = ''
+  Object.assign(c, {
+    launchDshHomeEl: { value: 'D:/isolated' }, launchProfile: 'work', launchDialogEl: { hidden: false },
+    closeLaunchEditor: async () => { c.launchDialogEl.hidden = true },
+    showPane: async (name) => { pane = name },
+    sameHomePath: (left, right) => String(left).toLowerCase() === String(right).toLowerCase(),
+    pluginTargetHome: () => 'C:/global',
+    pluginHome: '',
+    resetPluginView: () => { c.pluginsLoaded = false },
+    renderPackGrid() {}, renderPackView() {},
+    loadPlugins: async () => { c.pluginsLoaded = true; c.packState = { packs: [{ profile: 'work' }] } },
+    openPack: (profile) => { opened = profile },
+  })
+  await c.openProfileInEnvironment()
+  assert.equal(pane, 'plugins')
+  assert.equal(c.pluginHome, 'D:/isolated', '环境页要跟着切到同一份用户目录')
+  assert.equal(opened, 'work')
+})
+
+test('编辑 Profile…：还没初始化过的 Profile 只提示怎么让它出现', async () => {
+  const { context: c, calls } = editor()
+  let opened = ''
+  Object.assign(c, {
+    launchDshHomeEl: { value: '' }, launchProfile: 'qa', launchDialogEl: { hidden: false },
+    closeLaunchEditor: async () => {},
+    showPane: async () => {},
+    sameHomePath: (left, right) => left === right,
+    pluginTargetHome: () => 'C:/global',
+    pluginsLoaded: false,
+    resetPluginView() {}, renderPackGrid() {}, renderPackView() {},
+    loadPlugins: async () => { c.pluginsLoaded = true; c.packState = { packs: [] } },
+    openPack: (profile) => { opened = profile },
+  })
+  await c.openProfileInEnvironment()
+  assert.equal(opened, '', '没卡片时不能凭空打开详情')
+  assert.match(calls.at(-1), /Profile「qa」还没初始化/)
+  assert.match(page, /"编辑 Profile…": "Edit profile…"/, '英文文案跟着补')
+})

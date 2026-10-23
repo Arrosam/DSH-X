@@ -589,6 +589,8 @@ function editorHarness({ lang = 'zh', scene = NO_FALLBACK, live = false } = {}) 
   const harness = sandbox(['openLaunchEditor', submit, 'render', ...(live ? ['applyState'] : [])], ({ element, document }) => ({
     action: '', DEFAULT_LAUNCH_ID: '0000000000000000', launchDialogRevision: 0, launchHomeRevision: 0, launchDialogClosing: false,
     editingLaunchId: '', launchIcon: 'terminal', picked: 'auto', versionValue: 'auto', userPicked: false, launchProfile: 'web',
+    // 隔离引导固定成「自定义」档：这组用例只管版本类型开关，让它走原来那条保存路径（新建也照旧）。
+    launchIsolation: 'custom', setLaunchIsolation() {}, paintLaunchIsolation() {},
     state: stateOf({ ...scene, entries }), remote: remoteOf(scene.published),
     launchFormEl: element('launchForm'), launchNameEl: element('launchName'), launchPortEl: element('launchPort'),
     launchDshHomeEl: element('launchDshHome'), launchAutoLaunchEl: element('launchAutoLaunch'),

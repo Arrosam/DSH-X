@@ -555,6 +555,34 @@ html.reduce-motion .launch-status.is-working::before { animation: none; }
 #launchUpdateChannelName { min-width: 3em; margin-left: auto; text-align: right; color: var(--text); font-size: 13px; }
 /* 说明要讲清三档各收哪些版本，开关旁边放不下，单独占满下一行；压成小一号的注释，不跟控件抢视线 */
 #launchUpdateChannelHint { flex-basis: 100%; margin: -2px 0 0; font-size: 11.5px; line-height: 1.65; }
+/* ---- 新建启动项的隔离方式 ---- */
+/* 三档用胶囊分段切：前两档是「一键新建」（同一个目录换个 Profile / 整个换新目录），第三档是
+    原来那张完整表单。胶囊跟技能来源切换同款——底槽一圈浅色、当前档用卡片色浮起来，切档只换
+    浮起的那块，比下划线 tab 更像一个切换开关；字段区跟着显隐。 */
+.launch-isolation { display: grid; gap: 8px; }
+.launch-isolation[hidden] { display: none; }
+.launch-isolation-title { color: var(--muted); font-size: 12px; font-weight: 500; }
+.launch-isolation-tabs { display: flex; gap: 2px; padding: 4px; border-radius: 12px; background: var(--accent-soft); }
+.launch-isolation-tab { flex: 1 1 0; padding: 8px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease; }
+.launch-isolation-tab:hover { color: var(--text); }
+.launch-isolation-tab[aria-selected="true"] { background: var(--card); color: var(--accent); font-weight: 600; box-shadow: 0 2px 8px rgba(22, 35, 61, .1); }
+.launch-isolation-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.launch-custom-fields { display: grid; gap: 14px; }
+.launch-custom-fields[hidden] { display: none; }
+/* 切到自定义时字段淡入落位；引导档不做入场，避免点新建就闪一下 */
+.launch-custom-fields:not([hidden]) { animation: launch-custom-in 180ms cubic-bezier(.22,.61,.36,1) both; }
+@keyframes launch-custom-in { from { opacity: 0; transform: translateY(-3px); } }
+#launchIsolationHint { margin: 0; font-size: 11.5px; line-height: 1.65; }
+/* 换档时说明行淡入，文字别硬跳 */
+#launchIsolationHint.isolation-hint-in { animation: launch-isolation-hint-in 200ms cubic-bezier(.22,.61,.36,1) both; }
+@keyframes launch-isolation-hint-in { from { opacity: 0; transform: translateY(-2px); } }
+html.reduce-motion .launch-isolation-tab { transition: none; }
+html.reduce-motion .launch-custom-fields:not([hidden]),
+html.reduce-motion #launchIsolationHint.isolation-hint-in { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .launch-isolation-tab { transition: none; }
+  .launch-custom-fields:not([hidden]), #launchIsolationHint.isolation-hint-in { animation: none; }
+}
 /* 开关的几何参数挂在包装层上：圆钮和 range 都要读，定义一处就不会两边对不上。
    圆钮靠 data-channel 选 left（0/1/2 档），带 transition——原生 range 的圆钮没法过渡，只能自绘一个。 */
 .launch-switch { position: relative; display: inline-flex; flex: 0 0 auto; --knob: 20px; --inset: 3px; --travel: 18px; }

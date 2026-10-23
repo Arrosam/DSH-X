@@ -96,6 +96,7 @@ import {
   safeInstancePorts,
   safeLaunchPresets,
   safeLaunchIcon,
+  safeLaunchIsolation,
   safeKeepVersions,
   safeLang,
   safeOpenMode,
@@ -1063,6 +1064,8 @@ async function publicSettings() {
     args: stored.args ?? '',
     lang: LANG,
     theme: THEME,
+    // 上次新建启动项选的隔离档，页面打开「添加启动项」时默认停在它上面
+    launchIsolation: safeLaunchIsolation(stored.launchIsolation),
     panelTransparency: PANEL_TRANSPARENCY,
     reduceMotion: REDUCE_MOTION,
     hideBackground: HIDE_BACKGROUND,
@@ -1299,8 +1302,14 @@ async function saveLaunchPresetNow(body) {
   const profile = safeProfile(body.profile)
   const dshHome = safeDshHome(body.dshHome)
   const home = dshHome || defaultHome()
-  if (!listProfiles(join(home, 'profiles')).includes(profile)) throw new Error(`profile ${profile} 不存在`)
   if (dshHome && dshHome !== defaultHome()) await ensureWritableDir(dshHome)
+  // 「添加启动项」的隔离方式引导：Profile 隔离/完全隔离只让人填 Profile 名字，不存在就按名字建。
+  // 建在 home 对应的目录作用域里（和 /api/profiles/create 的 x-dsh-home 同一套语义），页面
+  // 不用先建 Profile 再存启动项——两步之间的失败会留下半截环境。
+  if (body.ensureProfile === true && !listProfiles(join(home, 'profiles')).includes(profile)) {
+    await launchScope.run({ home }, () => createProfile(profile))
+  }
+  if (!listProfiles(join(home, 'profiles')).includes(profile)) throw new Error(`profile ${profile} 不存在`)
   const portText = String(body.port ?? '').trim()
   const port = portText && portText !== '0' ? safePort(portText) : 0
   // 没带这个字段就沿用原来的通道（同 autoLaunch）：只改别的字段的调用方，比如「更新到新版」时
@@ -1431,6 +1440,7 @@ async function saveManagerSettings(body) {
     ...('webBind' in body ? { webBind: safeWebBind(body.webBind) } : {}),
     ...('lang' in body ? { lang: safeLang(body.lang) } : {}),
     ...('theme' in body ? { theme: safeTheme(body.theme) } : {}),
+    ...('launchIsolation' in body ? { launchIsolation: safeLaunchIsolation(body.launchIsolation) } : {}),
     ...('panelTransparency' in body ? { panelTransparency: safePanelTransparency(body.panelTransparency) } : {}),
     ...('reduceMotion' in body ? { reduceMotion: body.reduceMotion === true } : {}),
     ...('hideBackground' in body ? { hideBackground: body.hideBackground === true } : {}),
@@ -2091,22 +2101,76 @@ function remembersAutoPort(profile, pinned) {
 }
 
 const claimedAutoPorts = new Set()
-async function rememberedPort(version, profile) {
-  const stored = await loadSettings()
-  const port = safeEnvironmentPorts(stored.autoPorts)[homeDir()]?.[`${version}@${profile}`] || 0
-  if (!port) return 0
+/** 复用前等监听的次数与间隔：刚停掉的实例偶尔还占着端口一小会儿（Windows 的 TIME_WAIT）。 */
+const AUTO_PORT_PROBES = 3
+const AUTO_PORT_PROBE_WAIT_MS = 300
+
+/**
+ * 自动端口的候选记录：先认这个「版本 × profile」自己记的，没有再认同一个 profile 别的版本记的。
+ *
+ * 为什么其他版本的也要认：启动项的版本是 auto 时，DSH 一升级，实例键就从
+ * `<旧版本>@web` 变成 `<新版本>@web`，端口记忆跟着键一起作废。可 dsh 页面把工作区的分组方式、
+ * 展开状态、草稿这些东西放在 localStorage 里，而 localStorage 按 origin 隔离——端口一变，
+ * 页面就像被重置了。所以换版本要沿用旧端口，跟「固定端口跟着启动项换版本挪过去」是同一个理由。
+ * 排序上先认启动项的上一个版本（用户刚刚在看的那个 origin），再按写入顺序倒着找
+ * （设置文件里越靠后是越近记下的）。
+ * @returns {{key: string, port: number}[]} 按优先级排好的候选
+ */
+function autoPortCandidates(stored, version, profile) {
+  const ports = safeEnvironmentPorts(stored.autoPorts)[homeDir()] || {}
+  const own = `${version}@${profile}`
+  if (ports[own]) return [{ key: own, port: ports[own] }]
+  const launch = safeLaunchPresets(stored.launchPresets)
+    .find((item) => item.id === launchScope.getStore()?.launchId)
+  const previous = [launch?.prevVersion, launch?.usedVersion]
+    .filter(Boolean).map((used) => `${used}@${profile}`)
+  const rest = Object.keys(ports).filter((key) => key.endsWith(`@${profile}`)).reverse()
+  const seen = new Set([own])
+  const candidates = []
+  for (const key of [...previous, ...rest]) {
+    if (seen.has(key) || !ports[key]) continue
+    seen.add(key)
+    candidates.push({ key, port: ports[key] })
+  }
+  return candidates
+}
+
+/** 这个端口这次真的能拿来复用吗（不能的话调用方会换一个新的）。 */
+async function autoPortUsable(port, stored) {
   // 自动端口不能抢手工指定给其他实例的端口；真实监听也要检查（含别的程序）。
   const reserved = [stored.instancePorts, ...Object.values(stored.environmentPorts || {})]
     .some((ports) => Object.values(ports || {}).includes(port))
     || safeLaunchPresets(stored.launchPresets).some((entry) => entry.port === port)
-  const busy = reserved || port === PORT || port === stored.port || instanceOnPort(port) || !(await portAvailable(port))
   // 检查监听会让出执行权；不同目录的并发启动不能同时复用同一个历史端口。
-  if (busy || claimedAutoPorts.has(port)) {
-    pushLog(`自动端口 ${port} 已被占用或保留，将重新分配；浏览器可能需要重新授权`)
-    return 0
+  if (reserved || port === PORT || port === stored.port || claimedAutoPorts.has(port)) return false
+  if (instanceOnPort(port)) return false
+  // 端口能不能绑要等刚退出的进程真正放手，多试几次再下结论：
+  // 这里误判一次，实例就换了端口，页面里的本地状态跟着清零。
+  for (let attempt = 0; attempt < AUTO_PORT_PROBES; attempt += 1) {
+    if (await portAvailable(port)) return true
+    if (attempt + 1 < AUTO_PORT_PROBES) await new Promise((resolve) => setTimeout(resolve, AUTO_PORT_PROBE_WAIT_MS))
   }
-  claimedAutoPorts.add(port)
-  return port
+  return false
+}
+
+/**
+ * 这次启动要复用的自动端口（0 = 让系统现挑一个）。
+ * @returns {{port: number, key: string}} key = 端口是从哪条记录复用的（日志用）
+ */
+async function rememberedPort(version, profile) {
+  const stored = await loadSettings()
+  const candidates = autoPortCandidates(stored, version, profile)
+  for (const { key, port } of candidates) {
+    if (!(await autoPortUsable(port, stored))) continue
+    claimedAutoPorts.add(port)
+    return { port, key }
+  }
+  // 有记录但都不能用：这次只能换端口。换端口就是换 origin，页面里的本地状态会从默认值重来，
+  // 不写清楚的话，用户只会看到界面「莫名其妙被重置」。
+  if (candidates.length) {
+    pushLog(`自动端口 ${candidates.map(({ port }) => port).join('、')} 已被占用或保留，将重新分配；页面地址会变，浏览器里的授权和本地状态（分组方式、展开状态等）会重置`)
+  }
+  return { port: 0, key: '' }
 }
 
 async function rememberAutoPort(version, profile, url) {
@@ -3782,14 +3846,19 @@ async function bootOnce(ver, prof) {
   const alongside = instances.size > 0
   const pinned = pinnedPort(ver, prof)
   const automatic = remembersAutoPort(prof, pinned)
-  const reused = automatic ? await rememberedPort(ver, prof) : 0
+  const remembered = automatic ? await rememberedPort(ver, prof) : { port: 0, key: '' }
+  const reused = remembered.port
   if (pinned && !(await portAvailable(pinned))) {
     // 只说问题、不拦着：占着它的可能是用户马上要关掉的东西，也可能只是 Windows 的
     // TIME_WAIT。真起不来时下面那条 catch 会把话说清楚。
     pushLog(`固定端口 ${pinned} 现在被占用，这次启动多半会失败`)
   }
   pushLog(`启动 ${ver} · profile ${prof}${lanBindActive(WEB_BIND, lanBindToggleOn(homeDir(), prof)) ? ' · Web 绑定 局域网(0.0.0.0，由配置层决定)' : ''}${pinned ? ` · 固定端口 ${pinned}` : ''}${alongside ? '（与已在跑的实例并存）' : ''}`)
-  if (reused) pushLog(`复用自动端口：${ver}@${prof} → ${reused}`)
+  if (reused) {
+    pushLog(remembered.key === `${ver}@${prof}`
+      ? `复用自动端口：${ver}@${prof} → ${reused}`
+      : `复用自动端口：${remembered.key} → ${reused}（沿用换版本前的端口，页面里的本地状态才留得住）`)
+  }
   assertStartupActive()
   const child = spawnDsh(ver, bootArgs(prof, alongside, pinned || reused), prof)
   const spawnAt = performance.now()
