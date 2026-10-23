@@ -12,6 +12,16 @@ const IPC_CHANNEL = 'dsh-x:ipc'
 /** 单条消息的上限：页面发的都是很短的 JSON，超长的直接丢，别让主进程去解析。 */
 const MESSAGE_MAX_CHARS = 64 * 1024
 
+// Windows 的 Electron 外壳是无边框窗口：标题栏和最小化/最大化/关闭都由页面画（.app-window），
+// 拖动只能靠 Chromium 的 -webkit-app-region（wry 版靠 ipc 'drag'，Electron 没有从页面开始系统拖动的接口）。
+// 装的是同一个 preload，所以只给 Windows 加这个类，macOS 仍走红绿灯排版。
+// 预加载可能比 DOM 就绪早：documentElement 还没有时先挂到 DOMContentLoaded 上，别在顶层直接抛。
+if (process.platform === 'win32') {
+  const markWindow = () => document.documentElement?.classList.add('electron-window')
+  if (document.documentElement) markWindow()
+  else document.addEventListener('DOMContentLoaded', markWindow, { once: true })
+}
+
 contextBridge.exposeInMainWorld('ipc', {
   postMessage(message) {
     const text = String(message)

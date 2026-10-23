@@ -7,15 +7,15 @@
 DSH-X：DeepSeek Harness（`dsh`）的第三方启动器。仓库叫 DSH-X，`package.json` 里的名字是更早的 `dsh-versions`。它启动的是 dsh 官方原版 Web 界面，自己不重做 dsh 的页面。
 
 ```
-Windows 外壳 launcher/（Rust）      DSH.exe：WebView2 窗口、托盘、开机自启、单实例；拉起 node 子进程跑服务
-macOS 外壳  shell/（Electron）      DSH-X.app：Chromium 窗口与内部标签页、菜单栏、单实例；服务跑在同一进程里
-Node 服务  start.js → server.js     管理页后端 + 版本 / 插件 / 整合包 / 同步的全部业务
-管理界面   public/index.html        单页手写 HTML + 原生 JS，无框架、无构建步骤
-注入钩子   compat/  perf/           被注入 dsh 进程，修补运行时行为（见下）
+Windows/macOS 外壳  shell/（Electron）  DSH.exe / DSH-X.app：Chromium 窗口与内部标签页、托盘、菜单栏、单实例；服务跑在同一进程里
+安装引擎  launcher/（Rust）            DSH-Setup.exe：网页安装界面 + 内嵌 Inno 引擎（只负责装，不跑 dsh）
+Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / 整合包 / 同步的全部业务
+管理界面   public/index.html           单页手写 HTML + 原生 JS，无框架、无构建步骤
+注入钩子   compat/  perf/              被注入 dsh 进程，修补运行时行为（见下）
 ```
 
-**零第三方运行时依赖**：服务与页面的 import 都是 `node:` 内置或相对路径，没有构建步骤。安装包自带 Node 运行时（打包时下载到 `vendor/`），所以不依赖用户机器环境。
-唯一的例外在**打包期**：macOS 外壳要 `electron` 与 `@electron/packager`（`devDependencies`，打 mac 包前先 `npm install`）。`shell/` 之外的代码别 import 它们；`npm start` / `npm test` 不需要装。
+**零第三方运行时依赖**：服务与页面的 import 都是 `node:` 内置或相对路径，没有构建步骤。安装包不依赖用户机器环境：dsh 子进程用 Electron 自带的 Node（打包时只把 npm / pnpm 抄进 `node/`），旧安装包里的 `node/node.exe` 继续兼容。
+唯一的例外在**打包期**：两个平台的外壳都要 `electron` 与 `@electron/packager`（`devDependencies`，打安装包前先 `npm install`）。`shell/` 之外的代码别 import 它们；`npm start` / `npm test` 不需要装。
 
 ## 怎么跑、怎么验
 
@@ -25,8 +25,8 @@ Node 服务  start.js → server.js     管理页后端 + 版本 / 插件 / 整�
 | `npm run server` | 只起网页服务，不开浏览器 |
 | `npm test` | 全部用例（`node --test`，41 个文件、300+ 用例，约 16 秒） |
 | `node --test test/packs.test.mjs` | 单个用例文件 |
-| `npm run electron` | 用 Electron 外壳从源码起（macOS，先 `npm install`） |
-| `npm run dist` | 打安装包（Windows 需 Rust + Inno Setup 6；macOS 需 Xcode CLT，先 `npm install`） |
+| `npm run electron` | 用 Electron 外壳从源码起（Windows / macOS，先 `npm install`） |
+| `npm run dist` | 打安装包（Windows 需 Rust（安装引擎）+ Inno Setup 6；macOS 需 Xcode CLT；都先 `npm install`） |
 | `node scripts/make-pack.mjs` | 把 `packs/<名字>/` 打成 `.dspack`（产物在 `release/packs/`） |
 
 - **跑测试别把输出接管道**（`| head`、`| tail` 会把输出缓冲成 0 字节，等于白跑）；要留证据就重定向到文件。
@@ -46,7 +46,7 @@ Node 服务  start.js → server.js     管理页后端 + 版本 / 插件 / 整�
 
 | 路径 | 是什么 |
 |---|---|
-| `start.js` | 入口：端口与日志、被原生外壳拉起时的窗口信号（`__DSH_SHOW__`） |
+| `start.js` | 入口：端口与日志（`server.js` 在 Electron 外壳里被直接 import，不再经过它） |
 | `server.js` | 管理页后端 + 全部业务（最大文件）：HTTP 路由、版本管理、插件安装、整合包、启动失败自愈 |
 | `settings.js` | 设置读写；`safe*` 一族是校验函数（端口、路径、代理、语言……都从这过） |
 | `registry.js` / `version.js` | dsh 版本发现、pnpm 交互（进度解析）、版本号比较；装版本失败时把 npm 的收尾报错换成具体提示（`describeNpmFailure`：ETARGET 发版不齐 / 404 没有这个包） |
@@ -60,18 +60,18 @@ Node 服务  start.js → server.js     管理页后端 + 版本 / 插件 / 整�
 | `plugin-tool.js` | 命令行开关插件（dsh 起不来时的救命工具），有可执行位 |
 | `stdio-unblock.cjs` | stdout/stderr 阻塞模式修补（`--require` 注入用） |
 | `public/` | 管理界面与看板娘素材（`index.html` 是主体） |
-| `scripts/` | 打包（`pack.mjs` / `pack-mac.mjs` / `pack-common.mjs` / `dsh-setup.iss`）、图标（`make-icons.py`）、落地页素材、发版清单与 SBOM |
+| `scripts/` | 打包（`pack.mjs` / `pack-mac.mjs` / `pack-common.mjs` / `electron-prune.mjs` / `dsh-setup.iss`）、图标（`make-icons.py`）、落地页素材、发版清单与 SBOM |
 | `plugins/` `packs/` | 插件源码（发 npm）与随包发的整合包配方（见「关键机制」，**两个目录别合并**） |
 | `skills/` | 给 AI 用的技能源码（随仓库分发，不进安装包）：`dsh-x-selfcheck` 只读自检 DSH-X 环境（环境/管理页/数据目录/DSH_HOME/profile/实例/插件/技能/同步/日志），`node skills/dsh-x-selfcheck/scripts/selfcheck.mjs`，零依赖；用例见 `test/selfcheck-skill.test.mjs` |
 | `compat/` `perf/` | 注入 dsh 进程的钩子：兼容修补与加速 |
-| `launcher/` | Windows 的 Rust 外壳（`main.rs`、托盘 / 窗口 / 自更新）；macOS 不再用它 |
-| `shell/` | macOS 的 Electron 外壳（`main.mjs` 窗口 / 托盘 / 菜单，`tabs.mjs` 内部标签页，`model.mjs` 与 Rust 外壳一致的纯规则） |
+| `launcher/` | Rust 安装引擎（`installer.rs` 读网页安装界面的进度、拉起内嵌 Inno 引擎）；旧的 Rust 外壳代码还留着，但已不随安装包发 |
+| `shell/` | Windows / macOS 的 Electron 外壳（`main.mjs` 窗口 / 托盘 / 菜单，`tabs.mjs` 内部标签页，`preload.cjs` 页面桥） |
 | `test/` | 用例与假服务器 |
 | `docs/` | GitHub Pages 落地页 + 看板娘设计稿（`mascot-design/`） |
 | `assets/` | 图标 master（`icon.png` → `make-icons.py` 出全套） |
 | `data/` `release/` `vendor/` | 运行时数据与产物，gitignored，可重建，**不用整理** |
 
-**顶层 .js 平铺是有意的，不是没整理**：安装目录也是平铺的——`scripts/pack-common.mjs` 的 `APP_FILES` 按名字把文件原样拷到安装根，`launcher/main.rs` 也在根上找 `start.js`，`shell/` 按 `../server.js` 引用服务。要把它们收进 `src/` 得同时改五处（`APP_FILES` 与拷贝目标、`platform.js`/`server.js` 的根路径推导、Rust 的查找路径、`shell/` 的相对引用、`dsh-setup.iss`）并重新打包验证，别只挪文件。
+**顶层 .js 平铺是有意的，不是没整理**：安装目录也是平铺的——`scripts/pack-common.mjs` 的 `APP_FILES` 按名字把文件原样拷进 `resources/app`（Windows：`<安装目录>/resources/app/`；macOS：`DSH-X.app/Contents/Resources/app/`），`shell/` 按 `../server.js` 引用服务。要把它们收进 `src/` 得同时改四处（`APP_FILES` 与拷贝目标、`platform.js`/`server.js` 的根路径推导、`shell/` 的相对引用、`dsh-setup.iss`）并重新打包验证，别只挪文件。
 
 ## 关键机制
 
@@ -105,12 +105,13 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 
 ### 打包与安装布局
 
-- `APP_FILES`（`scripts/pack-common.mjs`）= 安装目录里的启动器源码清单；`copyAppFiles` 把它们平铺拷到安装根（macOS 是 `DSH-X.app/Contents/Resources/app/`）。
-- 安装目录里还有 `node/`（自带运行时）、`public/`、`assets/`、`compat/`、`perf/`、`packs/`、`lang.txt`（安装语言）。
-- Rust 外壳由 `cargo build` 出 `DSH.exe`，图标走 `build.rs`；Windows 安装包由 Inno Setup（`scripts/dsh-setup.iss`）打。
-- macOS 外壳由 `@electron/packager` 出 Electron 空壳（可执行文件改名 `DSH`），`pack-mac.mjs` 再把 `APP_FILES` + `shell/` 平铺进 `Resources/app`（**不打 asar**：dsh 子进程要按真实路径读 `compat/`、`perf/`），包里的 `package.json` 的 `main` 改指 `shell/main.mjs`。签名先签 `node/node`、再签 `Frameworks` 下的框架与 Helper、最后签外层（`mac-signing.mjs`）。Electron 44 起最低 **macOS 13**（原来是 11）。
-- 两个外壳和服务的约定不同：Rust 外壳是父进程，读服务 stdout 上的标记行（`__DSH_SHOW__` / `__DSH_OPEN__` / `__DSH_TAB__`）；Electron 外壳与服务同进程，用 `setHost({ onWake, openTab, openWindow, exit })` 直接接管。改「打开方式」相关逻辑两边都要验。
-- dsh / npm / pnpm 子进程一律用 `platform.js` 的 `RUNTIME_NODE`，**别用 `process.execPath`**：Electron 里那是 Electron 本体（Node 版本也不同），要用自带的 `node/node`。
+- `APP_FILES`（`scripts/pack-common.mjs`）= 启动器源码清单；`copyAppFiles` 把它们平铺拷进 app 目录（macOS: `DSH-X.app/Contents/Resources/app/`；Windows: `<安装目录>/resources/app/`），**不打 asar**：dsh 子进程要按真实路径读 `compat/`、`perf/`，包里的 `package.json` 的 `main` 改指 `shell/main.mjs`。
+- app 目录里还有 `node/`（运行时目录：只有 npm / pnpm 的 JS 包和 `node` / `node.cmd` 包装，**没有 node.exe**——dsh 子进程用 Electron 自带的 Node）、`public/`、`assets/`、`compat/`、`perf/`、`packs/`。
+- **Windows / macOS 外壳都是 Electron**：`pack.mjs`（Windows）/ `pack-mac.mjs`（macOS）用 `@electron/packager` 出空壳（可执行文件改名 `DSH` / `DSH.exe`，图标与版本信息走 packager），再把 `APP_FILES` + `shell/` + npm/pnpm 运行时拷进去，最后用 `electron-prune.mjs` 裁掉 Electron 自带的多语言、swiftshader；Windows 还裁 DXC（WebGPU 着色器编译器，`DSH_WIN_KEEP_DXCOMPILER=1` 可保留）。macOS 还多两步图标生成与签名（`mac-signing.mjs`；Electron 44 起最低 **macOS 13**）。
+- **Electron 版本钉死 44.7.0，别随手升**：dsh 的 `node-addon-require-builtin` 只给几个 Electron 版本留了预编译（43.0.0 / 44.0.0 / 44.7.0 / 45.0.0-alpha.6），版本对不上时 dsh 一启动就报 `unsupported Electron runtime fingerprint`（见 `dsh: host preparation failed`）。升级 Electron 前先看 dsh 那边的支持列表，改完在打包版里真启动一个实例验证。
+- Windows 安装包由 Inno Setup（`scripts/dsh-setup.iss`）打；`launcher/` 的 Rust 只用来编安装引擎 `DSH-Setup`（网页安装界面 + 内嵌 Inno 引擎），`cargo build --release --features installer --bin DSH-Setup`。
+- 两个平台和服务同进程（Electron 外壳），用 `setHost({ onWake, openTab, openWindow, exit })` 直接接管；旧 Rust 外壳读 stdout 标记行（`__DSH_SHOW__` / `__DSH_OPEN__` / `__DSH_TAB__`）的路径已经退役。
+- dsh / npm / pnpm 子进程一律用 `platform.js` 的 `RUNTIME_NODE`，**别用 `process.execPath` 自己拼**：Electron 里 `RUNTIME_NODE` 就是 Electron 本体，拉子进程时必须同时展开 `RUNTIME_NODE_ENV`（里面是 `ELECTRON_RUN_AS_NODE=1`），否则会当 GUI 打开；`withBundledRuntime` / `orderRuntimePaths` 负责把 `node/` 里的 `node` / `node.cmd` 包装放进 PATH。
 - 网页安装界面的进度桥：引擎往 `/STATUSFILE` 写 `阶段:百分比`（`preparing`/`files`/`finishing`/`cleaning`，见 `scripts/installer-engine.iss` 与 `dsh-setup.iss` 的 `CurStepChanged`），`launcher/installer.rs` 每 120ms 读一次、以 `{type:'progress',stage,percent}` 交给 `installer/index.html` 取本地化文案。两侧互相容忍：新引擎配旧外壳，旧外壳解析不动就停在上一个数；旧引擎只写纯数字，新外壳回落 `files`。`DSH-Setup.exe --preview` 单跑界面（demo 会走完四个阶段）。
 - 自更新（Windows）：下载 `DSH-Setup.exe` → 静默安装 → 由安装程序拉起新版。macOS 是挂 dmg、把新 .app 拷到旧包旁边，退出后由 `MAC_SWAP_SCRIPT` 换包。改这条链路时，父进程必须**等安装程序真的起来再退**，否则复刻流程会误判成"更新坏了"。
 - 发版产物要一起传：Windows 的 `DSH-Setup.exe` 和 mac 的 dmg（**不传 dmg，mac 的自更新就取不到包**）；清单、签名、SBOM 见 README 的「打包」一节。

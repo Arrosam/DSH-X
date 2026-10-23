@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 
 /**
  * 外壳的进程环境，必须在 platform.js / server.js 求值之前定好（main.mjs 第一个 import 的就是本文件，
- * ES 模块按 import 顺序求值）：platform.js 在加载时就按 PATH 找子进程用的 node（RUNTIME_NODE）。
+ * ES 模块按 import 顺序求值）：platform.js 在加载时就定下子进程用的 node（RUNTIME_NODE），
+ * server.js 启动管理服务时还会再拼一次 PATH。
  */
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -12,7 +13,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const EXTRA_PATHS = ['/opt/homebrew/bin', '/usr/local/bin']
 
 const dirs = String(process.env.PATH || '').split(delimiter).filter(Boolean)
-// 自带运行时排最前（和 Rust 外壳一样）：dsh 子进程里的 node / npm / pnpm 先用随包发的那份
+// 自带运行时目录排最前：现在里面是 npm / pnpm 和 node.cmd（转调 Electron，见 scripts/pack.mjs）
 const bundled = join(ROOT, 'node')
 if (existsSync(bundled)) dirs.unshift(bundled)
 for (const extra of EXTRA_PATHS) if (!dirs.includes(extra)) dirs.push(extra)

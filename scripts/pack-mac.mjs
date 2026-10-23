@@ -15,22 +15,22 @@ import {
   run,
 } from './pack-common.mjs'
 import { packager } from '@electron/packager'
-import { LAUNCHER_NAME, MAC_APP_NAME, MAC_BUNDLE_ID, NODE_BINARY } from '../platform.js'
+import { LAUNCHER_NAME, MAC_APP_NAME, MAC_BUNDLE_ID } from '../platform.js'
 import { macSigningIdentity, signMacBundle } from './mac-signing.mjs'
 import { pruneMacElectron } from './electron-prune.mjs'
 
 /**
  * macOS 打包：release/DSH-X.app + release/DSH-X-mac-<arch>.dmg。
  *
- * 外壳是 Electron（shell/），不再是 launcher/ 的 Rust + WKWebView——那个只留给 Windows。
+ * 外壳是 Electron（shell/），不再是 launcher/ 的 Rust + WKWebView；Rust 那边现在只剩安装引擎。
  * 包的布局（platform.js 的 appBundle 按它找文件，自更新按它换包）：
  *   DSH-X.app/Contents/MacOS/DSH            Electron 主程序（executableName 改成了 DSH）
  *   DSH-X.app/Contents/Frameworks/…         Electron 框架与 Helper
- *   DSH-X.app/Contents/Resources/app/…      和 Windows 安装目录一样的内容 + shell/，node 在 app/node/node
+ *   DSH-X.app/Contents/Resources/app/…      和 Windows 安装目录一样的内容 + shell/；node 就地是 Electron 本身
  *   DSH-X.app/Contents/Resources/AppIcon.icns
  *
- * Resources/app 是普通目录、不打 asar：dsh 子进程要用 node/node 去跑里面的 compat/、perf/ 钩子，
- * 管理服务也要按真实路径找 public/ 和随包的整合包，asar 里的文件外部进程读不到。
+ * Resources/app 是普通目录、不打 asar：dsh 子进程要用 Electron 自带的 Node（ELECTRON_RUN_AS_NODE=1）
+ * 去跑里面的 compat/、perf/ 钩子，管理服务也要按真实路径找 public/ 和随包的整合包，asar 里的文件外部进程读不到。
  *
  * dmg 的文件名带架构，和 server.js 的 APP_SETUP 对上——自更新按它去发布页取包。
  * 默认打当前机器的架构；DSH_MAC_ARCH=x64 / arm64 可以指定（Electron 和 node 都按架构下载，不用交叉编译）。
@@ -75,15 +75,22 @@ async function downloadNode() {
 }
 
 /**
- * 自带运行时摆成和 Windows 一样的扁平布局（node/node + node/node_modules），
+ * 自带运行时目录摆成和 Windows 一样的扁平布局（node/node_modules + 包装脚本），
  * server.js 的 withBundledRuntime、registry.js 的 LOCAL_NODE 只认这一种。
+ * 这里**不再放 node 可执行文件**：dsh 子进程用 Electron 本体（ELECTRON_RUN_AS_NODE=1），和 Windows 一致。
  * 发行包里的 npm/npx 是指向 ../lib/node_modules 的符号链接，换了布局就断了，所以自己写包装。
  */
 async function copyNodeRuntime() {
   const nodeDir = join(APP, 'node')
   await mkdir(nodeDir, { recursive: true })
-  await copyFile(join(EXTRACTED, 'bin', 'node'), join(nodeDir, NODE_BINARY))
-  await chmod(join(nodeDir, NODE_BINARY), 0o755)
+  // 插件构建脚本里叫 `node` 时落到 Electron 上；路径从 Resources/app/node 指回 Contents/MacOS/DSH
+  const nodeShim = join(nodeDir, 'node')
+  await writeFile(nodeShim, [
+    '#!/bin/sh',
+    'ELECTRON_RUN_AS_NODE=1 exec "$(dirname "$0")/../../../MacOS/DSH" "$@"',
+    '',
+  ].join('\n'))
+  await chmod(nodeShim, 0o755)
   const modules = join(EXTRACTED, 'lib', 'node_modules')
   await copyNpmModules(modules, nodeDir)
   await copyPnpm(nodeDir, join(modules, 'npm', 'bin', 'npm-cli.js'))
@@ -98,7 +105,7 @@ async function copyNodeRuntime() {
     await writeFile(file, [
       '#!/bin/sh',
       'dir="$(cd "$(dirname "$0")" && pwd)"',
-      `exec "$dir/${NODE_BINARY}" "$dir/node_modules/${cli}" "$@"`,
+      `exec "$dir/node" "$dir/node_modules/${cli}" "$@"`,
       '',
     ].join('\n'))
     await chmod(file, 0o755)

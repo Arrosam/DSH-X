@@ -2,8 +2,8 @@
  * Electron 外壳里与 Electron 无关的那一半：地址判定、/api/tray 的解析、标签页消息校验、
  * 托盘启动项菜单的可用性。全部是纯函数，node --test 直接测（见 test/shell-model.test.mjs）。
  *
- * 规则逐条照搬 Windows 的 Rust 外壳（launcher/main.rs、tabs.rs、tray.rs），两边语义要一致：
- * 管理服务对两个外壳说的是同一套协议。
+ * 规则逐条照搬旧的 Windows Rust 外壳（launcher/main.rs、tabs.rs、tray.rs；已退役，现只剩安装引擎），
+ * 两边语义要一致：管理服务对两个外壳说的是同一套协议。
  */
 
 /** 本机地址的主机名：dsh 的界面、管理页都在回环上；别的一律算外部网页。 */

@@ -145,7 +145,7 @@ Verifying a download (optional): the releases page lists a sha256 next to every 
 
 ## Development
 
-Needs Node.js 22.18+ locally. The launcher itself has no third-party dependencies: `npm start` runs the manager, `npm run server` the server only, and `npm test` the tests. The macOS shell is Electron, so run `npm install` first for `npm run electron` or a mac build.
+Needs Node.js 22.18+ locally. The launcher itself has no third-party dependencies: `npm start` runs the manager, `npm run server` the server only, and `npm test` the tests. The shell is Electron, so run `npm install` first for `npm run electron` or an installer build.
 
 ## Packaging
 
@@ -153,7 +153,7 @@ Needs Node.js 22.18+ locally. The launcher itself has no third-party dependencie
 npm run dist
 ```
 
-On Windows (Rust and Inno Setup 6) this produces `release/DSH/` and `release/DSH-Setup.exe`; on macOS (Xcode command line tools, after `npm install`) it produces `release/DSH-X.app` and `release/DSH-X-mac-<arch>.dmg` (Intel: `DSH_MAC_ARCH=x64 npm run dist`).
+On Windows (Rust for the installer engine and Inno Setup 6, after `npm install`) this produces `release/DSH/` and `release/DSH-Setup.exe`; on macOS (Xcode command line tools, after `npm install`) it produces `release/DSH-X.app` and `release/DSH-X-mac-<arch>.dmg` (Intel: `DSH_MAC_ARCH=x64 npm run dist`).
 
 Windows builds also write an SBOM and release manifest for local checking (not uploaded to the release). Check the version and artifacts before publishing:
 

@@ -20,4 +20,4 @@ The macOS shell has moved from Rust + WKWebView (`launcher/`) to Electron (`shel
 ## Limitations
 
 - All of the above was checked from source (`npm run electron`) and with a locally ad-hoc-signed `.app`, not with a notarised release build.
-- The Windows shell is unchanged (Rust + WebView2, which is already Chromium), so neither bug applies there.
+- Windows now uses the same Electron shell (`shell/main.mjs`), so the WebView2-only symptoms no longer apply there either; internal tabs are Chromium on both platforms.

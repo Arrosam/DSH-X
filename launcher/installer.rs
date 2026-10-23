@@ -96,10 +96,18 @@ mod installer {
     fn installed_dir(work: &Path) -> Option<PathBuf> { fs::read_to_string(work.join("directory.txt")).ok().map(|s| PathBuf::from(s.trim_start_matches('\u{feff}').trim())).filter(|p| p.is_absolute()) }
     fn launch_app(dir: &Path) -> std::io::Result<()> { Command::new(dir.join("DSH.exe")).current_dir(dir).spawn().map(|_| ()) }
     fn cleanup_after_exit(dir: &Path, work: &Path, delete_installer: bool) {
-        // 使用已安装的 Node 以独立 argv 传路径；不把用户目录拼进 shell 命令。
+        // 用安装目录里 Electron 自带的 Node 跑清理脚本（ELECTRON_RUN_AS_NODE=1，和 server.js 一致）；
+        // 不把用户目录拼进 shell 命令，路径按独立 argv 传。
         let script = "const fs=require('node:fs');const [exe,work]=process.argv.slice(1);let tries=0;const timer=setInterval(()=>{try{if(exe&&fs.existsSync(exe))fs.unlinkSync(exe);fs.rmSync(work,{recursive:true,force:true});clearInterval(timer)}catch{if(++tries>30)clearInterval(timer)}},1000);";
         let original = if delete_installer { std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default() } else { String::new() };
-        let _ = Command::new(dir.join("node/node.exe")).args(["-e", script, &original, &work.to_string_lossy()]).creation_flags(NO_WINDOW).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+        let _ = Command::new(dir.join("DSH.exe"))
+            .env("ELECTRON_RUN_AS_NODE", "1")
+            .args(["-e", script, &original, &work.to_string_lossy()])
+            .creation_flags(NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
     }
     #[derive(Debug)]
     enum UiEvent { Message(Value), Progress(String, u32), Finished(i32), Error(String) }

@@ -1,10 +1,10 @@
 // 必须是第一个 import：它在 platform.js / server.js 求值之前补好 PATH 和外壳标记（见 env.mjs）
 import './env.mjs'
 import { BrowserWindow, Menu, Tray, WebContentsView, app, dialog, ipcMain, nativeImage, nativeTheme, session, shell } from 'electron'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { APP_DIR, RUNTIME_NODE } from '../platform.js'
+import { APP_DIR, IS_MAC, IS_WINDOWS, RUNTIME_NODE } from '../platform.js'
 import { BrowserTabs } from './tabs.mjs'
 import { dataUrl, errorPage, idlePage } from './pages.mjs'
 import {
@@ -23,13 +23,15 @@ import {
 } from './model.mjs'
 
 /**
- * macOS 的 DSH-X.app 外壳（Electron）。取代原来的 Rust + WKWebView 外壳（launcher/，Windows 仍在用）：
- * 管理页、内部标签页、独立 DSH 窗口都换成 Chromium，和 Windows 的 WebView2、和官方 DSH 桌面端同一个内核。
+ * Windows / macOS 的 DSH-X 外壳（Electron）。Windows 和 macOS 安装包里都是这一套：
+ * 管理页、内部标签页、独立 DSH 窗口都跑在 Chromium 里，和官方 DSH 桌面端同一个内核。
+ * launcher/ 那份 Rust + WKWebView/WebView2 外壳只剩安装引擎（DSH-Setup）在用。
  *
  * 和 Rust 外壳最大的不同：管理服务（server.js）不再是子进程，而是跑在本进程里。所以
  * - 「把窗口叫出来 / 开标签 / 开窗口」不再走 stdout 标记行，而是 setHost 换成直接调用；
  * - 退出时先让服务收尾（停 dsh、通知页面），再退出 Electron（见 quit）。
- * dsh 子进程照旧用自带的 node 跑（platform.js 的 RUNTIME_NODE），不用 Electron 自带的 Node。
+ * dsh 子进程用 RUNTIME_NODE 拉起（platform.js）：源码运行是系统 node，打包后是 Electron 本体
+ * 加 ELECTRON_RUN_AS_NODE=1——这样不用再随包塞一份 node.exe（省 80MB+）。
  *
  * 关窗口 ≠ 退出：托盘还在、dsh 照常跑；⌘Q、托盘「退出」才真正退出。
  */
@@ -39,8 +41,11 @@ const ROOT = join(HERE, '..')
 const PRELOAD = join(HERE, 'preload.cjs')
 /** 和 preload.cjs 的 IPC_CHANNEL 一致。 */
 const IPC_CHANNEL = 'dsh-x:ipc'
-/** 管理页地址上的 window 参数：页面据此给系统红绿灯让位（public/index.html 的 macWindow）。 */
-const WINDOW_QUERY = 'mac'
+/**
+ * 管理页的 window 查询参数：macOS 用它切到红绿灯排版（public/index.html 的 macWindow），
+ * Windows 则固定用 '1'——和 Rust/wry 外壳一致，页面据此画自绘的最小化/最大化/关闭按钮。
+ */
+const WINDOW_QUERY = IS_MAC ? 'mac' : '1'
 /** 首次出现的窗口尺寸（逻辑像素），和 Rust 外壳一致。 */
 const MAIN_WINDOW = { width: 1100, height: 760, minWidth: 720, minHeight: 520 }
 const DSH_WINDOW = { width: 1180, height: 820, minWidth: 720, minHeight: 520 }
@@ -56,8 +61,8 @@ const TRAY_POLL_MS = 1500
 const TRAY_REQUEST_TIMEOUT_MS = 2000
 /** 托盘里的启动 / 修复可能很慢，后台等它，不卡菜单。 */
 const TRAY_ACTION_TIMEOUT_MS = 120_000
-/** 菜单栏图标按 18pt 显示，给 2 倍图才不糊（和 Rust 外壳的 TRAY_ICON_SIZE 同理）。 */
-const TRAY_ICON_POINTS = 18
+/** 菜单栏 / 托盘图标按 18pt（macOS）或 16px（Windows 托盘）显示，给 2 倍图才不糊。 */
+const TRAY_ICON_POINTS = IS_MAC ? 18 : 16
 const ICON_FILE = join(ROOT, 'assets', 'icon.png')
 /** 页面进程崩溃时 Chromium 报的原因：这几种是正常结束，不用重装。 */
 const CLEAN_EXITS = new Set(['clean-exit', 'killed'])
@@ -96,15 +101,22 @@ function managerUrl() {
 }
 
 async function start() {
-  app.setAboutPanelOptions({ applicationName: 'DSH-X', applicationVersion: VERSION })
+  // Windows 的任务栏分组 / 通知要用 AppUserModelID；macOS 没有这个概念（bundle id 在 Info.plist 里）
+  if (IS_WINDOWS) app.setAppUserModelId('io.github.yyh-001.dsh-x')
+  if (IS_MAC) app.setAboutPanelOptions({ applicationName: 'DSH-X', applicationVersion: VERSION })
   console.log(`DSH-X ${VERSION} (Electron ${process.versions.electron}, Chromium ${process.versions.chrome})`)
-  Menu.setApplicationMenu(appMenu())
+  // macOS 需要应用菜单提供 ⌘Q / 复制粘贴；Windows 的页面里 Ctrl+C/V 由 Chromium 自己处理，
+  // 没有「窗口菜单」这回事，干脆不要菜单栏（Rust 外壳也没有）。
+  if (IS_MAC) Menu.setApplicationMenu(appMenu())
+  else Menu.setApplicationMenu(null)
   installPermissionHandlers()
   // 系统深浅色在运行中变了（控制中心切换）：停止页跟着重画（#58）
   nativeTheme.on('updated', () => tabs?.systemThemeChanged())
 
-  if (!RUNTIME_NODE) {
-    showStartupError('启动器文件不完整', '找不到用来运行 dsh 的 node：自带运行时缺失。', '重新安装一次 DSH-X 即可。')
+  // 源码运行时 RUNTIME_NODE 来自 PATH 上的 node；打包后永远是 Electron 本体（process.execPath），
+  // 只有旧安装包（带 node/node.exe）或显式 DSH_RUNTIME_NODE 指歪了才可能落空。
+  if (!RUNTIME_NODE || (app.isPackaged && !existsSync(RUNTIME_NODE))) {
+    showStartupError('启动器文件不完整', '找不到用来运行 dsh 的 node。', '重新安装一次 DSH-X 即可。')
     return
   }
 
@@ -140,7 +152,9 @@ function showStartupError(title, message, detail) {
   const height = String(detail).split('\n').length > 2 ? ERROR_WINDOW.logHeight : ERROR_WINDOW.height
   const window = new BrowserWindow({
     width: ERROR_WINDOW.width, height, resizable: false, title: 'DSH-X',
-    titleBarStyle: 'hiddenInset', backgroundColor: '#15171c',
+    // 出错窗口没画窗口按钮：macOS 用 hiddenInset，Windows 保留系统边框（不然关不掉）
+    ...(IS_MAC ? { titleBarStyle: 'hiddenInset' } : { icon: ICON_FILE }),
+    backgroundColor: '#15171c',
     webPreferences: { sandbox: true, contextIsolation: true },
   })
   window.on('closed', () => app.exit(1))
@@ -152,9 +166,11 @@ function createMainWindow() {
     ...MAIN_WINDOW,
     title: 'DSH-X',
     show: false,
-    // 留着系统红绿灯（用户对它们的肌肉记忆比风格统一更重要），标题栏透明、页面铺满整个窗口
-    titleBarStyle: 'hidden',
-    trafficLightPosition: TRAFFIC_LIGHTS,
+    // macOS 留着系统红绿灯（用户对它们的肌肉记忆比风格统一更重要），标题栏透明、页面铺满整个窗口；
+    // Windows 没有红绿灯：无边框，最小化/最大化/关闭由页面画（.app-window 的 win-controls）
+    ...(IS_MAC
+      ? { titleBarStyle: 'hidden', trafficLightPosition: TRAFFIC_LIGHTS }
+      : { frame: false, icon: ICON_FILE, backgroundColor: '#15171c' }),
     webPreferences: managerPreferences(),
   })
   mainWindow.once('ready-to-show', () => mainWindow.show())
@@ -337,6 +353,7 @@ function createDshWindow() {
     ...DSH_WINDOW,
     title: 'DSH',
     show: false,
+    ...(IS_WINDOWS ? { icon: ICON_FILE } : {}),
     // 本地那张「没在跑」的页要 window.ipc；远端 dsh 页面的预加载只暴露 postMessage，
     // 而 handleIdleMessage 只认 launch / manager 两个词，dsh 页面发什么都没有效果
     webPreferences: managerPreferences(),
@@ -435,6 +452,8 @@ function createTray() {
   const image = nativeImage.createFromPath(ICON_FILE).resize({ width: TRAY_ICON_POINTS, height: TRAY_ICON_POINTS, quality: 'best' })
   tray = new Tray(image)
   tray.setToolTip('DSH-X')
+  // Windows 托盘点左键叫回管理页（右键才是菜单）；macOS 点菜单栏图标默认弹菜单，不抢。
+  if (IS_WINDOWS) tray.on('click', () => showManager())
   syncTrayMenu()
 }
 

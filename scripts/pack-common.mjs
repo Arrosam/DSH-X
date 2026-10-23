@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url'
 
 export const ROOT = fileURLToPath(new URL('..', import.meta.url))
 export const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+// 发行包只用来取 npm（软件本体已经改用 Electron 自带的 Node，不再发 node.exe）；
+// 这份缓存还留着，是为了两个平台的构建脚本共用、并且能离线重打。
 export const NODE_VERSION = process.env.DSH_NODE_VERSION || '22.19.0'
 // 便携目录兜底的那份 pnpm：要读得动现代 profile —— lockfile 9.0、pnpm-workspace.yaml
 // 里的设置（后者 pnpm 10.6 起才认）。store 主版本也跟着 pnpm 主版本走（8→v3、10→v10、
@@ -109,14 +111,15 @@ export async function copyAppFiles(out) {
   await cp(join(ROOT, 'packs'), join(out, 'packs'), { recursive: true })
 }
 
-/** 把 npm、corepack 从解压好的 node 发行包拷进 nodeDir/node_modules。 */
+/**
+ * 把 npm 从解压好的 node 发行包拷进 nodeDir/node_modules。
+ *
+ * 只拷 npm：corepack 以前跟着 node.exe 一起发，现在 dsh 子进程用 Electron 自带的 Node，
+ * corepack 又依赖 node 本体，带进来只会多 1MB 死代码。pnpm 由 copyPnpm 另外准备。
+ */
 export async function copyNpmModules(modulesSrc, nodeDir) {
   await mkdir(join(nodeDir, 'node_modules'), { recursive: true })
   await cp(join(modulesSrc, 'npm'), join(nodeDir, 'node_modules', 'npm'), { recursive: true })
-  const corepack = join(modulesSrc, 'corepack')
-  if (existsSync(corepack)) {
-    await cp(corepack, join(nodeDir, 'node_modules', 'corepack'), { recursive: true })
-  }
 }
 
 /**

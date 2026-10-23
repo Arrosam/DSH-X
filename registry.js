@@ -8,7 +8,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { DEFAULTS, DOWNLOAD_SOURCES, loadSettingsSync } from './settings.js'
-import { RUNTIME_NODE } from './platform.js'
+import { RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
 // 版本列表、tarball 都走带代理的 fetch（见 proxy.js）；回环地址它自动直连
 import { netFetch, proxyEnv } from './proxy.js'
 // 版本比较在 version.js（零依赖），这里转出去保持老调用方不用改
@@ -31,9 +31,12 @@ export function currentRegistry() {
 const USER_AGENT = `dsh-versions/${pkg.version || '0.0.0'}`
 let npmReady = null
 
+// npm/npx 的 Windows 包装。`node` 落在哪儿随安装方式变：源码运行就是系统 node；打包后
+// node/ 下只有 node.cmd（转调 Electron，见 scripts/pack.mjs），所以按文件名依次找。
 const NPM_CMD = `@ECHO OFF
 SETLOCAL
-SET "NODE_EXE=%~dp0\\node.exe"
+SET "NODE_EXE=%~dp0\\node.cmd"
+IF NOT EXIST "%NODE_EXE%" ( SET "NODE_EXE=%~dp0\\node.exe" )
 IF NOT EXIST "%NODE_EXE%" ( SET "NODE_EXE=node" )
 SET "NPM_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npm-cli.js"
 "%NODE_EXE%" "%NPM_CLI_JS%" %*
@@ -41,7 +44,8 @@ SET "NPM_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npm-cli.js"
 
 const NPX_CMD = `@ECHO OFF
 SETLOCAL
-SET "NODE_EXE=%~dp0\\node.exe"
+SET "NODE_EXE=%~dp0\\node.cmd"
+IF NOT EXIST "%NODE_EXE%" ( SET "NODE_EXE=%~dp0\\node.exe" )
 IF NOT EXIST "%NODE_EXE%" ( SET "NODE_EXE=node" )
 SET "NPX_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npx-cli.js"
 "%NODE_EXE%" "%NPX_CLI_JS%" %*
@@ -247,6 +251,7 @@ function runNpm(cli, args, { cwd, onLog, env } = {}) {
       cwd,
       env: {
         ...process.env,
+        ...RUNTIME_NODE_ENV,
         npm_config_registry: currentRegistry(),
         ...proxyEnv(),
         npm_config_audit: 'false',

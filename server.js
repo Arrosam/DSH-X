@@ -127,7 +127,7 @@ import {
 } from './settings.js'
 // 带代理的 fetch：Node 的全局 fetch 既不看系统代理也不看 HTTP_PROXY，外网请求都走 netFetch
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
-import { APP_DIR, IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, NODE_BINARY, RUNTIME_NODE, appBundle } from './platform.js'
+import { APP_DIR, IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, RUNTIME_NODE, RUNTIME_NODE_ENV, appBundle } from './platform.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -167,7 +167,7 @@ const READY_RE = /dsh web:\s+(https?:\/\/[^\s]+)/
 const START_TIMEOUT_MS = 120_000
 // 启动 profile：设置页可改，startServer() 里按设置定值
 let PROFILE_NAME = resolveProfile()
-// DSH.exe 命令行上传进来的参数：Rust 启动器原样转发给 start.js，这里拼进 dsh
+// DSH.exe 命令行上传进来的参数：外壳原样转发给 start.js，这里拼进 dsh
 // 命令行末尾——不再静默忽略。只在经由 start.js 启动时认，免得把测试/开发时
 // node 自己的 argv 误当成用户参数。
 const CLI_ARGS = /start\.js$/i.test(process.argv[1] || '') ? process.argv.slice(2) : []
@@ -225,8 +225,8 @@ let logEventTimer = null
 const clients = new Set()
 /**
  * 宿主（拉起本服务的外壳）提供的钩子。默认值对应「子进程 + stdout 标记行」那条老路
- * （Windows 的 Rust 外壳 DSH.exe 读这几行）；macOS 的 Electron 外壳和服务在同一个进程，
- * 用 setHost 直接换成函数调用，不再走管道。
+ * （旧 Rust 外壳 DSH.exe 读这几行；它只剩安装引擎，不再跑 dsh）；现在的 Electron 外壳
+ * 和服务在同一个进程，用 setHost 直接换成函数调用，不走管道。
  */
 let host = {
   onWake: async () => {},
@@ -841,8 +841,8 @@ async function installMacUpdate(staged) {
   }
 
   const logFd = openSync(join(tmpdir(), 'DSH-X-install.log'), 'w')
-  // 外壳（Contents/MacOS/DSH）要等它退出才能换包。Rust 外壳是我们的父进程、在我们之后才退；
-  // Electron 外壳和服务是同一个进程，父进程是 launchd，等它只会白白耗满超时。
+  // 外壳（Contents/MacOS/DSH）要等它退出才能换包。Electron 外壳和服务是同一个进程，
+  // 父进程是 launchd，等父进程只会白白耗满超时——直接等自己这个进程退出。
   const shellPid = IN_ELECTRON ? process.pid : process.ppid
   spawn('/bin/sh', ['-c', MAC_SWAP_SCRIPT, 'dsh-x-update', String(shellPid), String(process.pid), bundle, next], {
     detached: true,
@@ -1697,6 +1697,8 @@ export function dshEnv(version, options = {}) {
   const workerCompat = existsSync(WORKER_COMPAT)
   const env = {
     ...process.env,
+    // 打包后 RUNTIME_NODE 是 Electron 本体：子进程带这个变量才会按 node 跑（见 platform.js）
+    ...RUNTIME_NODE_ENV,
     DSH_HOME: home,
     DSH_NODE: RUNTIME_NODE,
     DSH_BIN: binPath(version),
@@ -1804,7 +1806,7 @@ function probeStoreVersion(dir) {
       cwd: dir,
       timeout: 20_000,
       windowsHide: true,
-      env: { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH || ''}` },
+      env: { ...process.env, ...RUNTIME_NODE_ENV, PATH: `${dir}${delimiter}${process.env.PATH || ''}` },
     }, (error, stdout) => {
       resolve(error ? '' : basename(String(stdout).trim().replace(/\\/g, '/')))
     })
@@ -1886,6 +1888,8 @@ function versionBinDir(version) {
  * 为什么不用版本目录里那个 .bin/dsh.cmd：它的 node 取自 PATH，而我们把用户自己的 node
  * 排在了前面（见 orderRuntimePaths），用户那套 node 要是太老就带不动 dsh。这里把启动器
  * 自己的 node 写死，`dsh` 在 shell 里就总是能跑起来，版本也跟着启动器选的那个走。
+ * 打包后的 node 就是 Electron 本体，shim 里要带上 ELECTRON_RUN_AS_NODE，否则 Electron
+ * 会按 GUI 起、把参数当 app 目录。
  */
 export function writeDshShims(version, options = {}) {
   const target = options.dir ?? join(DATA, '.bin')
@@ -1894,9 +1898,10 @@ export function writeDshShims(version, options = {}) {
   try {
     mkdirSync(target, { recursive: true })
     const node = RUNTIME_NODE
-    writeFileSync(join(target, 'dsh.cmd'), `@ECHO off\r\n"${node}" "${bin}" %*\r\n`)
+    const asNode = Boolean(RUNTIME_NODE_ENV.ELECTRON_RUN_AS_NODE)
+    writeFileSync(join(target, 'dsh.cmd'), `@ECHO off\r\n${asNode ? 'SET "ELECTRON_RUN_AS_NODE=1"\r\n' : ''}"${node}" "${bin}" %*\r\n`)
     const sh = join(target, 'dsh')
-    writeFileSync(sh, `#!/bin/sh\nexec "${node}" "${bin}" "$@"\n`)
+    writeFileSync(sh, `#!/bin/sh\n${asNode ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}exec "${node}" "${bin}" "$@"\n`)
     try {
       chmodSync(sh, 0o755)
     } catch { /* Windows 上无所谓 */ }
@@ -1977,8 +1982,9 @@ export function applySystemPath(enabled) {
 
 export function withBundledRuntime(pathValue, preferredPnpm = '') {
   const bundled = join(ROOT, 'node')
-  // 源码运行也得把正在用的 node 交给 pnpm 的 shim；桌面应用启动时 PATH 可能没有 node。
-  const dir = existsSync(join(bundled, NODE_BINARY)) ? bundled : dirname(RUNTIME_NODE)
+  // 自带运行时目录（现在只剩 npm/pnpm 和它们的命令行包装；node 本体用 Electron 自带的）。
+  // 源码运行没有这个目录，就把 Electron 本体所在目录当兜底条目，和以前一样。
+  const dir = existsSync(bundled) ? bundled : dirname(RUNTIME_NODE)
   // 原 PATH 已经完整保留，只补固定位置；再筛整条 PATH 会重复探测每个目录的 pnpm 后缀。
   const parts = [...String(pathValue).split(delimiter).filter(Boolean), ...pnpmCandidates('')]
   return orderRuntimePaths(parts, dir, preferredPnpm).join(delimiter)
@@ -2478,7 +2484,8 @@ function spawnDsh(version, extra, profile = '', options = {}) {
   writeDshShims(version)
   // 用户开了「加到系统 PATH」的话，稳定目录里那份也跟着当前版本走
   if (SYSTEM_PATH) writeDshShims(version, { dir: systemBinDir() })
-  // #59 起统一用自带运行时（RUNTIME_NODE）拉起 dsh；#61 的诊断上下文仍要在这之前建好 env。
+  // 统一用 RUNTIME_NODE 拉起 dsh（打包后就是 Electron 自带的 Node，见 platform.js）；#61 的诊断
+  // 上下文仍要在这之前建好 env。
   const env = dshEnv(version, options)
   if (options.diagnosticContext) {
     env.DSH_X_DIAGNOSTIC_ATTEMPT = options.diagnosticContext.attemptId
@@ -5103,7 +5110,7 @@ function probeTimeout(value) {
  * 那是启动器给 dsh 自己挂的加载钩子，塞给被测的 MCP 程序只会添乱。
  */
 function probeEnv() {
-  const env = { ...process.env, ...proxyEnv(), PATH: withBundledRuntime(process.env.PATH || '') }
+  const env = { ...process.env, ...RUNTIME_NODE_ENV, ...proxyEnv(), PATH: withBundledRuntime(process.env.PATH || '') }
   delete env.NODE_OPTIONS
   return env
 }

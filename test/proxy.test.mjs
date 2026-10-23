@@ -424,7 +424,8 @@ test('server.js：外网请求走 netFetch，回环请求不折腾', () => {
   assert.match(server, /const res = await fetch\(`http:\/\/127\.0\.0\.1:\$\{port\}\/api\/ping`/)
   assert.match(server, /const first = await fetch\(`\$\{base\}\/\?token=/, '唤醒本机的请求不该被改')
   assert.match(server, /\.\.\.proxyEnv\(\)/, 'dsh 子进程拿到代理环境变量')
-  assert.match(server, /function probeEnv\(\) \{\n  const env = \{ \.\.\.process\.env, \.\.\.proxyEnv\(\)/)
+  // 探针环境要先带上运行时的标记（打包后 dsh/npm 子进程靠它才知道用 Electron 自带的 Node），再叠代理变量
+  assert.match(server, /function probeEnv\(\) \{\n  const env = \{ \.\.\.process\.env, \.\.\.RUNTIME_NODE_ENV, \.\.\.proxyEnv\(\)/)
   assert.match(server, /if \(error\?\.proxyError\) \{/, 'describeFetchError 认得「代理和直连都没通」')
   assert.match(server, /const proxy = resolveProxy\(\)\n  return proxy\.url \? `；也可以看设置页的「网络代理」/)
 })

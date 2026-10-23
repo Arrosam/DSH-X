@@ -2,9 +2,9 @@
 //
 //   node scripts/release-sbom.mjs          生成 release/dsh-x-<版本>.spdx.json
 //
-// 尺度说明：安装包里的第三方运行时（node / npm / corepack / pnpm）按「整包一个条目」声明版本与许可证，
-// 不逐层展开它们内部的 node_modules；启动器自己随包发的文件逐个列入并带 sha256，方便核对。
-// 这不是法律意义上的完整 SBOM，而是「这个安装包里有什么、能对上哈希」的可核验清单。
+// 尺度说明：安装包里的第三方运行时（Electron（自带 Node）/ npm / pnpm；旧包还有 node / corepack）按
+// 「整包一个条目」声明版本与许可证，不逐层展开它们内部的 node_modules；启动器自己随包发的文件逐个
+// 列入并带 sha256，方便核对。这不是法律意义上的完整 SBOM，而是「这个安装包里有什么、能对上哈希」的可核验清单。
 
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -15,8 +15,10 @@ import { spawnSync } from 'node:child_process'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 export const REPO = 'yyh-001/DSH-X'
 
-/** 随包发的第三方运行时：目录 → SPDX 条目信息。 */
+/** 随包发的第三方运行时：目录 → SPDX 条目信息。
+ *  Electron 就是软件本体（内含 Node）；node.exe / corepack 只有 0.1.19 及以前的包才有。 */
 const RUNTIMES = [
+  { key: 'electron', dir: 'DSH.exe', name: 'Electron', homepage: 'https://www.electronjs.org', license: 'MIT' },
   { key: 'node', dir: 'node/node.exe', name: 'Node.js', homepage: 'https://nodejs.org', license: 'MIT' },
   { key: 'npm', dir: 'node/node_modules/npm', name: 'npm', homepage: 'https://github.com/npm/cli', license: 'Artistic-2.0' },
   { key: 'corepack', dir: 'node/node_modules/corepack', name: 'corepack', homepage: 'https://github.com/nodejs/corepack', license: 'MIT' },
@@ -31,8 +33,13 @@ function readJson(file) {
   }
 }
 
-/** 版本优先读包自带的 package.json；node.exe 这种只能问它自己。 */
+/** 版本优先读包自带的 package.json；Electron 是安装包里的 DSH.exe（版本跟构建时的 devDependency 走），
+ *  node.exe 这种只能问它自己。 */
 function runtimeVersion(nodeDir, entry) {
+  if (entry.key === 'electron') {
+    const manifest = readJson(join(ROOT, 'node_modules', 'electron', 'package.json'))
+    return manifest?.version ?? null
+  }
   if (entry.key === 'node') {
     const exe = join(nodeDir, 'node.exe')
     if (!existsSync(exe)) return null
@@ -43,10 +50,14 @@ function runtimeVersion(nodeDir, entry) {
   return manifest?.version ?? null
 }
 
-export function collectComponents({ nodeDir } = {}) {
+export function collectComponents({ nodeDir, electronVersion } = {}) {
   const components = {}
+  // Electron 是软件本体，不依赖 node/ 目录是否存在（旧包才有 node.exe）
+  const electron = electronVersion ?? runtimeVersion('', RUNTIMES[0])
+  if (electron) components.electron = electron
   if (!nodeDir || !existsSync(nodeDir)) return components
   for (const entry of RUNTIMES) {
+    if (entry.key === 'electron') continue
     const version = runtimeVersion(nodeDir, entry)
     if (version) components[entry.key] = version
   }
@@ -133,7 +144,7 @@ export function buildSbom({ version, commit, builtAt, components = {}, files = [
   for (const name of extras) addFile(name, join(releaseDir, name), '发布资产（安装包）')
   for (const name of files) addFile(`DSH/${name}`, join(dshDir, name), '安装到用户机器上的文件')
   const nodeExe = join(dshDir, 'node', 'node.exe')
-  if (existsSync(nodeExe)) addFile('DSH/node/node.exe', nodeExe, '随包发的 Node 运行时')
+  if (existsSync(nodeExe)) addFile('DSH/node/node.exe', nodeExe, '随包发的 Node 运行时（0.1.19 及更早的包）')
 
   return {
     spdxVersion: 'SPDX-2.3',
@@ -141,7 +152,7 @@ export function buildSbom({ version, commit, builtAt, components = {}, files = [
     SPDXID: 'SPDXRef-DOCUMENT',
     name: `DSH-X-${version}`,
     documentNamespace: namespace,
-    documentComment: '第三方运行时（node/npm/corepack/pnpm）按整包声明，未展开其内部依赖；启动器自身随包文件逐个列出并带 sha256。',
+    documentComment: '第三方运行时（Electron（内含 Node）/ npm / pnpm；0.1.19 及更早的包还有 node / corepack）按整包声明，未展开其内部依赖；启动器自身随包文件逐个列出并带 sha256。',
     creationInfo: {
       created: builtAt,
       creators: ['Tool: dsh-x release-sbom (scripts/release-sbom.mjs)'],

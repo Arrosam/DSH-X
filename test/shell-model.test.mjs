@@ -1,5 +1,5 @@
 /**
- * macOS Electron 外壳（shell/）里与 Electron 无关的规则。期望值取自 Windows Rust 外壳的同名用例
+ * Windows / macOS 的 Electron 外壳（shell/）里与 Electron 无关的规则。期望值取自旧 Rust 外壳的同名用例
  * （launcher/tabs.rs、tray.rs 的 tests）：两个外壳对管理服务说的是同一套协议，规则必须一致。
  */
 import assert from 'node:assert/strict'
@@ -22,7 +22,7 @@ import {
   internalMode,
   windowMode,
 } from '../shell/model.mjs'
-import { runtimeNode } from '../platform.js'
+import { runtimeNode, runtimeNodeEnv } from '../platform.js'
 import { resolveDark, stoppedPage } from '../shell/pages.mjs'
 
 test('停止页跟随主题与系统深浅色（#58，和 tabs.rs 的同名用例一致）', () => {
@@ -128,26 +128,30 @@ test('托盘启动项：操作可用性跟着各自的状态和地址走', () =>
   assert.ok(!launchActionEnabled(external, 'open'))
 })
 
-test('Electron 外壳里，dsh 子进程用自带的 node 而不是 Electron 本体', () => {
+test('Electron 外壳里，dsh 子进程用 Electron 自带的 Node（旧包仍认 node/node.exe）', () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-node-'))
   try {
     // 不在 Electron 里：就是正在跑的 node
     assert.equal(runtimeNode({}, root, false), process.execPath)
     // 显式指定优先
     assert.equal(runtimeNode({ DSH_RUNTIME_NODE: '/custom/node' }, root, true), '/custom/node')
-    // 其次 PATH 上的 node（源码运行）
-    const bin = join(root, 'bin')
-    mkdirSync(bin)
-    writeFileSync(join(bin, process.platform === 'win32' ? 'node.exe' : 'node'), '')
-    chmodSync(join(bin, process.platform === 'win32' ? 'node.exe' : 'node'), 0o755)
-    assert.equal(runtimeNode({ PATH: bin }, root, true), join(bin, process.platform === 'win32' ? 'node.exe' : 'node'))
-    // 自带运行时排在 PATH 前面
+    // 打包后没有自带 node：就是 Electron 本体（加 ELECTRON_RUN_AS_NODE 环境变量）
+    assert.equal(runtimeNode({ PATH: '' }, root, true), process.execPath)
+    // 0.1.19 及更早的安装包里有 node/node.exe：继续优先用它
     mkdirSync(join(root, 'node'))
-    writeFileSync(join(root, 'node', process.platform === 'win32' ? 'node.exe' : 'node'), '')
-    assert.equal(runtimeNode({ PATH: bin }, root, true), join(root, 'node', process.platform === 'win32' ? 'node.exe' : 'node'))
-    // 都没有：返回空串，由外壳显示「启动器文件不完整」，不在 import 时抛
-    assert.equal(runtimeNode({ PATH: '' }, join(root, 'missing'), true), '')
+    const legacy = join(root, 'node', process.platform === 'win32' ? 'node.exe' : 'node')
+    writeFileSync(legacy, '')
+    assert.equal(runtimeNode({ PATH: '' }, root, true), legacy)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('RUNTIME_NODE_ENV：只有落到 Electron 本体时才补 ELECTRON_RUN_AS_NODE', () => {
+  assert.deepEqual(runtimeNodeEnv('/app/DSH.exe', '/app/DSH.exe', true), { ELECTRON_RUN_AS_NODE: '1' })
+  // Windows 路径大小写不敏感
+  if (process.platform === 'win32') assert.deepEqual(runtimeNodeEnv('C:\\App\\dsh.exe', 'c:\\APP\\DSH.exe', true), { ELECTRON_RUN_AS_NODE: '1' })
+  // 旧安装包的 node.exe、或根本不在 Electron 里：什么都不用设
+  assert.deepEqual(runtimeNodeEnv('/app/node/node.exe', '/app/DSH.exe', true), {})
+  assert.deepEqual(runtimeNodeEnv('/app/DSH.exe', '/app/DSH.exe', false), {})
 })

@@ -182,6 +182,11 @@ header {
 .mac-window header { -webkit-app-region: drag; }
 .mac-window header :is(button, a, input, select, .select),
 .mac-window .internal-tabs-area { -webkit-app-region: no-drag; }
+/* Windows 外壳（Electron）：无边框窗口，窗口按钮由页面画（.app-window 的 win-controls），
+   拖动同样只能靠 app-region。类由 shell/preload.cjs 加，只在 Windows 的 Electron 里出现。 */
+.electron-window header { -webkit-app-region: drag; }
+.electron-window header :is(button, a, input, select, .select),
+.electron-window .internal-tabs-area { -webkit-app-region: no-drag; }
 .win-btn {
   width: 34px;
   height: 30px;

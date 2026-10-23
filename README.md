@@ -145,7 +145,7 @@ macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`�
 
 ## 开发
 
-本机需要 Node.js 22.18+。启动器本身没有第三方依赖：`npm start` 启动管理页，只起服务用 `npm run server`，测试用 `npm test`。macOS 外壳是 Electron，`npm run electron` 或打 mac 包前先 `npm install`。
+本机需要 Node.js 22.18+。启动器本身没有第三方依赖：`npm start` 启动管理页，只起服务用 `npm run server`，测试用 `npm test`。外壳是 Electron，`npm run electron` 或打安装包前先 `npm install`。
 
 ## 打包
 
@@ -153,7 +153,7 @@ macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`�
 npm run dist
 ```
 
-Windows（需要 Rust 与 Inno Setup 6）产出 `release/DSH/` 便携目录和 `release/DSH-Setup.exe`；macOS（需要 Xcode 命令行工具，先 `npm install`）产出 `release/DSH-X.app` 和 `release/DSH-X-mac-<arch>.dmg`（Intel 版：`DSH_MAC_ARCH=x64 npm run dist`）。
+Windows（需要 Rust（安装引擎）+ Inno Setup 6，先 `npm install`）产出 `release/DSH/` 便携目录和 `release/DSH-Setup.exe`；macOS（需要 Xcode 命令行工具，先 `npm install`）产出 `release/DSH-X.app` 和 `release/DSH-X-mac-<arch>.dmg`（Intel 版：`DSH_MAC_ARCH=x64 npm run dist`）。
 
 Windows 打包同时生成 SBOM 与发布清单（本地自查，不上传 Release）。发版前检查版本与产物：
 
