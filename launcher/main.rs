@@ -41,6 +41,7 @@ mod tray;
 use tray::{LaunchEntry, LaunchMenus};
 mod tabs;
 mod permissions;
+mod health;
 use tabs::{BrowserTabs, TabAction, TabTarget};
 
 #[cfg(windows)]
@@ -136,9 +137,12 @@ enum UserEvent {
     TabTitle(String, String),
     TabPageLoaded(String, String),
     TabLink(String, String),
-    /// 标签页的 WebKit 页面进程崩溃（只有 macOS 报告），由外壳重新认证装回
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    /// 标签页的页面进程崩溃或卡死（macOS 与 Windows 各走各自的原生回调），由外壳重新装回
+    #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
     TabCrashed(String),
+    /// 管理页的渲染进程退出或卡死：必须重载，WebView2 不会自己恢复
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    ManagerFailed(health::Failure),
 }
 
 /// 从 /api/tray 读回来的状态（纯文本 key=value，见 server.js）
@@ -168,6 +172,21 @@ impl TrayState {
     fn internal_mode(&self) -> bool {
         self.openmode == "internal" && self.shell
     }
+}
+
+/// 日志里给「渲染进程出什么事了」一个说法（只用于日志，不影响行为）。
+fn failure_text(failure: health::Failure) -> &'static str {
+    match failure {
+        health::Failure::Exited => "退出",
+        health::Failure::Unresponsive => "无响应",
+    }
+}
+
+/// 管理页自动恢复的最小间隔：崩溃循环里不能无限重载（重载本身也会把 CPU 打满）。
+const RECOVER_COOLDOWN: Duration = Duration::from_secs(60);
+
+fn should_recover(last: Option<Instant>, now: Instant) -> bool {
+    last.is_none_or(|at| now.duration_since(at) >= RECOVER_COOLDOWN)
 }
 
 fn parse_tray_state(text: &str) -> TrayState {
@@ -1281,6 +1300,14 @@ fn main() {
         None => None,
     };
 
+    // 管理页的渲染进程崩溃/卡死时 WebView2 不会自己恢复：窗口停在最后一帧，合成器却继续按帧
+    // 工作，CPU/内存一路涨（issue 现场：两个进程挂六天、各 4.5 万 CPU 秒、占掉 1GB）。
+    // 这里只订阅，重载放在事件循环里做——COM 回调里导航会踩重入限制。
+    if let Some(view) = &webview {
+        let proxy = proxy.clone();
+        health::watch(view, move |failure| { let _ = proxy.send_event(UserEvent::ManagerFailed(failure)); });
+    }
+
     // 等管理服务起来再导航，否则 webview 会先撞上连接失败（它自己不会重试）。
     // 端口被占用时管理页会顺延，所以这里扫一遍把真正的端口定下来。
     match wait_for_manager(&node_exit) {
@@ -1336,6 +1363,8 @@ fn main() {
     let mut browser_tabs: Option<BrowserTabs> = None;
     let mut manager_memory_active = true;
     let mut dsh_memory_active = true;
+    // 管理页上次自动恢复的时间：崩溃循环里不能无限重载。
+    let mut manager_reloaded_at: Option<Instant> = None;
 
     // webview 与 context 都是本帧的局部变量，run 不返回，所以它们的生命周期覆盖整个窗口期
     event_loop.run(move |event, event_loop, control_flow| {
@@ -1431,6 +1460,19 @@ fn main() {
             }
             Event::UserEvent(UserEvent::TabCrashed(id)) => {
                 if let Some(tabs) = &mut browser_tabs { tabs.recover(&id); }
+            }
+            Event::UserEvent(UserEvent::ManagerFailed(failure)) => {
+                // 重载而不是 reload：渲染进程已经没了/卡住时 reload 可能落空，重新导航一定带回页面。
+                let now = Instant::now();
+                if !should_recover(manager_reloaded_at, now) {
+                    eprintln!("管理页渲染进程再次{}，60 秒内已恢复过，先不重复重载", failure_text(failure));
+                } else {
+                    manager_reloaded_at = Some(now);
+                    eprintln!("管理页渲染进程{}，正在重新加载", failure_text(failure));
+                    if let Some(webview) = &webview {
+                        let _ = webview.load_url(&format!("{}?window={WINDOW_QUERY}", manager_url()));
+                    }
+                }
             }
             Event::UserEvent(UserEvent::TabLink(id, url)) => {
                 if !browser_tabs.as_ref().is_some_and(|tabs| tabs.link(&id, &url)) {
@@ -1811,5 +1853,15 @@ mod tests {
         let en = idle_page("en");
         assert!(en.contains("Start dsh") && en.contains("Open launcher"));
         assert!(!en.contains("启动"), "英文界面下不该冒出中文按钮");
+    }
+
+    #[test]
+    fn manager_recovery_waits_out_the_cooldown() {
+        let now = Instant::now();
+        // 第一次失败立刻恢复（还没恢复过）
+        assert!(should_recover(None, now));
+        // 崩溃循环：冷却期内不再重载，免得把机器拖成重载死循环
+        assert!(!should_recover(Some(now), now + Duration::from_secs(59)));
+        assert!(should_recover(Some(now), now + RECOVER_COOLDOWN));
     }
 }

@@ -280,6 +280,14 @@ impl BrowserTabs {
             });
             let view = view.build_as_child(window)?;
             super::permissions::install(&view, window);
+            // Windows 的页面进程崩溃/卡死走 WebView2 的 ProcessFailed（macOS 走上面那个
+            // WKWebView 回调）；两边都交给 recover 重新认证装回，别留一块死画面。
+            #[cfg(target_os = "windows")]
+            {
+                let crash_id = target.id.clone();
+                let crash_proxy = proxy.clone();
+                super::health::watch(&view, move |_| { let _ = crash_proxy.send_event(UserEvent::TabCrashed(crash_id.clone())); });
+            }
             self.tabs.push(Tab { target: target.clone(), view, loaded: String::new(), page_title: String::new(), visible: false, memory_active: true, page_loaded: false });
         }
         let tab = self.tabs.iter_mut().find(|tab| tab.target.id == target.id).unwrap();
