@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "DSH"
-path = "main.rs"
-
-[[bin]]
 name = "DSH-Setup"
 path = "installer.rs"
 required-features = ["installer"]
@@ -23,12 +19,6 @@ lto = true
 strip = true
 
 [dependencies]
-image = { version = "0.25.10", default-features = false, features = ["ico", "png"] }
 serde_json = "1"
 tao = "0.37.0"
-tray-icon = "0.25.1"
 wry = "0.57.0"
-
-[target.'cfg(windows)'.dependencies]
-webview2-com = "0.39.1"
-windows-sys = { version = "0.60", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

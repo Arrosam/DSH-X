@@ -34,11 +34,10 @@ fn main() {
             // 这些字段不只是好看：杀软/信誉服务看厂商、版权、原始文件名，
             // 一片空白的未签名 exe 更容易被启发式当成下载器。
             res.set("ProductName", "DSH-X");
-            let installer = std::env::var_os("CARGO_FEATURE_INSTALLER").is_some();
-            res.set("FileDescription", if installer { "DSH-X 安装程序" } else { "DSH-X 启动器" });
+            res.set("FileDescription", "DSH-X 安装程序");
             res.set("CompanyName", "yyh");
             res.set("LegalCopyright", "Copyright (C) 2026 yyh");
-            res.set("OriginalFilename", if installer { "DSH-Setup.exe" } else { "DSH.exe" });
+            res.set("OriginalFilename", "DSH-Setup.exe");
             res.set("InternalName", "DSH");
             let version = app_version();
             res.set("FileVersion", &version);
