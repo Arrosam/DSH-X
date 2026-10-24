@@ -182,7 +182,7 @@ export const LAUNCH_ACTIONS = [
   { action: 'stop', zh: '停止', en: 'Stop' },
 ]
 
-/** 这一项此刻能不能做这个操作（和 tray.rs 的 enabled 一致）。 */
+/** 这一项此刻能不能做这个操作（和旧外壳 tray.rs 的 enabled 一致）。 */
 export function launchActionEnabled(entry, action) {
   if (entry.busy || entry.status === 'stopping') return false
   switch (action) {

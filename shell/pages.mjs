@@ -1,6 +1,6 @@
 /**
- * 外壳自己画的几张本地页（data: URL）：不依赖管理服务在不在。文案与样式照搬 Rust 外壳
- * （launcher/main.rs 的 ERROR_PAGE / IDLE_PAGE、tabs.rs 的停止页），两个平台看到的一样。
+ * 外壳自己画的几张本地页（data: URL）：不依赖管理服务在不在。文案与样式照搬已删的 Rust 外壳
+ * （launcher/main.rs 的 ERROR_PAGE / IDLE_PAGE、tabs.rs 的停止页，git 历史可查），两个平台看到的一样。
  */
 
 function escapeHtml(text) {
@@ -81,7 +81,7 @@ export function idlePage(lang) {
 
 /**
  * 实际生效的深色状态：显式 light/dark 说了算；system（以及将来新增的未知值）跟随系统。
- * 和 launcher/tabs.rs 的 resolve_dark 一致（#58）。
+ * 和已删的 launcher/tabs.rs 的 resolve_dark 一致（#58）。
  */
 export function resolveDark(theme, systemDark) {
   if (theme === 'dark') return true

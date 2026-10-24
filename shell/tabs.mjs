@@ -6,12 +6,12 @@ import { reorderBy, sameOrigin } from './model.mjs'
  * 「DSH-X 内部标签页」：每个 dsh 实例一块独立的 WebContentsView，叠在管理页（窗口自己的 webContents）
  * 之上、菜单栏之下。不用 iframe：避免跨源嵌入限制，切换也不会重载会话、不丢草稿。
  *
- * 状态机逐条照搬 Rust 外壳的 launcher/tabs.rs（BrowserTabs），管理页那一侧（public/internal-tabs.js）
+ * 状态机逐条照搬已删的 Rust 外壳 launcher/tabs.rs（BrowserTabs，git 历史可查），管理页那一侧（public/internal-tabs.js）
  * 不用改：选中、排序都带请求编号，只有管理页画完、回执 present(serial) 之后才切换原生视图的可见性，
  * 中间始终有完整内容，不露出底层。
  */
 
-/** 管理页还没报告菜单栏高度之前用的默认值（逻辑像素），和 tabs.rs 的 HEADER_HEIGHT 一致。 */
+/** 管理页还没报告菜单栏高度之前用的默认值（逻辑像素），和旧外壳 tabs.rs 的 HEADER_HEIGHT 一致。 */
 const DEFAULT_HEADER_HEIGHT = 72
 /** 标签页标题的长度上限：标题来自远端页面，不能无限长地塞进菜单栏。 */
 const PAGE_TITLE_MAX = 160
@@ -220,7 +220,7 @@ export class BrowserTabs {
   /**
    * 页面进程崩溃后重新装回这个标签：重新导航到带启动 token 的地址，而不是 reload。
    * token 在这个 dsh 进程的生命周期内一直有效，服务端会重发 cookie 并 303 到主页，
-   * 和从管理页「打开」走的是同一条认证路径（原因见 tabs.rs 的 recover：WKWebView 崩溃后
+   * 和从管理页「打开」走的是同一条认证路径（原因见旧外壳 tabs.rs 的 recover：WKWebView 崩溃后
    * reload 不带 SameSite=Strict 的认证 cookie；Chromium 下这条路同样稳妥）。
    */
   recover(id) {
