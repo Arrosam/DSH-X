@@ -742,6 +742,8 @@
       <h2 class="ask-title" id="noticeTitle" data-i18n="操作失败">操作失败</h2>
       <p class="notice-text" id="noticeText"></p>
       <div id="noticeCards" hidden style="max-height:60vh;overflow:auto;overflow-wrap:anywhere"></div>
+      <div class="diagnosis" id="noticeDiagnosis" hidden></div>
+      <h3 class="diag-output-title" id="noticeOutputTitle" data-i18n="原始输出" hidden>原始输出</h3>
       <pre class="notice-detail" id="noticeDetail" hidden></pre>
       <div class="ask-actions">
         <button type="button" class="ghost" id="noticeCopy" hidden></button>
@@ -2035,6 +2037,8 @@
     const noticeTitleEl = document.getElementById('noticeTitle')
     const noticeTextEl = document.getElementById('noticeText')
     const noticeDetailEl = document.getElementById('noticeDetail')
+    const noticeDiagnosisEl = document.getElementById('noticeDiagnosis')
+    const noticeOutputTitleEl = document.getElementById('noticeOutputTitle')
     const noticeCopyEl = document.getElementById('noticeCopy')
     const noticePlanEl = document.getElementById('noticePlan')
     const noticeCardsEl = document.getElementById('noticeCards')
@@ -2120,6 +2124,8 @@
     noticePlanEl.onclick = () => { void verifyRepairPlan(Boolean(repairPlanView.plan)) }
     function notify(message, title = t('操作失败'), detail = '', fromTop = false) {
       resetRepairPlan()
+      noticeDiagnosisEl.hidden = true
+      noticeOutputTitleEl.hidden = true
       noticeTitleEl.textContent = title
       noticeTextEl.textContent = message == null ? '' : String(message)
       noticeDetailEl.textContent = detail
@@ -2133,7 +2139,8 @@
     }
     noticeCopyEl.onclick = async () => {
       try {
-        await navigator.clipboard.writeText(`${noticeTextEl.textContent}\n\n${noticeDetailEl.textContent}`)
+        const diagnosis = noticeDiagnosisEl.hidden ? '' : `${diagnosisText(lastDiagnosisReport)}\n\n`
+        await navigator.clipboard.writeText(`${noticeTextEl.textContent}\n\n${diagnosis}${noticeDetailEl.textContent}`)
       } catch {
         // 剪贴板接口不给用时退回「选中再复制」
         const range = document.createRange()
@@ -2146,6 +2153,105 @@
       noticeCopyEl.textContent = t('已复制')
     }
 
+    let lastDiagnosisReport = null
+    /**
+     * 诊断报告在弹窗里的分节展示。纯 DOM 构建：日志里的 HTML、命令和包名到这里都只是
+     * 文本节点，不会变成可执行内容（与 diagnosisText 的约定一致）。分节标题、徽标和
+     * 条目顺序要与纯文本版保持同步，改一头要过另一头。
+     */
+    function renderDiagnosis(report, output = '') {
+      lastDiagnosisReport = report || null
+      noticeDiagnosisEl.replaceChildren()
+      if (!report) {
+        return
+      }
+      const el = (tag, className, text) => {
+        const node = document.createElement(tag)
+        if (className) {
+          node.className = className
+        }
+        if (text != null) {
+          node.textContent = text
+        }
+        return node
+      }
+      const meta = []
+      if (report.context?.entry) {
+        meta.push([t('启动入口'), report.context.entry])
+      }
+      if (report.context?.harnessEntry && report.context.harnessEntry !== report.context.entry) {
+        meta.push([t('Harness CLI 路径'), report.context.harnessEntry])
+      }
+      if (meta.length) {
+        const box = el('div', 'diag-meta')
+        for (const [label, value] of meta) {
+          box.append(el('span', 'diag-meta-label', `${label}:`), el('span', 'diag-meta-value', value))
+        }
+        noticeDiagnosisEl.append(box)
+      }
+      const idNode = (id, required) => {
+        const wrap = document.createDocumentFragment()
+        wrap.append(el('span', 'diag-id', id))
+        if (required) {
+          wrap.append(el('span', 'diag-badge', t('必需')))
+        }
+        return wrap
+      }
+      const row = (main, sub) => {
+        const box = el('div', 'diag-row')
+        const line = el('div', 'diag-row-main')
+        line.append(...main)
+        box.append(line)
+        if (sub) {
+          box.append(el('div', 'diag-row-sub', sub))
+        }
+        return box
+      }
+      const section = (title, tone, rows) => {
+        const box = el('section', `diag-section diag-tone-${tone}`)
+        const head = el('div', 'diag-section-head')
+        head.append(el('span', 'diag-section-title', title), el('span', 'diag-count', `(${rows.length})`))
+        box.append(head, ...rows)
+        noticeDiagnosisEl.append(box)
+      }
+      if (report.blockingChains?.length) {
+        section(t('必需插件阻塞链（日志证据）'), 'danger', report.blockingChains.map((chain) => row(
+          [idNode(chain.id, true), el('span', 'diag-arrow', `→ ${t('缺少服务')}: ${chain.service}`)],
+          chain.rejectedRow ? `${t('同名插件被拒绝（线索）')}: ${chain.rejectedRow.id} (${chain.rejectedRow.package})` : '',
+        )))
+      }
+      const sections = [
+        ['直接失败', 'danger', report.failed, (entry) => row([idNode(entry.id, entry.required), el('span', 'diag-pkg', entry.package)], entry.reason)],
+        ['版本不兼容，已被 Harness 禁用', 'warn', report.rejected, (entry) => row([idNode(entry.id), el('span', 'diag-pkg', `${entry.package} · Harness ${entry.runtime}`)], entry.requirements)],
+        ['被跳过的插件包', 'neutral', report.skipped?.entries, (entry) => row([el('span', 'diag-id', entry.package)], entry.reason)],
+        ['等待服务（受影响项，不等于根因）', 'info', report.waiting, (entry) => row([idNode(entry.id, entry.required)], entry.missing.join(', '))],
+      ]
+      for (const [label, tone, entries, render] of sections) {
+        if (entries?.length) {
+          section(t(label), tone, entries.map(render))
+        }
+      }
+      const adviceLines = diagnosisAdviceLines(report)
+      if (adviceLines.length || (!report.advice?.length && report.primary)) {
+        const box = el('section', 'diag-advice')
+        if (report.advice?.length) {
+          box.append(el('div', 'diag-advice-title', t('修复建议（不会自动执行）')))
+          for (const line of adviceLines) {
+            box.append(el('p', 'diag-advice-item', line))
+          }
+        } else {
+          box.append(el('div', 'diag-advice-title', report.primary.summary), el('p', 'diag-advice-item', report.primary.remedy))
+        }
+        noticeDiagnosisEl.append(box)
+      }
+      if (report.truncated) {
+        noticeDiagnosisEl.append(el('p', 'diag-note', t('证据已截断或不完整，未显示的项目不代表正常。')))
+      }
+      noticeDiagnosisEl.hidden = false
+      noticeEl.classList.add('has-detail')
+      noticeOutputTitleEl.hidden = !output
+    }
+
     /** 启动失败的那句话。服务端给的是中文原文，认得出的两种换成界面语言，再补上退出码。 */
     function failureText(failure) {
       const known = /^(\S+) 启动(失败|超时)$/.exec(failure.message || '')
@@ -2155,7 +2261,33 @@
       const code = failure.exit?.code
       return code == null ? text : t('{text}（退出码 {code}）', { text, code })
     }
-    /** 诊断只生成文字，日志中的 HTML、命令和包名都不能变成可执行操作。 */
+    /** 修复建议的行集：diagnosisText（纯文本）与 renderDiagnosis（弹窗展示）共用，别只改一边。 */
+    function diagnosisAdviceLines(report) {
+      const advice = {
+        telemetry_configuration: '配置报告 serviceVersion 缺失；仅核对字段定义文件及引用的环境变量，不代填或改写。',
+        incompatible_packages: '实际加载来源尚未确认；先核对来源和兼容版本，不要豁免版本检查或批量禁用插件。',
+        waiting_services: '优先修复直接失败和被拒绝的服务提供者，再检查等待项；当前未证明所有等待项属于同一根因。',
+        module_interface: '日志还报告了不存在的接口。请核对涉及插件与 Harness 的兼容版本；启动成功也不代表该功能正常。',
+      }
+      const lines = []
+      for (const item of report.advice || []) {
+        if (advice[item.code]) {
+          lines.push(t(advice[item.code]))
+        }
+        if (item.code === 'telemetry_configuration' && report.context?.profile === 'desktop' && report.context.clientVersionPresent === false) {
+          lines.push(t('本次启动未传入 DSH_CLIENT_VERSION；字段是否引用此变量及定义文件，以已核实来源证据为准。'))
+        }
+        if (item.code === 'module_interface') {
+          for (const evidence of report.evidence || []) {
+            if (/is not a function/.test(evidence.text)) {
+              lines.push(`[${evidence.line}] ${evidence.text}`)
+            }
+          }
+        }
+      }
+      return lines
+    }
+    /** 诊断的纯文本版：剪贴板与回归断言用。弹窗里的展示是 renderDiagnosis 的分节卡片。 */
     function diagnosisText(report) {
       if (!report) {
         return ''
@@ -2191,27 +2323,7 @@
         }
       }
       lines.push('', t('修复建议（不会自动执行）'))
-      const advice = {
-        telemetry_configuration: '配置报告 serviceVersion 缺失；仅核对字段定义文件及引用的环境变量，不代填或改写。',
-        incompatible_packages: '实际加载来源尚未确认；先核对来源和兼容版本，不要豁免版本检查或批量禁用插件。',
-        waiting_services: '优先修复直接失败和被拒绝的服务提供者，再检查等待项；当前未证明所有等待项属于同一根因。',
-        module_interface: '日志还报告了不存在的接口。请核对涉及插件与 Harness 的兼容版本；启动成功也不代表该功能正常。',
-      }
-      for (const item of report.advice || []) {
-        if (advice[item.code]) {
-          lines.push(t(advice[item.code]))
-        }
-        if (item.code === 'telemetry_configuration' && report.context?.profile === 'desktop' && report.context.clientVersionPresent === false) {
-          lines.push(t('本次启动未传入 DSH_CLIENT_VERSION；字段是否引用此变量及定义文件，以已核实来源证据为准。'))
-        }
-        if (item.code === 'module_interface') {
-          for (const evidence of report.evidence || []) {
-            if (/is not a function/.test(evidence.text)) {
-              lines.push(`[${evidence.line}] ${evidence.text}`)
-            }
-          }
-        }
-      }
+      lines.push(...diagnosisAdviceLines(report))
       if (!report.advice?.length && report.primary) {
         lines.push(report.primary.summary, report.primary.remedy)
       }
@@ -2220,13 +2332,12 @@
       }
       return lines.join('\n')
     }
-    /** 原弹窗保留输出，诊断放前面；不改变启动、重试或恢复入口。 */
+    /** 弹窗：诊断走 renderDiagnosis 的分节卡片，pre 里只留原始输出；不改变启动、重试或恢复入口。 */
     function showFailure(failure, running = false) {
       const output = (failure.tail || []).join('\n')
-      const diagnosis = diagnosisText(failure.diagnosis)
-      const detail = [diagnosis, output ? `${diagnosis ? t('原始输出') + '\n' : ''}${output}` : ''].filter(Boolean).join('\n\n')
       const text = running ? t(failure.message || '运行中插件诊断') : failureText(failure)
-      notify(text, t(running ? '运行中插件诊断' : '启动失败'), detail, Boolean(diagnosis))
+      notify(text, t(running ? '运行中插件诊断' : '启动失败'), output, Boolean(failure.diagnosis))
+      renderDiagnosis(failure.diagnosis, output)
       configureRepairPlan(failure)
       showRepairCards(failure)
     }

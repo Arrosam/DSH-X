@@ -1686,6 +1686,35 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 }
 .notice-detail[hidden], #noticeCopy[hidden] { display: none; }
 .hint .hint-fail { color: var(--danger); }
+/* 诊断报告的分节卡片（renderDiagnosis）：条目主行是插件名，等宽只留给包名 / 版本要求和原因 */
+.diagnosis { flex: 1 1 auto; min-height: 0; max-height: 40vh; margin: 12px 0 0; overflow: auto; display: grid; gap: 10px; align-content: start; scrollbar-width: thin; }
+.diagnosis[hidden] { display: none; }
+.diag-meta { display: grid; gap: 3px; font: 11.5px/1.5 ui-monospace, Consolas, monospace; color: var(--muted); overflow-wrap: anywhere; }
+.diag-meta-label { color: var(--text); opacity: .72; }
+.diag-section { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.diag-section-head { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; background: var(--accent-soft); border-bottom: 1px solid var(--line); }
+.diag-section-title { font-size: 12.5px; font-weight: 600; }
+.diag-count { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.diag-tone-danger .diag-section-title, .diag-tone-danger .diag-badge { color: var(--danger); }
+.diag-tone-danger .diag-section-head { background: #fff1f2; }
+.diag-tone-warn .diag-section-title { color: #b45309; }
+.diag-tone-warn .diag-section-head { background: #fffbeb; }
+.diag-tone-info .diag-section-title { color: var(--accent); }
+.diag-row { padding: 8px 12px; }
+.diag-row + .diag-row { border-top: 1px solid var(--line); }
+.diag-row-main { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.diag-id { font-weight: 600; }
+.diag-badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; color: var(--muted); }
+.diag-pkg, .diag-arrow, .diag-row-sub { font: 11.5px/1.55 ui-monospace, Consolas, monospace; }
+.diag-pkg, .diag-arrow { color: var(--muted); }
+.diag-row-sub { margin-top: 4px; color: var(--muted); overflow-wrap: anywhere; }
+.diag-advice { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 10px 10px 0; padding: 10px 12px; display: grid; gap: 6px; }
+.diag-advice-title { font-size: 12.5px; font-weight: 600; }
+.diag-advice-item { margin: 0; font-size: 12.5px; line-height: 1.6; }
+.diag-note { margin: 0; font-size: 12px; color: var(--muted); font-style: italic; }
+.diag-output-title { margin: 12px 0 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.diag-output-title[hidden] { display: none; }
+.diag-output-title:not([hidden]) + .notice-detail { margin-top: 6px; }
 /* 托盘退出后：浏览器不一定会让脚本关标签页，那就换一张干净的告别页 */
 .gone {
   position: fixed;

@@ -112,22 +112,28 @@ export async function runProfile() {
     const state = await fetch(`${origin}/api/state`).then(result => result.json())
     assert.deepEqual(state.failure.diagnosis, report)
     let shown
+    let structured = null
     const begin = html.indexOf('    function failureText(')
     const end = html.indexOf('    function cardLine(', begin)
     const context = {
       t: (text, values = {}) => text.replace(/\{(\w+)\}/g, (_, name) => values[name] ?? name),
       notify: (...args) => { shown = args },
+      renderDiagnosis: (report) => { structured = report },
       configureRepairPlan() {},
       showRepairCards() {},
     }
-    vm.runInNewContext(html.slice(begin, end) + '\nthis.showFailure = showFailure', context)
+    vm.runInNewContext(html.slice(begin, end) + '\nthis.showFailure = showFailure; this.diagnosisText = diagnosisText', context)
     context.showFailure(failure)
-    assert.match(shown[2], /直接失败 \(1\)/)
-    assert.match(shown[2], /受影响项，不等于根因.*\(32\)/)
-    assert.match(shown[2], /DSH_CLIENT_VERSION/)
-    assert.match(shown[2], /修复建议（不会自动执行）/)
-    assert.match(shown[2], /serviceVersion missing required value/)
-    assert.match(shown[2], /\[example-addon\].*scope.settings.register is not a function/)
+    // 弹窗里诊断走结构化渲染（renderDiagnosis），纯文本版 diagnosisText 供剪贴板；两份内容都要在
+    assert.equal(structured, failure.diagnosis, '结构化展示拿到的就是这份报告')
+    assert.equal(shown[2], (failure.tail || []).join('\n'), 'pre 里只剩原始输出')
+    const rendered = context.diagnosisText(failure.diagnosis)
+    assert.match(rendered, /直接失败 \(1\)/)
+    assert.match(rendered, /受影响项，不等于根因.*\(32\)/)
+    assert.match(rendered, /DSH_CLIENT_VERSION/)
+    assert.match(rendered, /修复建议（不会自动执行）/)
+    assert.match(rendered, /serviceVersion missing required value/)
+    assert.match(rendered, /\[example-addon\].*scope\.settings\.register is not a function/)
     assert.equal(readFileSync(join(home, 'profiles/desktop/package.json'), 'utf8'), JSON.stringify({ dsh: { bundles: [] } }))
     write(join(packages, 'dsh/lib/profile-boot.js'), `
 export async function runProfile() {

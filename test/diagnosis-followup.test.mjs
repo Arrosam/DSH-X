@@ -126,6 +126,7 @@ test('诊断弹窗打开从顶部，普通通知仍从输出底部', () => {
   const context = {
     t: text => text,
     noticeTitleEl: {}, noticeTextEl: {}, noticeDetailEl: detail, noticeCopyEl: {},
+    noticeDiagnosisEl: {}, noticeOutputTitleEl: {},
     noticeEl: { classList: { toggle() {} } }, showDialog() {},
     resetRepairPlan() {},
   }

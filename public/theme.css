@@ -139,6 +139,13 @@ html[data-color-scheme="dark"] .notice-detail {
   color: #dddde0;
 }
 html[data-color-scheme="dark"] .notice-detail { scrollbar-color: #77787d transparent; }
+/* 诊断分节卡片：深色是单色调（--danger 也是灰白），分节头统一深灰，区分靠标题明度 */
+html[data-color-scheme="dark"] .diag-section-head,
+html[data-color-scheme="dark"] .diag-tone-danger .diag-section-head,
+html[data-color-scheme="dark"] .diag-tone-warn .diag-section-head { background: #2c2d33; }
+html[data-color-scheme="dark"] .diag-tone-warn .diag-section-title { color: #c9c9cd; }
+html[data-color-scheme="dark"] .diag-tone-info .diag-section-title { color: #d4d5da; }
+html[data-color-scheme="dark"] .diag-advice { background: #26272c; border-left-color: #8a8b92; }
 html[data-color-scheme="dark"] .progress { background: #4a4b50; }
 html[data-color-scheme="dark"] .ask { background: rgba(12, 12, 16, .75); }
 html[data-color-scheme="dark"] .ask-risk { background: #393a40; color: #f0f0f2; }
