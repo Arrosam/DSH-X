@@ -192,52 +192,6 @@ header {
 .win-btn.close:hover { background: var(--danger); color: #fff; }
 /* 顶栏要用来拖窗口，文字别被拖选 */
 .app-window header { user-select: none; }
-/* 原生标签复用已有菜单栏：不再另加标题栏，配色与 Star、设置和窗口按钮保持同源。 */
-.internal-tabs header { gap: 20px; }
-.internal-tabs .brand-block, .internal-tabs .header-right { flex-shrink: 0; }
-.internal-tabs-area { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
-.internal-tabs-area[hidden] { display: none; }
-.internal-tab-list { position: relative; isolation: isolate; display: flex; flex: 1; gap: 5px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.internal-tab-list::-webkit-scrollbar { display: none; }
-.internal-tab-indicator {
-  position: absolute; top: 0; left: 0; height: 36px; border: 1px solid var(--line); border-radius: 12px;
-  background: var(--card); box-shadow: 0 3px 10px rgba(59, 111, 224, .09); opacity: 0; pointer-events: none;
-  will-change: transform;
-  transition: transform 260ms cubic-bezier(.2, 1.3, .32, 1), width 260ms cubic-bezier(.2, 1.3, .32, 1), opacity 160ms ease;
-}
-.internal-tab-indicator.visible { opacity: 1; }
-.internal-tab-indicator.instant { transition: none; }
-.internal-tab {
-  position: relative;
-  display: flex; align-items: center; gap: 5px; flex: 0 1 172px; min-width: 104px; height: 36px;
-  padding: 0 7px 0 11px; border: 1px solid transparent; border-radius: 12px; color: var(--muted);
-  transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
-}
-.internal-tab:hover { background: var(--accent-soft); color: var(--accent); }
-.internal-tab.active { background: transparent; color: var(--accent); }
-.internal-tab button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.internal-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 0; height: 100%; font-size: 13px !important; font-weight: 600 !important; }
-.internal-tab-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.internal-tab-label svg { flex-shrink: 0; width: 15px; height: 15px; }
-.internal-tab-close { display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; padding: 4px; border-radius: 7px; opacity: .5; transition: opacity 140ms ease, background 140ms ease; }
-.internal-tab:hover .internal-tab-close, .internal-tab.active .internal-tab-close { opacity: .8; }
-.internal-tab-close:hover { opacity: 1 !important; background: var(--accent-dim); }
-.internal-tab-close svg { width: 13px; height: 13px; }
-.internal-tab-reload { flex-shrink: 0; width: 32px; height: 32px; }
-.internal-tab.stopped .internal-tab-label { opacity: .6; }
-.internal-tab button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 5px; }
-.internal-tab { touch-action: none; user-select: none; }
-.internal-tab-label { cursor: grab !important; }
-.internal-tab-list.dragging, .internal-tab-list.dragging * { cursor: grabbing !important; }
-.internal-tab.dragging { z-index: 2; background: var(--card); border-color: var(--line); box-shadow: 0 3px 10px rgba(59, 111, 224, .14); }
-/* 内容层接管前仍保留主页画面；交互和辅助阅读由 inert / aria-hidden 禁用，避免切换中露出空白。 */
-.internal-dsh-active main { pointer-events: none; }
-@media (prefers-reduced-motion: reduce) {
-  .internal-tab-indicator, .internal-tab, .internal-tab-close { transition: none; }
-}
-@media (max-width: 900px) {
-  .internal-tabs header { gap: 14px; }
-}
 main { min-height: 0; overflow: hidden; }
 /* 设置页外壳：左侧分组导航 + 右侧面板，四个面板都在这里切（顶栏那排 tab 已取消） */
 .shell { display: flex; height: 100%; min-height: 0; }

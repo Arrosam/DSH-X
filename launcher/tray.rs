@@ -1,6 +1,6 @@
 use serde_json::Value;
 use tray_icon::menu::{Menu, MenuItem, Submenu};
-use crate::tabs::TabTarget;
+use crate::InstanceTarget;
 
 #[derive(Debug, Clone)]
 pub struct LaunchEntry {
@@ -10,7 +10,7 @@ pub struct LaunchEntry {
     pub status: String,
     pub installed: bool,
     pub busy: bool,
-    pub target: Option<TabTarget>,
+    pub target: Option<InstanceTarget>,
 }
 
 impl LaunchEntry {
@@ -24,7 +24,7 @@ impl LaunchEntry {
             status: value.get("status")?.as_str()?.to_string(),
             installed: value.get("installed").and_then(Value::as_bool).unwrap_or(false),
             busy: value.get("busy").and_then(Value::as_bool).unwrap_or(false),
-            target: value.get("target").and_then(TabTarget::parse),
+            target: value.get("target").and_then(InstanceTarget::parse),
         })
     }
 

@@ -156,19 +156,18 @@ export function safeProxyUrl(value) {
 /**
  * 打开 dsh 页面的方式：
  *
- * - tab：系统默认浏览器的标签页；
+ * - tab（默认）：系统默认浏览器的标签页；
  * - app：用 Chromium 系浏览器的应用窗口打开（Chrome/Edge 的 --app=…，没有地址栏，更像
  *   一个 App）。找不到 Chrome/Edge 就退回标签页，所以这个选项是「尽量」而不是「必须」；
  * - window：装进启动器自己的窗口（原生外壳再开一个 WebView2 窗口承载 dsh 界面），完全不
  *   经过浏览器进程——关窗口、托盘、退出都由启动器自己说了算。它只在原生外壳托管下成立
  *   （外壳设了 DSH_APP_WINDOW=1，并在 stdout 上收约定标记），源码运行（npm start）时选它
  *   会安静地退回标签页，不会开出一个没人管的窗口。
- * - internal（默认）：在启动器主窗口的原生标签页里打开，每个实例保留自己的页面；需要新版外壳
- *   报告 DSH_INTERNAL_TABS=1，旧外壳与源码运行时退回系统浏览器。
  */
-// internal 保留在主窗口的标签页中；与另开一个桌面窗口的 window 分开，旧设置仍按原义打开。
-export const OPEN_MODES = ['tab', 'app', 'window', 'internal']
-export const DEFAULT_OPEN_MODE = 'internal'
+// 曾经还有一个 internal（启动器主窗口里的原生标签页，外壳自己实现的）：框架里不再带。
+// 老设置里存着的 internal 会落回默认值，不能让升级上来的用户点不开页面。
+export const OPEN_MODES = ['tab', 'app', 'window']
+export const DEFAULT_OPEN_MODE = 'tab'
 
 export function safeOpenMode(value) {
   const name = String(value ?? '').trim()
@@ -245,7 +244,7 @@ export const DEFAULTS = {
   // 网络代理：off / system（默认，跟随系统）/ manual；手动模式看下面的 proxyUrl
   proxyMode: DEFAULT_PROXY_MODE,
   proxyUrl: '',
-  // tab（默认浏览器）/ app（浏览器应用窗口）/ window（独立桌面窗口）/ internal（主窗口标签页）。
+  // tab（默认浏览器）/ app（浏览器应用窗口）/ window（独立桌面窗口）。
   openMode: DEFAULT_OPEN_MODE,
   // dsh 的用户目录（DSH_HOME）。留空 = 默认 ~/.dsh；用户把 .dsh 挪到别的盘时在这里指回去
   dshHome: '',

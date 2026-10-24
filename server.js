@@ -187,8 +187,8 @@ const defaultHome = () => DSH_HOME_DIR || defaultDshHome()
 const profileKey = (profile) => `${homeDir()}\0${profile}`
 // 启动器更新的下载源：direct（默认直连 GitHub）/ mirror（国内加速，直连失败时走前缀镜像）
 let UPDATE_SOURCE = updateSourceForDownload(loadSettingsSync().downloadSource)
-// 打开 dsh 页面的方式：tab（系统浏览器标签页）/ app（Chromium 应用窗口）/
-// window（独立桌面窗口）/ internal（默认，主窗口标签页；需要外壳报告能力，判断见 openRoute）
+// 打开 dsh 页面的方式：tab（默认，系统浏览器标签页）/ app（Chromium 应用窗口）/
+// window（独立桌面窗口；需要原生外壳，判断见 openRoute）
 let OPEN_MODE = safeOpenMode(loadSettingsSync().openMode)
 // 是否把 dsh 的 shim 目录写进用户 PATH（默认关，改了要新开终端才生效）
 let SYSTEM_PATH = loadSettingsSync().systemPath === true
@@ -973,12 +973,10 @@ async function publicSettings() {
     openMode: safeOpenMode(stored.openMode),
     // 选了独立桌面窗口但当前没有原生外壳（源码运行）时，页面要如实说明会落到标签页
     openModeWindow: openRoute(OPEN_MODE, shellWindowHost()) === 'window',
-    openModeInternal: internalTabsHost(),
     openModes: [
       { id: 'tab', label: '浏览器标签页' },
       { id: 'app', label: '浏览器独立窗口' },
       { id: 'window', label: '独立桌面窗口' },
-      { id: 'internal', label: 'DSH-X 内部标签页' },
     ],
     systemPath: SYSTEM_PATH,
     systemBinDir: systemBinDir(),
@@ -1101,7 +1099,7 @@ function trayLaunches() {
     return { id: preset.id, name: preset.name, version, profile: preset.profile, home, preset, proc }
   })
   for (const proc of all) {
-    if (!matched.has(proc)) rows.push({ id: `instance:${internalTabTarget(proc).id}`, name: `${proc.profile} · ${proc.version}`, version: proc.version, profile: proc.profile, home: proc.home, proc })
+    if (!matched.has(proc)) rows.push({ id: `instance:${instanceTarget(proc).id}`, name: `${proc.profile} · ${proc.version}`, version: proc.version, profile: proc.profile, home: proc.home, proc })
   }
   for (const pending of trayActions.values()) {
     if (!rows.some((row) => row.id === pending.id)) rows.push({ ...pending, proc: null })
@@ -1109,7 +1107,7 @@ function trayLaunches() {
   return rows.map((row) => {
     const key = JSON.stringify([row.home, row.version, row.profile])
     const pending = trayActions.get(key)
-    return { ...row, key, instanceId: key, status: pending?.status || row.proc?.status || 'stopped', busy: Boolean(pending), installed: versions.includes(row.version), target: row.proc ? internalTabTarget(row.proc) : null }
+    return { ...row, key, instanceId: key, status: pending?.status || row.proc?.status || 'stopped', busy: Boolean(pending), installed: versions.includes(row.version), target: row.proc ? instanceTarget(row.proc) : null }
   })
 }
 
@@ -1346,8 +1344,6 @@ async function saveManagerSettings(body) {
       ? '打开方式：浏览器独立窗口（找不到 Chrome/Edge 会退回标签页）'
       : OPEN_MODE === 'window'
         ? `打开方式：独立桌面窗口（${shellWindowHost() ? '由启动器打开，不经过浏览器' : '当前没有原生外壳，会退回浏览器标签页'}）`
-        : OPEN_MODE === 'internal'
-          ? `打开方式：DSH-X 内部标签页（${internalTabsHost() ? '在启动器内切换' : '当前外壳不支持，会退回浏览器标签页'}）`
         : '打开方式：系统浏览器标签页')
   }
   if ('systemPath' in body) {
@@ -4286,13 +4282,8 @@ function shellWindowHost() {
   return process.env.DSH_APP_WINDOW === '1'
 }
 
-// 旧版外壳只认识独立窗口标记；单独报告标签页能力，避免新版页面选了内部打开却没有反应。
-function internalTabsHost() {
-  return shellWindowHost() && process.env.DSH_INTERNAL_TABS === '1'
-}
-
-/** 用实例身份而不是端口标识标签：重启换端口或 token 时仍能找到原来的页面。 */
-export function internalTabTarget(instance) {
+/** 用实例身份而不是端口标识实例：重启换端口或 token 时，托盘与独立窗口仍能找回同一项。 */
+export function instanceTarget(instance) {
   return {
     id: JSON.stringify([instance.home || '', instance.version || '', instance.profile || '']),
     title: [instance.profile, instance.version].filter(Boolean).join(' · ') || 'DSH',
@@ -4303,10 +4294,9 @@ export function internalTabTarget(instance) {
 }
 
 /**
- * 按外壳能力选择独立窗口、主窗口标签或系统浏览器；源码运行与旧外壳要能正常降级。
+ * 按外壳能力选择独立窗口还是系统浏览器；源码运行与旧外壳要能正常降级。
  */
-export function openRoute(mode, shellWindow, internalTabs = false) {
-  if (mode === 'internal' && shellWindow && internalTabs) return 'internal'
+export function openRoute(mode, shellWindow) {
   return mode === 'window' && shellWindow ? 'window' : 'browser'
 }
 
@@ -4323,13 +4313,6 @@ export function openRoute(mode, shellWindow, internalTabs = false) {
  */
 function openExternal(target, mode = OPEN_MODE) {
   const url = String(target)
-  if (openRoute(mode, shellWindowHost(), internalTabsHost()) === 'internal') {
-    const instance = instanceList().find((proc) => proc.url && new URL(proc.url).origin === new URL(url).origin)
-    const tab = instance ? internalTabTarget(instance) : { id: new URL(url).origin, title: 'DSH', url, status: 'running', managed: false }
-    // 认证地址只在本机管道中传递；标题和实例身份都不包含 token，也不写入日志或设置。
-    process.stdout.write(`__DSH_TAB__ ${JSON.stringify(tab)}\n`)
-    return
-  }
   // 内嵌窗口：地址交给原生外壳自己的窗口，连浏览器进程都不起（见 OPEN_SIGNAL）
   if (openRoute(mode, shellWindowHost()) === 'window') {
     process.stdout.write(`${OPEN_SIGNAL} ${url}\n`)
@@ -4569,8 +4552,8 @@ async function handleApi(req, res, url) {
       // 本次是不是由原生外壳托管：外壳缺失时窗口模式不成立，托盘据此退回浏览器
       `shell=${shellWindowHost() ? 1 : 0}`,
       `theme=${THEME}`,
-      // 原生标签页要跟随所有实例，不能用「最近启动的实例」去覆盖用户正在看的其他页面。
-      `instances=${JSON.stringify(instanceList().map(internalTabTarget))}`,
+      // 托盘菜单与独立窗口要跟随所有实例，不能用「最近启动的实例」去覆盖其他项。
+      `instances=${JSON.stringify(instanceList().map(instanceTarget))}`,
       `launches=${JSON.stringify(trayLaunches().map(({ id, instanceId, name, version, profile, status, busy, installed, target }) => ({ id, instanceId, name, version, profile, status, busy, installed, target })))}`,
     ].join('\n'), 'text/plain; charset=utf-8')
     return

@@ -23,7 +23,6 @@
 /* 加载时仍可拖动、最小化和关闭原生窗口，其余入口等本地数据就绪后再开放。 */
 html.launcher-loading header { z-index: 61; }
 html.launcher-loading header .brand-block,
-html.launcher-loading header .internal-tabs-area,
 html.launcher-loading header .star-link,
 html.launcher-loading header #settingsEntry { visibility: hidden; }
 html.launcher-loading main,
