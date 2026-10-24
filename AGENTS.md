@@ -11,6 +11,7 @@ DSH-X：DeepSeek Harness（`dsh`）的第三方启动器。仓库叫 DSH-X，`pa
 Node 服务  start.js → server.js     管理页后端 + 版本 / 插件 / 整合包 / 同步的全部业务
 管理界面   public/index.html        单页手写 HTML + 原生 JS，无框架、无构建步骤
 注入钩子   compat/  perf/           被注入 dsh 进程，修补运行时行为（见下）
+平台实现   filemanager*.js          文件管理的一个接口 + 两套实现类，按平台分开打包（见下）
 ```
 
 **零第三方运行时依赖**：所有 import 都是 `node:` 内置或相对路径，没有构建步骤。安装包自带 Node 运行时（打包时下载到 `vendor/`），所以不依赖用户机器环境。
@@ -53,7 +54,10 @@ Node 服务  start.js → server.js     管理页后端 + 版本 / 插件 / 整�
 | `zip.js` / `zipfile.js` | zip 的写与读（手写，无依赖） |
 | `sync.js` | 同步引擎：S3 / WebDAV / 本地目录 / ZIP 四种后端共用一个"远端"抽象 |
 | `proxy.js` | `netFetch`：Node 全局 fetch 不看系统代理，所有外网请求走它 |
-| `platform.js` | 平台差异集中地（每用户目录、运行时布局、外壳文件名）；**打包脚本必须跟它保持一致** |
+| `platform.js` | 平台常量（`IS_WINDOWS` / `IS_MAC`、node 文件名、.app 名字与 bundle id）；只有常量，没有行为 |
+| `filemanager.js` | 按平台挑一套文件管理实现，导出 `fileManager` 与 `APP_DIR`；业务代码只认它 |
+| `filemanager-base.js` | 那个接口本身：契约、默认实现、Linux 的 xdg-open 兜底（`PosixFileManager`） |
+| `filemanager-windows.js` / `filemanager-mac.js` | 两套实现类，**各自只进对应平台的安装包** |
 | `plugin-tool.js` | 命令行开关插件（dsh 起不来时的救命工具），有可执行位 |
 | `stdio-unblock.cjs` | stdout/stderr 阻塞模式修补（`--require` 注入用） |
 | `public/` | 管理界面与看板娘素材（`index.html` 是主体） |
@@ -91,6 +95,16 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - 没有「内置插件」这条路：预置到当前 profile 的开关、随包发插件的复制逻辑、整合包里的 `"…": "bundled"` 依赖解析都已撤（`planInstall` 见到 `bundled` 会直接报错）。
 - 为什么不能合并：`.dspack` 只认 `overrides/`、`home/`、`profiles/` 与几个根文件，插件源码放进去会被当"不属于整合包"跳过（`packs.js` 的解析）；反过来 `plugins/` 下每个子目录都被当成一个 npm 包。
 
+### 文件管理：一个接口，两套实现
+
+每用户目录与安装布局、路径大小写、目录链接类型、系统文件对话框、在资源管理器 / 访达里打开或定位、交给系统默认程序打开地址、登录自启——这些**全部**走 `filemanager.js` 导出的 `fileManager`，业务代码里不再写 `process.platform === 'win32' ? … : …`。
+
+- 契约在 `filemanager-base.js` 的 `FileManager` 上，每个方法的注释就是规范（失败怎么抛、取消返回什么、哪些错误可以当成成功）。
+- `filemanager.js` 用**动态 import** 挑实现：另一套实现根本不在安装目录里，静态 import 会直接报模块找不到。它有顶层 await，所以实现类静态 import 的是 `filemanager-base.js` 而不是它——反过来 import 会死锁（Node 报 unsettled top-level await），这也是基类单独一个文件的唯一理由。
+- 实现类的外部依赖（`execFile`、`statSync`、`existsSync`、`env`、`home`、`root`）都从构造函数注进去，所以 `test/filemanager.test.mjs` 能在一台机器上把两套实现跑在同一组断言上，不按平台 skip。
+- **加 Linux**：照着两个实现类写一个 `filemanager-linux.js`，在 `filemanager.js` 的 `pickFileManager()` 里挂上，加进 `pack-common.mjs` 的 `FILE_MANAGERS`，再把它加进 `test/filemanager.test.mjs` 的 `IMPLEMENTATIONS`（那条「必须自己实现」的用例会替你盯着哪些方法不能漏）。在那之前 Linux 落到 `PosixFileManager`：xdg-open 能用，对话框和自启如实报不支持。
+- 还留在 `server.js` 里的平台判断是**另一摊事**，故意没收进来：pnpm 子进程怎么起、`taskkill` 杀进程树、GB18030 解码、Chromium 的安装位置。它们不是文件管理，而且本来就按参数传平台、能直接测。
+
 ### 注入进 dsh 的钩子（compat / perf）
 
 - `compat/register.mjs`、`perf/register.mjs` 由启动器注入；worker 线程注入的是 `compat/worker-events.cjs`（worker 的 execArgv 是空的，只能靠 NODE_OPTIONS）。
@@ -101,6 +115,7 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 ### 打包与安装布局
 
 - `APP_FILES`（`scripts/pack-common.mjs`）= 安装目录里的启动器源码清单；`copyAppFiles` 把它们平铺拷到安装根（macOS 是 `DSH-X.app/Contents/Resources/app/`）。
+- 文件管理的实现类不在 `APP_FILES` 里，由 `copyAppFiles(out, platform)` 按平台挑一个（`FILE_MANAGERS`）：Windows 的包里没有 `filemanager-mac.js`，反之亦然。平台没有对应实现时打包直接报错，不会装出一个起不来的包。
 - 安装目录里还有 `node/`（自带运行时）、`public/`、`assets/`、`compat/`、`perf/`、`packs/`、`lang.txt`（安装语言）。
 - Rust 外壳由 `cargo build` 出 `DSH.exe`，图标走 `build.rs`；Windows 安装包由 Inno Setup（`scripts/dsh-setup.iss`）打。
 - 网页安装界面的进度桥：引擎往 `/STATUSFILE` 写 `阶段:百分比`（`preparing`/`files`/`finishing`/`cleaning`，见 `scripts/installer-engine.iss` 与 `dsh-setup.iss` 的 `CurStepChanged`），`launcher/installer.rs` 每 120ms 读一次、以 `{type:'progress',stage,percent}` 交给 `installer/index.html` 取本地化文案。两侧互相容忍：新引擎配旧外壳，旧外壳解析不动就停在上一个数；旧引擎只写纯数字，新外壳回落 `files`。`DSH-Setup.exe --preview` 单跑界面（demo 会走完四个阶段）。
