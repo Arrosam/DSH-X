@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+<title>DSH-X</title>
+<style>
+  /* 配色跟管理页同源：浅色 / 深色由启动器传进来的 theme 决定，没传就跟随系统 */
+  :root {
+    --bg: #f5f6f8; --card: #fff; --line: #e3e5ea; --text: #1b1d21; --muted: #6b7280;
+    --accent: #3b6fe0; --accent-soft: rgba(59, 111, 224, .1);
+  }
+  html[data-theme="dark"] {
+    --bg: #1b1d21; --card: #24262b; --line: #32353c; --text: #e8eaee; --muted: #9aa0ab;
+    --accent: #7aa2f7; --accent-soft: rgba(122, 162, 247, .16);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 10px;
+    background: var(--bg); color: var(--text); border-bottom: 1px solid var(--line);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    user-select: none; overflow: hidden;
+  }
+  #list { display: flex; flex: 1; gap: 5px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  #list::-webkit-scrollbar { display: none; }
+  .tab {
+    display: flex; align-items: center; gap: 6px; flex: 0 1 180px; min-width: 110px; height: 32px;
+    padding: 0 6px 0 11px; border: 1px solid transparent; border-radius: 10px; color: var(--muted);
+    cursor: default;
+  }
+  .tab:hover { background: var(--accent-soft); color: var(--accent); }
+  .tab.active { background: var(--card); border-color: var(--line); color: var(--accent); font-weight: 600; }
+  .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; border-radius: 7px; }
+  .close { width: 20px; height: 20px; opacity: .55; }
+  .close:hover { opacity: 1; background: var(--accent-soft); }
+  #reload { width: 30px; height: 30px; flex-shrink: 0; color: var(--muted); font-size: 15px; }
+  #reload:hover { background: var(--accent-soft); color: var(--accent); }
+</style>
+</head>
+<body>
+  <div id="list"></div>
+  <button id="reload" title="刷新当前页面" aria-label="刷新当前页面">⟳</button>
+<script>
+  const params = new URLSearchParams(location.search)
+  if (params.get('theme') === 'dark') document.documentElement.dataset.theme = 'dark'
+  else if (params.get('theme') === 'light') document.documentElement.dataset.theme = 'light'
+  else if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.dataset.theme = 'dark'
+
+  const list = document.getElementById('list')
+  document.getElementById('reload').onclick = () => window.shellTabs.reload()
+
+  window.shellTabs.onTabs((tabs) => {
+    list.textContent = ''
+    for (const tab of tabs) {
+      const item = document.createElement('div')
+      item.className = tab.active ? 'tab active' : 'tab'
+      item.onclick = () => window.shellTabs.select(tab.id)
+      const label = document.createElement('span')
+      label.className = 'label'
+      // 标题是网页给的，只当文本用，不拼进 HTML
+      label.textContent = tab.title
+      label.title = tab.title
+      const close = document.createElement('button')
+      close.className = 'close'
+      close.textContent = '×'
+      close.title = '关闭标签页'
+      close.onclick = (event) => { event.stopPropagation(); window.shellTabs.close(tab.id) }
+      item.append(label, close)
+      list.append(item)
+    }
+  })
+  window.shellTabs.ready()
+</script>
+</body>
+</html>

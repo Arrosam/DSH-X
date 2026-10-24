@@ -271,6 +271,17 @@
                     <select id="openMode"></select>
                   </div>
                 </div>
+                <div class="set-row stacked" id="electronRow">
+                  <div class="set-text">
+                    <span class="set-name" data-i18n="Electron 外壳">Electron 外壳</span>
+                    <span class="set-desc" data-i18n="「Electron 标签页」要用它承载；安装包里不带，点一下现场下载。">「Electron 标签页」要用它承载；安装包里不带，点一下现场下载。</span>
+                  </div>
+                  <div class="set-control">
+                    <button class="ghost" id="electronInstall" type="button" data-i18n="下载">下载</button>
+                    <button class="ghost" id="electronUninstall" type="button" hidden data-i18n="卸载">卸载</button>
+                  </div>
+                  <p class="hint" id="electronHint"></p>
+                </div>
               </div>
               <!-- dsh 那一类已经并进常规：留一条分组小标题，不再单开一个分类 -->
               <div class="set-caption" data-i18n="dsh">dsh</div>
@@ -946,6 +957,19 @@
   "浏览器标签页": "Browser tab",
   "浏览器独立窗口": "Standalone browser window",
   "独立桌面窗口": "Separate desktop window",
+  "Electron 标签页": "Tabs in Electron",
+  "Electron 外壳": "Electron shell",
+  "「Electron 标签页」要用它承载；安装包里不带，点一下现场下载。": "Needed for \"Tabs in Electron\"; not bundled with the installer, downloaded on demand.",
+  "下载": "Download",
+  "卸载": "Remove",
+  "还没下载（约 200 MB）": "Not downloaded yet (about 200 MB)",
+  "已下载 {version}": "{version} installed",
+  "已下载 {version}，有新版 {latest}": "{version} installed, {latest} available",
+  "更新到 {latest}": "Update to {latest}",
+  "正在下载 {pct}%（{mb} / {size} MB）": "Downloading {pct}% ({mb} / {size} MB)",
+  "正在解压…": "Extracting…",
+  "正在查最新版本…": "Checking for the latest version…",
+  "选了 Electron 标签页但还没下载 Electron；当前使用浏览器标签页。": "Tabs in Electron is selected but Electron is not downloaded yet; this session uses browser tabs.",
   "返回启动器主页": "Back to launcher home",
   "用 Chrome/Edge 的独立窗口打开：没有地址栏和标签栏。": "Opens in a standalone Chrome/Edge window: no address bar or tab strip.",
   "启动器自己开一个窗口承载 dsh 界面，关窗口只是藏起来；没有原生外壳（源码运行）时退回标签页。": "The launcher hosts the dsh UI in its own window; closing it only hides the window. Falls back to a tab when there is no native shell (running from source).",
@@ -3297,6 +3321,19 @@
         }
       })
       // 更新下载的进度：弹窗里那根进度条就是靠它
+      events.addEventListener('electron', (event) => {
+        let data
+        try { data = JSON.parse(event.data) } catch { return }
+        const hint = document.getElementById('electronHint')
+        if (!hint) return
+        const mb = (n) => (n / 1048576).toFixed(0)
+        if (data.phase === 'download') {
+          const pct = data.total ? Math.round((data.done / data.total) * 100) : 0
+          hint.textContent = t('正在下载 {pct}%（{mb} / {size} MB）', { pct, mb: mb(data.done), size: data.total ? mb(data.total) : '?' })
+        } else if (data.phase === 'extract') {
+          hint.textContent = t('正在解压…')
+        }
+      })
       events.addEventListener('selfUpdate', (event) => {
         let data
         try { data = JSON.parse(event.data) } catch { return }
@@ -3765,6 +3802,48 @@
     }
     const openModeEl = document.getElementById('openMode')
     const openModeHint = document.getElementById('openModeHint')
+    const electronInstallEl = document.getElementById('electronInstall')
+    const electronUninstallEl = document.getElementById('electronUninstall')
+    const electronHintEl = document.getElementById('electronHint')
+    let electronState = { installed: '', latest: '', outdated: false, busy: false, ready: false }
+    let electronChecked = false
+
+    /** 只讲现在是什么状态：没下载 / 已下载 / 有新版，别写「操作成功」那种话。 */
+    function showElectron(state) {
+      electronState = { ...electronState, ...state }
+      const { installed, latest, outdated, busy } = electronState
+      electronInstallEl.disabled = busy
+      electronUninstallEl.disabled = busy
+      electronUninstallEl.hidden = !installed
+      electronInstallEl.hidden = Boolean(installed) && !outdated
+      electronInstallEl.textContent = outdated ? t('更新到 {latest}', { latest }) : t('下载')
+      if (busy) return
+      electronHintEl.textContent = !installed
+        ? t('还没下载（约 200 MB）')
+        : outdated
+          ? t('已下载 {version}，有新版 {latest}', { version: installed, latest })
+          : t('已下载 {version}', { version: installed })
+    }
+
+    electronInstallEl.onclick = async () => {
+      showElectron({ busy: true })
+      electronHintEl.textContent = t('正在查最新版本…')
+      try {
+        showElectron({ ...await post('/api/electron/install'), busy: false })
+      } catch (error) {
+        showElectron({ busy: false })
+        electronHintEl.textContent = error?.message || String(error)
+      }
+    }
+    electronUninstallEl.onclick = async () => {
+      showElectron({ busy: true })
+      try {
+        showElectron({ ...await post('/api/electron/uninstall'), busy: false })
+      } catch (error) {
+        showElectron({ busy: false })
+        electronHintEl.textContent = error?.message || String(error)
+      }
+    }
     const proxyModeEl = document.getElementById('proxyMode')
     const proxyUrlEl = document.getElementById('proxyUrl')
     const proxyHintEl = document.getElementById('proxyHint')
@@ -3867,16 +3946,26 @@
       if ('systemPath' in data) {
         showSystemPathSettings(data)
       }
+      if ('electron' in data) {
+        showElectron(data.electron || {})
+        // 一个会话查一次最新版就够了；查不到也不拦着用，提示行照常显示已装版本
+        if (!electronChecked && !data.electron?.latest) {
+          electronChecked = true
+          void post('/api/electron/check').then((state) => showElectron(state)).catch(() => {})
+        }
+      }
       if ('openMode' in data) {
         const modes = Array.isArray(data.openModes) && data.openModes.length
           ? data.openModes
           : [{ id: 'tab', label: '浏览器标签页' }, { id: 'app', label: '浏览器独立窗口' }, { id: 'window', label: '独立桌面窗口' }]
         openModeEl.innerHTML = modes.map((item) => `<option value="${escapeHtml(item.id)}" data-i18n="${escapeHtml(item.label)}">${escapeHtml(t(item.label))}</option>`).join('')
         openModeEl.value = String(data.openMode || 'tab')
-        // 选了桌面窗口但当前没有原生外壳（源码运行 / npm start）：如实说明会落到哪里
+        // 选了桌面窗口 / Electron 标签页但当前用不上：如实说明会落到哪里
         openModeHint.textContent = openModeEl.value === 'window' && data.openModeWindow === false
           ? t('当前预览使用浏览器标签页。')
-          : ''
+          : openModeEl.value === 'electron' && data.electron && data.electron.ready === false
+            ? t('选了 Electron 标签页但还没下载 Electron；当前使用浏览器标签页。')
+            : ''
       }
       if ('proxyMode' in data || 'proxyUrl' in data) {
         const list = Array.isArray(data.proxyModes) && data.proxyModes.length

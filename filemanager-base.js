@@ -139,6 +139,21 @@ export class FileManager {
     await this.openWith(this.directoryOpener, [dirname(String(path))], { windowsHide: true })
   }
 
+  /**
+   * 把一个 zip 解压到目标目录。
+   *
+   * 为什么不用仓库里那个手写的 zip 读取器：Electron 的 mac 发行包里有符号链接和可执行
+   * 位，自己还原不出来，解压完是跑不起来的一堆文件。所以这件事交给系统自带的工具。
+   */
+  async extractZip(archive, dest) {
+    throw new Error(this.unsupported('解压'))
+  }
+
+  /** 下载好的 Electron 目录里，可执行文件在哪。 */
+  electronExecutable(dir) {
+    return join(dir, 'electron')
+  }
+
   /** 交给系统默认程序打开一个地址。 */
   async openUrl(url) {
     await this.openWith(this.directoryOpener, [String(url)], {})

@@ -30,6 +30,7 @@ const APP_FILES = [
   'platform.js',
   'filemanager.js',
   'filemanager-base.js',
+  'electron.js',
   'plugins.js',
   'recovery.js',
   'packs.js',
@@ -112,6 +113,8 @@ export async function copyAppFiles(out, platform = process.platform) {
   await cp(join(ROOT, 'assets'), join(out, 'assets'), { recursive: true })
   await cp(join(ROOT, 'perf'), join(out, 'perf'), { recursive: true })
   await cp(join(ROOT, 'compat'), join(out, 'compat'), { recursive: true })
+  // 可选 Electron 外壳的源码（20 KB 上下）：Electron 本体不随包发，用户要用时现场下载。
+  await cp(join(ROOT, 'electron-shell'), join(out, 'electron-shell'), { recursive: true })
   // 整合包配方（packs/）：随安装包发，插件页的「内置整合包」就地安装，不用联网去 Release 拿。
   // 插件本身不随包发（仓库的 plugins/ 只是源码与发布源，插件都从 npm 装）。
   await cp(join(ROOT, 'packs'), join(out, 'packs'), { recursive: true })
