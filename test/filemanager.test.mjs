@@ -19,6 +19,7 @@ const IMPLEMENTATIONS = [['windows', WindowsFileManager], ['mac', MacFileManager
 const MUST_IMPLEMENT = [
   'platform', 'userAppDir', 'launcherExecutable', 'directoryOpener',
   'pickDirectory', 'pickFile', 'revealPath', 'openUrl',
+  'extractZip', 'electronExecutable',
   'autoStartEnabled', 'setAutoStart',
 ]
 

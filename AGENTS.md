@@ -12,6 +12,7 @@ Node 服务  start.js → server.js     管理页后端 + 版本 / 插件 / 整�
 管理界面   public/index.html        单页手写 HTML + 原生 JS，无框架、无构建步骤
 注入钩子   compat/  perf/           被注入 dsh 进程，修补运行时行为（见下）
 平台实现   filemanager*.js          文件管理的一个接口 + 两套实现类，按平台分开打包（见下）
+可选外壳   electron-shell/          标签页形态；Electron 本体运行时下载，安装包里只有这 20 KB 源码
 ```
 
 **零第三方运行时依赖**：所有 import 都是 `node:` 内置或相对路径，没有构建步骤。安装包自带 Node 运行时（打包时下载到 `vendor/`），所以不依赖用户机器环境。
@@ -55,6 +56,8 @@ Node 服务  start.js → server.js     管理页后端 + 版本 / 插件 / 整�
 | `sync.js` | 同步引擎：S3 / WebDAV / 本地目录 / ZIP 四种后端共用一个"远端"抽象 |
 | `proxy.js` | `netFetch`：Node 全局 fetch 不看系统代理，所有外网请求走它 |
 | `platform.js` | 平台常量（`IS_WINDOWS` / `IS_MAC`、node 文件名、.app 名字与 bundle id）；只有常量，没有行为 |
+| `electron.js` | 可选 Electron 外壳的下载 / 校验 / 安装 / 卸载 / 查最新版（本体不随包发） |
+| `electron-shell/` | 那个外壳本身（主进程 + 标签条）：由下载好的 Electron 拉起 |
 | `filemanager.js` | 按平台挑一套文件管理实现，导出 `fileManager` 与 `APP_DIR`；业务代码只认它 |
 | `filemanager-base.js` | 那个接口本身：契约、默认实现、Linux 的 xdg-open 兜底（`PosixFileManager`） |
 | `filemanager-windows.js` / `filemanager-mac.js` | 两套实现类，**各自只进对应平台的安装包** |
@@ -94,6 +97,17 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - `packs/dsh-x-recommended/` 是**整合包配方**（`manifest.json` + `dspack.json` + README），**不含代码**，随安装包发；依赖一律写 npm 版本号。
 - 没有「内置插件」这条路：预置到当前 profile 的开关、随包发插件的复制逻辑、整合包里的 `"…": "bundled"` 依赖解析都已撤（`planInstall` 见到 `bundled` 会直接报错）。
 - 为什么不能合并：`.dspack` 只认 `overrides/`、`home/`、`profiles/` 与几个根文件，插件源码放进去会被当"不属于整合包"跳过（`packs.js` 的解析）；反过来 `plugins/` 下每个子目录都被当成一个 npm 包。
+
+### 可选的 Electron 外壳
+
+标签页形态不在框架里，由一份**运行时下载**的 Electron 承载：安装包还是十几 MB，想要标签页的人在设置页点一下现场下。
+
+- 版本策略：默认下**最新 release**（`registry.npmmirror.com/electron/latest`，官方 registry 兜底），之后查到新版就在设置页提示，点一下更新。不钉版本——只用 `BrowserWindow` / `WebContentsView` 这些稳定 API。
+- 下载按设置页那个「下载源」走镜像或官方，两边互为兜底；先取 `SHASUMS256.txt` 再下包，算 sha256 对不上就拒绝落地（镜像没放清单时跳过校验，日志里写明）。
+- 先解压到 `<版本>.tmp-<pid>` 再改名，断网/关机不会留下一个「看着装好了」的半成品；装在数据目录的 `runtimes/electron/<版本>/`，和 `versions/` 平级。
+- 解压走 `fileManager.extractZip`（mac 用 ditto、Windows 用 Expand-Archive）：Electron 的 mac 包里有符号链接和可执行位，仓库里那个手写 zip 读取器还原不出来。
+- 打开方式选了 `electron` 但本体还没下载时，`openRoute` 会安静退回浏览器标签页，设置页如实写明原因——不留一个点了没反应的按钮。
+- 外壳进程：每次打开都直接 `spawn` 一次 Electron，它自己有单实例锁，第二次启动把地址转给已在跑的那个开成标签页。所以这边不用维护 IPC 通道，也没有「外壳死了没人知道」的状态要管。
 
 ### 文件管理：一个接口，两套实现
 

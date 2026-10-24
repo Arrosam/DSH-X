@@ -27,6 +27,12 @@ test('安装包会带上整合包配方，且不带上插件源码', async () =>
     assert.ok(existsSync(join(out, 'server.js')), '启动器源码在')
     assert.ok(existsSync(join(out, 'reserved-profile-boot.mjs')), '起 desktop profile 用的绕行入口在')
     assert.ok(existsSync(join(out, 'public', 'index.html')), '管理页在')
+    // 可选 Electron 外壳：源码随包发（20 KB），Electron 本体是运行时下载的，不该进安装包
+    assert.ok(existsSync(join(out, 'electron-shell', 'main.js')), 'Electron 外壳的源码在')
+    assert.ok(existsSync(join(out, 'electron.js')), '下载 Electron 的那套逻辑在')
+    for (const name of ['electron.exe', 'Electron.app', 'electron-shell/node_modules']) {
+      assert.ok(!existsSync(join(out, name)), `${name} 不该随安装包发`)
+    }
     // 光看文件存在抓不住传递依赖遗漏：在复制后的目录解析整棵服务依赖树。
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', "await import('./server.js')"], {
       cwd: out,

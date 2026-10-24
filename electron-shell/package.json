@@ -1,0 +1,8 @@
+{
+  "name": "dsh-x-shell",
+  "productName": "DSH-X",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DSH-X 的可选 Electron 外壳：把 dsh 的页面装进带标签页的窗口。",
+  "main": "main.js"
+}

@@ -123,6 +123,15 @@ export class MacFileManager extends FileManager {
     return this.ask(['-e', 'activate', '-e', `POSIX path of (${what})`], FILE_TIMEOUT)
   }
 
+  /** ditto 是苹果自己推荐的解压方式：符号链接、可执行位、扩展属性都原样留着。 */
+  async extractZip(archive, dest) {
+    await this.exec('ditto', ['-x', '-k', String(archive), String(dest)], { timeout: 30 * 60 * 1000, encoding: 'utf8' })
+  }
+
+  electronExecutable(dir) {
+    return join(dir, 'Electron.app', 'Contents', 'MacOS', 'Electron')
+  }
+
   async revealPath(path) {
     await this.openWith('open', ['-R', String(path)], { windowsHide: true })
   }

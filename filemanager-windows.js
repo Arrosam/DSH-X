@@ -123,6 +123,19 @@ export class WindowsFileManager extends FileManager {
     return out.trim()
   }
 
+  /** Expand-Archive 是系统自带的，和打包脚本解压 node 发行包用的是同一招。 */
+  async extractZip(archive, dest) {
+    await this.exec('powershell', [
+      '-NoProfile',
+      '-Command',
+      `$ProgressPreference = 'SilentlyContinue'; Expand-Archive -Force -LiteralPath '${String(archive).replace(/'/g, "''")}' -DestinationPath '${String(dest).replace(/'/g, "''")}'`,
+    ], { windowsHide: true, timeout: 30 * 60 * 1000, encoding: 'utf8' })
+  }
+
+  electronExecutable(dir) {
+    return join(dir, 'electron.exe')
+  }
+
   async revealPath(path) {
     await this.openWith('explorer', [`/select,${String(path)}`], { windowsHide: true })
   }

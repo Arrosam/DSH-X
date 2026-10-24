@@ -11,14 +11,22 @@ import { DEFAULTS, OPEN_MODES, safeOpenMode } from '../settings.js'
 // 系统浏览器标签页是默认；已有明确选择不被覆盖，被删掉的形态要静默落回默认。
 
 test('打开方式默认浏览器标签页，缺失或脏值回默认，已有选择保持不变', () => {
-  assert.deepEqual(OPEN_MODES, ['tab', 'app', 'window'])
+  assert.deepEqual(OPEN_MODES, ['tab', 'app', 'window', 'electron'])
   assert.equal(DEFAULTS.openMode, 'tab')
   assert.equal(safeOpenMode('app'), 'app')
   assert.equal(safeOpenMode('window'), 'window')
+  assert.equal(safeOpenMode('electron'), 'electron')
   assert.equal(safeOpenMode('tab'), 'tab')
   assert.equal(safeOpenMode('webview'), 'tab', '没实现的形态不能被放行')
   assert.equal(safeOpenMode(''), 'tab')
   assert.equal(safeOpenMode(undefined), 'tab')
+})
+
+test('Electron 标签页：装好了才走外壳，没装就退回浏览器', () => {
+  assert.equal(openRoute('electron', false, true), 'electron', '不需要原生外壳，Electron 自己就是壳')
+  assert.equal(openRoute('electron', true, true), 'electron')
+  assert.equal(openRoute('electron', true, false), 'browser', '没下载 Electron 时安静退回')
+  assert.equal(openRoute('electron', false, false), 'browser')
 })
 
 // 内部标签页已经从框架里移除：老设置里存着 internal 的用户升级上来，不能点开什么都没反应。

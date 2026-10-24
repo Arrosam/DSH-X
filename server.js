@@ -112,6 +112,14 @@ import {
 } from './settings.js'
 // 带代理的 fetch：Node 的全局 fetch 既不看系统代理也不看 HTTP_PROXY，外网请求都走 netFetch
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
+import {
+  currentElectron,
+  electronRoot,
+  electronStatus,
+  installElectron,
+  latestElectronVersion,
+  uninstallElectron,
+} from './electron.js'
 import { APP_DIR, fileManager } from './filemanager.js'
 import { IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, NODE_BINARY } from './platform.js'
 
@@ -976,7 +984,9 @@ async function publicSettings() {
       { id: 'tab', label: '浏览器标签页' },
       { id: 'app', label: '浏览器独立窗口' },
       { id: 'window', label: '独立桌面窗口' },
+      { id: 'electron', label: 'Electron 标签页' },
     ],
+    electron: electronPayload(),
     systemPath: SYSTEM_PATH,
     systemBinDir: systemBinDir(),
     systemPathMode: IS_WINDOWS ? 'automatic' : 'manual',
@@ -1343,7 +1353,9 @@ async function saveManagerSettings(body) {
       ? '打开方式：浏览器独立窗口（找不到 Chrome/Edge 会退回标签页）'
       : OPEN_MODE === 'window'
         ? `打开方式：独立桌面窗口（${shellWindowHost() ? '由启动器打开，不经过浏览器' : '当前没有原生外壳，会退回浏览器标签页'}）`
-        : '打开方式：系统浏览器标签页')
+        : OPEN_MODE === 'electron'
+          ? `打开方式：Electron 标签页（${electronReady() ? '由下载好的 Electron 外壳承载' : '还没下载 Electron，会退回浏览器标签页'}）`
+          : '打开方式：系统浏览器标签页')
   }
   if ('systemPath' in body) {
     SYSTEM_PATH = stored.systemPath === true
@@ -4125,10 +4137,88 @@ export function instanceTarget(instance) {
 }
 
 /**
- * 按外壳能力选择独立窗口还是系统浏览器；源码运行与旧外壳要能正常降级。
+ * 按当前环境选择 Electron 外壳、独立窗口还是系统浏览器。
+ * 没装 Electron、没有原生外壳（源码运行）时都要安静地退回浏览器。
  */
-export function openRoute(mode, shellWindow) {
+export function openRoute(mode, shellWindow, electronReady = false) {
+  if (mode === 'electron') return electronReady ? 'electron' : 'browser'
   return mode === 'window' && shellWindow ? 'window' : 'browser'
+}
+
+/** 随安装包发的那几 KB 外壳源码；Electron 本体是运行时下载的，不在这。 */
+const ELECTRON_SHELL = join(ROOT, 'electron-shell')
+/** 上次查到的最新版，设置页用它提示「有新版」。查不到就留空，不谎报「已是最新」。 */
+let electronLatest = ''
+let electronBusy = false
+
+/** 装好的 Electron 可执行文件；没装好返回空串。 */
+function electronExecutable() {
+  const version = currentElectron(DATA)
+  if (!version) return ''
+  const exe = fileManager.electronExecutable(join(electronRoot(DATA), version))
+  return existsSync(exe) ? exe : ''
+}
+
+/** 能不能用 Electron 外壳打开：本体装好了、外壳源码也在。 */
+function electronReady() {
+  return Boolean(electronExecutable()) && existsSync(join(ELECTRON_SHELL, 'main.js'))
+}
+
+/** 设置页要的那一小块状态。 */
+function electronPayload() {
+  return { ...electronStatus(currentElectron(DATA), electronLatest), busy: electronBusy, ready: electronReady() }
+}
+
+/**
+ * 把地址交给 Electron 外壳。每次打开都直接 spawn 一次：外壳自己有单实例锁，
+ * 第二次启动会把地址转给已经在跑的那个进程开成标签页，省掉我们这边维护一条 IPC 通道。
+ */
+function openInElectron(url) {
+  const exe = electronExecutable()
+  if (!exe) return false
+  // 带上实例身份：dsh 重启换了端口和 token，外壳也要认得这还是同一个标签
+  const instance = instanceList().find((proc) => proc.url && new URL(proc.url).origin === new URL(url).origin)
+  const args = [ELECTRON_SHELL, url]
+  if (instance) args.push(`--tab=${instanceTarget(instance).id}`)
+  try {
+    const child = spawn(exe, args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: { ...process.env, DSH_THEME: THEME, DSH_LANG: LANG },
+    })
+    child.unref()
+    return true
+  } catch (error) {
+    pushLog(`Electron 外壳没起来：${error?.message || error}`)
+    return false
+  }
+}
+
+/** 下载并装上 Electron（不指定版本就装最新）。进度走 electron 事件推给页面。 */
+async function setupElectron(version = '') {
+  if (electronBusy) throw new Error('正在安装 Electron，稍等一下')
+  electronBusy = true
+  try {
+    const stored = await loadSettings()
+    const source = safeDownloadSource(stored.downloadSource)
+    const target = version || await latestElectronVersion({ source })
+    // 显式装某个版本时别把「最新版」记成它，否则设置页会以为没有新版了
+    if (!version) electronLatest = target
+    pushLog(`下载 Electron ${target}（${source === 'official' ? '官方源' : '镜像源'}）`)
+    const result = await installElectron({
+      version: target,
+      dataDir: DATA,
+      source,
+      extract: (archive, dest) => fileManager.extractZip(archive, dest),
+      onProgress: (progress) => emit('electron', progress),
+    })
+    pushLog(result.verified ? `Electron ${target} 已装好（校验通过）` : `Electron ${target} 已装好（这个源没放校验和，跳过了校验）`)
+    return electronPayload()
+  } finally {
+    electronBusy = false
+    emit('electron', { phase: 'idle' })
+  }
 }
 
 /**
@@ -4138,6 +4228,8 @@ export function openRoute(mode, shellWindow) {
  */
 function openExternal(target, mode = OPEN_MODE) {
   const url = String(target)
+  // Electron 外壳：装好了才走这条，没装的话上面的 openRoute 已经把它判成浏览器
+  if (openRoute(mode, shellWindowHost(), electronReady()) === 'electron' && openInElectron(url)) return
   // 内嵌窗口：地址交给原生外壳自己的窗口，连浏览器进程都不起（见 OPEN_SIGNAL）
   if (openRoute(mode, shellWindowHost()) === 'window') {
     process.stdout.write(`${OPEN_SIGNAL} ${url}\n`)
@@ -5262,6 +5354,36 @@ async function handleApi(req, res, url) {
       pushLog(`文件选择失败: ${error?.message || error}`)
       send(res, 200, { path: '', error: error?.message || String(error) })
     }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/electron/check') {
+    try {
+      const stored = await loadSettings()
+      electronLatest = await latestElectronVersion({ source: safeDownloadSource(stored.downloadSource) })
+      send(res, 200, electronPayload())
+    } catch (error) {
+      const message = describeFetchError(error)
+      pushLog(`查 Electron 版本失败：${message}`)
+      send(res, 200, { ...electronPayload(), error: message })
+    }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/electron/install') {
+    try {
+      send(res, 200, await setupElectron(typeof body.version === 'string' ? body.version.trim() : ''))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushLog(`Electron 安装失败：${message}`)
+      send(res, 500, { error: message })
+    }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/electron/uninstall') {
+    if (electronBusy) throw new Error('正在安装 Electron，稍等一下')
+    const removed = await uninstallElectron(DATA)
+    if (removed) pushLog('已卸载 Electron')
+    send(res, 200, electronPayload())
+    await emitState()
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/open') {

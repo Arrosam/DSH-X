@@ -157,10 +157,13 @@ export function safeProxyUrl(value) {
  *   经过浏览器进程——关窗口、托盘、退出都由启动器自己说了算。它只在原生外壳托管下成立
  *   （外壳设了 DSH_APP_WINDOW=1，并在 stdout 上收约定标记），源码运行（npm start）时选它
  *   会安静地退回标签页，不会开出一个没人管的窗口。
+ * - electron：开在可选的 Electron 外壳里，每个实例一个标签页。Electron 不随安装包发，
+ *   要在设置页点一下现场下载（见 electron.js）；没下载时同样安静地退回标签页。
  */
-// 曾经还有一个 internal（启动器主窗口里的原生标签页，外壳自己实现的）：框架里不再带。
-// 老设置里存着的 internal 会落回默认值，不能让升级上来的用户点不开页面。
-export const OPEN_MODES = ['tab', 'app', 'window']
+// 曾经还有一个 internal（启动器主窗口里的原生标签页，外壳自己实现的）：框架里不再带，
+// 标签页改由上面的 electron 承载。老设置里存着的 internal 会落回默认值，
+// 不能让升级上来的用户点不开页面。
+export const OPEN_MODES = ['tab', 'app', 'window', 'electron']
 export const DEFAULT_OPEN_MODE = 'tab'
 
 export function safeOpenMode(value) {
@@ -238,7 +241,7 @@ export const DEFAULTS = {
   // 网络代理：off / system（默认，跟随系统）/ manual；手动模式看下面的 proxyUrl
   proxyMode: DEFAULT_PROXY_MODE,
   proxyUrl: '',
-  // tab（默认浏览器）/ app（浏览器应用窗口）/ window（独立桌面窗口）。
+  // tab（默认浏览器）/ app（浏览器应用窗口）/ window（独立桌面窗口）/ electron（Electron 标签页）。
   openMode: DEFAULT_OPEN_MODE,
   // dsh 的用户目录（DSH_HOME）。留空 = 默认 ~/.dsh；用户把 .dsh 挪到别的盘时在这里指回去
   dshHome: '',
