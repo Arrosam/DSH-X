@@ -54,7 +54,8 @@ test('路径语义：Windows 不分大小写、用 junction、按 PATHEXT 找命
   assert.equal(windows.directoryLinkType, 'junction')
   assert.ok(windows.hasCommand('C:\\bin', 'pnpm'), '按 PATHEXT 补出 pnpm.CMD')
 
-  const mac = new MacFileManager({ existsSync: (path) => path.endsWith('/pnpm') })
+  // join 在 Windows 上给反斜杠，假 existsSync 不能按 '/' 结尾匹配
+  const mac = new MacFileManager({ existsSync: (path) => /[\\/]pnpm$/.test(path) })
   assert.ok(!mac.samePath('/Users/A/dsh', '/users/a/dsh'), 'mac 上不同大小写就是两个路径')
   assert.equal(mac.directoryLinkType, 'dir')
   assert.deepEqual(mac.commandExtensions, [''])
