@@ -1715,6 +1715,26 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .diag-output-title { margin: 12px 0 0; font-size: 12px; font-weight: 600; color: var(--muted); }
 .diag-output-title[hidden] { display: none; }
 .diag-output-title:not([hidden]) + .notice-detail { margin-top: 6px; }
+/* 修复方案卡片（repairCard / cardLine / evidenceDetails）：标签列 + 内容列的两行结构，
+   折叠证据统一成带边框的日志块；DOM 形状被 diagnostic-command-error 的断言钉着，样式只走 class */
+#noticeCards { display: grid; gap: 10px; align-content: start; }
+.repair-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 13px; margin: 0; display: grid; gap: 8px; background: var(--card); }
+.rc-title { margin: 0; font-size: 13px; font-weight: 650; }
+.rc-line { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 10px; align-items: baseline; font-size: 12.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.rc-label { font-weight: 600; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.rc-details { border: 1px solid var(--line); border-radius: 9px; }
+.rc-details > summary { cursor: pointer; padding: 7px 11px; font-size: 12.5px; color: var(--muted); user-select: none; list-style: none; display: flex; align-items: center; gap: 7px; }
+.rc-details > summary::-webkit-details-marker { display: none; }
+.rc-details > summary::before { content: '▸'; font-size: 10px; color: var(--muted); transition: transform .15s ease; }
+.rc-details[open] > summary::before { transform: rotate(90deg); }
+.rc-details[open] > summary { border-bottom: 1px solid var(--line); border-radius: 9px 9px 0 0; }
+.rc-details-pre { margin: 0; padding: 10px 11px; max-height: 30vh; overflow: auto; font: 11.5px/1.55 ui-monospace, Consolas, monospace; color: #3f5478; background: #f7faff; border-radius: 0 0 9px 9px; overflow-wrap: anywhere; scrollbar-width: thin; }
+.rc-options { display: grid; gap: 12px; grid-template-columns: 1fr; }
+.rc-options.multi { grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); }
+.rc-option { border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; display: grid; gap: 8px; justify-items: start; }
+.rc-option-title { margin: 0; font-size: 12.5px; font-weight: 600; }
+.rc-option > .rc-run { justify-self: start; }
+.repair-card > button.ghost { justify-self: start; }
 /* 托盘退出后：浏览器不一定会让脚本关标签页，那就换一张干净的告别页 */
 .gone {
   position: fixed;

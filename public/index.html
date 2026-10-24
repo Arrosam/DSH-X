@@ -2250,6 +2250,7 @@
       noticeDiagnosisEl.hidden = false
       noticeEl.classList.add('has-detail')
       noticeOutputTitleEl.hidden = !output
+      noticeCopyEl.hidden = false
     }
 
     /** 启动失败的那句话。服务端给的是中文原文，认得出的两种换成界面语言，再补上退出码。 */
@@ -2347,19 +2348,23 @@
         return
       }
       const line = document.createElement('p')
+      line.className = 'rc-line'
       if (multiline) {
         line.style.whiteSpace = 'pre-wrap'
       }
       const heading = document.createElement('strong')
+      heading.className = 'rc-label'
       heading.textContent = `${t(label)}：`
       line.append(heading, document.createTextNode(String(value)))
       card.append(line)
     }
     function evidenceDetails(card, label, value) {
       const details = document.createElement('details')
+      details.className = 'rc-details'
       const summary = document.createElement('summary')
-      const text = document.createElement('pre')
       summary.textContent = t(label)
+      const text = document.createElement('pre')
+      text.className = 'rc-details-pre'
       text.style.whiteSpace = 'pre-wrap'
       text.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
       details.append(summary, text)
@@ -2367,10 +2372,10 @@
     }
     function repairCard(component) {
       const card = document.createElement('section')
-      card.style.cssText = 'border:1px solid var(--line,#ddd);border-radius:12px;padding:14px;margin:10px 0'
+      card.className = 'repair-card'
       const heading = document.createElement('h3')
+      heading.className = 'rc-title'
       heading.textContent = component
-      heading.style.cssText = 'font-size:14px;margin:0 0 8px'
       card.append(heading)
       return card
     }
@@ -2528,22 +2533,20 @@
           card.append(link)
         }
         const options = document.createElement('div')
-        options.style.display = 'grid'
-        options.style.gridTemplateColumns = actions.length > 1 ? 'repeat(auto-fit,minmax(min(230px,100%),1fr))' : '1fr'
-        options.style.gap = '12px'
+        options.className = `rc-options${actions.length > 1 ? ' multi' : ''}`
         for (const action of actions) {
           const presentation = repairPresentation(action)
           const option = document.createElement('section')
           if (actions.length > 1) {
-            option.style.cssText = 'border:1px solid var(--line,#ddd);border-radius:8px;padding:12px;min-width:0'
+            option.className = 'rc-option'
             const heading = document.createElement('h4')
+            heading.className = 'rc-option-title'
             heading.textContent = presentation.button
             option.append(heading)
           }
           const button = document.createElement('button')
           button.type = 'button'
-          button.className = 'primary'
-          button.style.cssText = 'flex:0 0 auto;width:auto;min-width:90px'
+          button.className = 'primary rc-run'
           button.textContent = presentation.button + (action.disabledReason ? '（' + t('当前不可执行') + '）' : '')
           button.disabled = Boolean(action.disabledReason)
           button.onclick = () => {
@@ -2598,6 +2601,7 @@
         evidenceDetails(noticeCardsEl, '启动项数据位置', preview.target.home)
         cardLine(noticeCardsEl, '影响', t('修复时会重启这个启动项，正在进行的任务会中断。每次只处理你确认的这一项。'))
         const waitingDetails = document.createElement('details')
+        waitingDetails.className = 'rc-details rc-details--group'
         const waitingSummary = document.createElement('summary')
         waitingSummary.textContent = t('其他等待与初始化状态（不是已确认故障，不会默认禁用）')
         waitingDetails.append(waitingSummary)

@@ -474,7 +474,7 @@ test('one component renders one fault card with two adjacent alternatives and un
   assert.ok(!nodes.some(node => node.textContent.includes('禁用以恢复使用')))
   assert.ok(nodes.some(node => node.textContent.includes('产品使用情况收集 → 产品运行情况上报')))
   assert.ok(!nodes.some(node => node.textContent.includes('sessionQuery')))
-  assert.ok(nodes.some(node => node.style?.display === 'grid'))
+  assert.ok(nodes.some(node => node.style?.display === 'grid' || node.className === 'rc-options multi'), '多方案并排的容器（现在是 rc-options.multi 类）')
   for (const button of nodes.filter(node => node.tag === 'button')) {
     button.onclick()
   }
