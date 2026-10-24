@@ -4,7 +4,8 @@ import { BrowserWindow, Menu, Tray, WebContentsView, app, dialog, ipcMain, nativ
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { APP_DIR, IS_MAC, IS_WINDOWS, RUNTIME_NODE } from '../platform.js'
+import { IS_MAC, IS_WINDOWS, RUNTIME_NODE } from '../platform.js'
+import { APP_DIR } from '../filemanager.js'
 import { BrowserTabs } from './tabs.mjs'
 import { dataUrl, errorPage, idlePage } from './pages.mjs'
 import {
