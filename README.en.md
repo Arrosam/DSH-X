@@ -24,7 +24,7 @@ DSH-X is a lightweight third-party desktop launcher for DeepSeek Harness: launch
 - **Version management**: a dedicated manager for manually installing, removing and assigning versions to launch entries.
 - **Plugins and packs**: install, toggle and update plugins by environment; browse, search and sort the masonry-style community market, or import and export packs.
 - **MCP and skills**: configure MCP servers and import, manage and toggle skills.
-- **Opening modes**: tabs inside DSH-X, a system browser tab, standalone browser window or desktop window.
+- **Opening modes**: a system browser tab, standalone browser window or desktop window.
 - **Appearance**: light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.
 - **Updates and recovery**: self-update, profile recovery and configurable old-version retention; each launch entry's current and previous versions are kept additionally.
 - **Windows / macOS**: a Windows installer and Apple Silicon / Intel dmgs, tray / menu bar operation and launch at login, with Node / npm / pnpm included.
@@ -113,12 +113,6 @@ The [recommended pack recipe](packs/dsh-x-recommended/manifest.json) includes co
 
 </details>
 
-**Multiple tabs · Dark theme**
-
-<p align="center">
-  <img src="docs/screenshot-tabs.png" alt="DSH-X v0.1.16 with multiple tabs" width="820" />
-</p>
-
 ## Wallpaper
 
 A companion Wallpaper Engine wallpaper — [DSH-X · 大肥鱼桌面终端](https://steamcommunity.com/sharedfiles/filedetails/?id=3814706575): a DSH-X brand intro, the mascot, local time and an audio spectrum, switching between light and dark palettes by time of day. Sources live in [`wallpaper/`](wallpaper/); run `node scripts/export-wallpaper.mjs` to export the Wallpaper Engine project.
@@ -137,7 +131,7 @@ Windows: install [DSH-Setup.exe](https://github.com/yyh-001/DSH-X/releases/lates
 
 macOS: open `DSH-X-mac-arm64.dmg` (Apple Silicon) or `DSH-X-mac-x64.dmg` (Intel) and drag **DSH-X** into Applications. v0.1.16 uses ad-hoc signing and is not notarized; the first launch may require manual approval through macOS security prompts.
 
-Add or edit a launch entry on the home page, select its environment and version, then start it. Open **Version management** from the launch-entry editor to manually install or remove versions. Settings → General → **How dsh opens** offers internal tabs, a browser or a separate window. Internal tabs require the installed desktop app.
+Add or edit a launch entry on the home page, select its environment and version, then start it. Open **Version management** from the launch-entry editor to manually install or remove versions. Settings → General → **How dsh opens** offers a browser tab, a standalone browser window or a separate desktop window.
 
 The manager defaults to port `3780` and tries the next port if occupied. To reach dsh from another device: Settings → Advanced → **Web binding** → LAN, applied on the next start.
 

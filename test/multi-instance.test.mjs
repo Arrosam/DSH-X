@@ -475,7 +475,7 @@ test('控制页有「在跑的实例」一栏，每行单独打开/停止', () =
   assert.match(page, /<details class="instances" id="instances" hidden>[\s\S]{0,220}?<summary class="instances-title" data-i18n="其他运行项">/, '实例一栏在控制页')
   assert.match(page, /const show = list\.length > 0/, '有实例就列出来：选中别的版本时，这栏是唯一能看到「还有东西在跑」的地方')
   assert.match(page, /post\('\/api\/stop', \{ version: el\.dataset\.stopVersion, profile: el\.dataset\.profile, home: el\.dataset\.home \}\)/, '每行的停止打在它自己那个 版本×profile×home 上')
-  assert.match(page, /void openInstance\(item\?\.url\)/, '打开走服务端的打开方式（内嵌窗口 / 应用窗口 / 标签页）')
+  assert.match(page, /void openInstance\(item\?\.url\)/, '打开走服务端的打开方式（桌面窗口 / 应用窗口 / 标签页）')
   assert.match(page, /const live = runningInfo\(version, entry\.profile, entry\.dshHome \|\| state\.dshHome\)/, '每个启动项只打开自己的版本、profile 与 home')
   assert.match(page, /function runningInfo\(version = '', profile = '', home = ''\)/, 'runningInfo 收版本、profile 与 home')
   assert.match(page, /id="launchProfile"/, '控制页有启动 profile 下拉')

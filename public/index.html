@@ -69,12 +69,6 @@
       </button>
       <button type="button" class="self-update" id="selfUpdate" hidden data-i18n="更新">更新</button>
     </div>
-    <div class="internal-tabs-area" id="internalTabsArea" hidden>
-      <div class="internal-tab-list" id="internalTabList" role="tablist" aria-label="DSH-X"></div>
-      <button type="button" class="gear-btn internal-tab-reload" id="internalTabReload" title="刷新页面" aria-label="刷新页面">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.7a8 8 0 1 1-1.9-8.3L21 10"/><path d="M21 4v6h-6"/></svg>
-      </button>
-    </div>
     <div class="header-right">
       <a class="star-link" href="https://github.com/yyh-001/DSH-X" target="_blank" rel="noreferrer"
          title="在 GitHub 上给 DSH-X 点个 Star">
@@ -952,9 +946,7 @@
   "浏览器标签页": "Browser tab",
   "浏览器独立窗口": "Standalone browser window",
   "独立桌面窗口": "Separate desktop window",
-  "DSH-X 内部标签页": "Tabs inside DSH-X",
   "返回启动器主页": "Back to launcher home",
-  "内部标签页需使用新版 DSH-X 桌面端；当前使用浏览器标签页。": "Internal tabs require the updated DSH-X desktop app; this session uses browser tabs.",
   "用 Chrome/Edge 的独立窗口打开：没有地址栏和标签栏。": "Opens in a standalone Chrome/Edge window: no address bar or tab strip.",
   "启动器自己开一个窗口承载 dsh 界面，关窗口只是藏起来；没有原生外壳（源码运行）时退回标签页。": "The launcher hosts the dsh UI in its own window; closing it only hides the window. Falls back to a tab when there is no native shell (running from source).",
   "用系统默认浏览器的标签页打开。": "Opens in a tab of your default browser.",
@@ -1902,7 +1894,7 @@
       // 按下已经进了系统的拖动循环，第二次的 dblclick 未必还能送达页面。
       document.querySelector('header').addEventListener('mousedown', (event) => {
         if (event.button !== 0) return
-        if (event.target.closest('button, a, input, select, .select, .internal-tab')) return
+        if (event.target.closest('button, a, input, select, .select')) return
         ipc.postMessage(event.detail >= 2 ? 'maximize' : 'drag')
       })
     }
@@ -3773,10 +3765,6 @@
     }
     const openModeEl = document.getElementById('openMode')
     const openModeHint = document.getElementById('openModeHint')
-    let internalTabsAvailable = false
-    const describeOpenMode = (mode) => mode === 'internal' && !internalTabsAvailable
-      ? t('内部标签页需使用新版 DSH-X 桌面端；当前使用浏览器标签页。')
-      : ''
     const proxyModeEl = document.getElementById('proxyMode')
     const proxyUrlEl = document.getElementById('proxyUrl')
     const proxyHintEl = document.getElementById('proxyHint')
@@ -3880,18 +3868,15 @@
         showSystemPathSettings(data)
       }
       if ('openMode' in data) {
-        internalTabsAvailable = data.openModeInternal === true
         const modes = Array.isArray(data.openModes) && data.openModes.length
           ? data.openModes
-          : [{ id: 'tab', label: '浏览器标签页' }, { id: 'app', label: '浏览器独立窗口' }, { id: 'window', label: '独立桌面窗口' }, { id: 'internal', label: 'DSH-X 内部标签页' }]
+          : [{ id: 'tab', label: '浏览器标签页' }, { id: 'app', label: '浏览器独立窗口' }, { id: 'window', label: '独立桌面窗口' }]
         openModeEl.innerHTML = modes.map((item) => `<option value="${escapeHtml(item.id)}" data-i18n="${escapeHtml(item.label)}">${escapeHtml(t(item.label))}</option>`).join('')
-        openModeEl.value = String(data.openMode || 'internal')
+        openModeEl.value = String(data.openMode || 'tab')
         // 选了桌面窗口但当前没有原生外壳（源码运行 / npm start）：如实说明会落到哪里
-        openModeHint.textContent = openModeEl.value === 'internal' && data.openModeInternal === false
-          ? t('内部标签页需使用新版 DSH-X 桌面端；当前使用浏览器标签页。')
-          : openModeEl.value === 'window' && data.openModeWindow === false
+        openModeHint.textContent = openModeEl.value === 'window' && data.openModeWindow === false
           ? t('当前预览使用浏览器标签页。')
-          : describeOpenMode(openModeEl.value)
+          : ''
       }
       if ('proxyMode' in data || 'proxyUrl' in data) {
         const list = Array.isArray(data.proxyModes) && data.proxyModes.length
@@ -4072,7 +4057,7 @@
       systemPathHint.textContent = t('正在保存…')
     }
     openModeEl.onchange = () => {
-      openModeHint.textContent = describeOpenMode(openModeEl.value)
+      openModeHint.textContent = ''
       queueSetting('openMode', openModeEl.value)
     }
     proxyModeEl.onchange = () => {
@@ -6068,6 +6053,5 @@
   </script>
   <script src="/mascot.js" defer></script>
   <script src="/water.js" defer></script>
-  <script src="/internal-tabs.js" defer></script>
 </body>
 </html>

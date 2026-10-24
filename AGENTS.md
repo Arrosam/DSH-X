@@ -122,7 +122,7 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - **Node 22.19：注册过 ESM 钩子后 `error.stack` 变成只读**（`writable: false`）。dsh 的 app-boot 会写 `error.stack = ...`，一写就抛 `TypeError`，把原始错误码顶掉。`compat/session-events.mjs` 已把它包进 try/catch，**别去掉**。
 - **插件 import 失败会让 dsh 秒退**（插件树的单点故障）。涉及 profile 依赖、补丁层的改动要格外保守，改完用 `plugin-tool.js list` 或真启动一次验证。
 - **Windows 的 junction**：pnpm 用 junction 指向 `.pnpm`，目标被删就悬空，读目录会报 `UNKNOWN ... -4094`；还有一类机器根本读不了 junction。两条退路都在 `server.js`（清理悬空链接、让 pnpm 不用链接），清理时要扫进 `@scope` 一层。
-- 管理页端口每次启动可能变（被占用会顺延）：旧链接 401、旧标签页里"插件包加载失败"都是正常现象，不用"修"。
+- 管理页端口每次启动可能变（被占用会顺延）：旧链接 401、旧浏览器标签页里"插件包加载失败"都是正常现象，不用"修"。
 - cookie 堆到 16 KB 会让全站 `HTTP 431`：给 cookie 加内容前先算总量。
 - 测试输出别接管道（会说第二遍，因为真有人踩）。
 - `data/`、`release/`、`vendor/` 里的东西可以随便清（都是产物），但 `release/release-key.pem` 除外。
