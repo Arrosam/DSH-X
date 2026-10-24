@@ -20,7 +20,7 @@ export const NODE_MIRRORS = [
   'https://nodejs.org/dist',
 ]
 
-/** 启动器自己的源码文件（安装目录顶层）。 */
+/** 启动器自己的源码文件（安装目录顶层），两个平台都要。 */
 const APP_FILES = [
   'start.js',
   'server.js',
@@ -28,6 +28,8 @@ const APP_FILES = [
   'settings.js',
   'proxy.js',
   'platform.js',
+  'filemanager.js',
+  'filemanager-base.js',
   'plugins.js',
   'recovery.js',
   'packs.js',
@@ -81,11 +83,26 @@ export async function downloadNodeFile(file, dest) {
   throw last
 }
 
-/** 把启动器的源码和静态资源拷进 out（node 运行时和原生外壳由各平台自己放）。 */
-export async function copyAppFiles(out) {
+/**
+ * 文件管理的实现类按平台分开打包：装到哪台机器上就只带哪一套。
+ * filemanager.js 用动态 import 挑实现，所以另一套不在安装目录里也不会报模块找不到。
+ */
+const FILE_MANAGERS = {
+  win32: 'filemanager-windows.js',
+  darwin: 'filemanager-mac.js',
+}
+
+/**
+ * 把启动器的源码和静态资源拷进 out（node 运行时和原生外壳由各平台自己放）。
+ * platform 决定带哪套文件管理实现，默认跟着当前这台机器 —— Windows 的包在
+ * Windows 上打、mac 的包在 mac 上打，两条链路本来就各自在自己的平台跑。
+ */
+export async function copyAppFiles(out, platform = process.platform) {
   await mkdir(join(out, 'public'), { recursive: true })
   await mkdir(join(out, 'assets'), { recursive: true })
-  for (const file of APP_FILES) {
+  const fileManager = FILE_MANAGERS[platform]
+  if (!fileManager) throw new Error(`没有 ${platform} 的文件管理实现：照 filemanager-base.js 的契约补一个再打包`)
+  for (const file of [...APP_FILES, fileManager]) {
     await copyFile(join(ROOT, file), join(out, file))
   }
   await cp(join(ROOT, 'public'), join(out, 'public'), {

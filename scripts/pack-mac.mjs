@@ -19,7 +19,7 @@ import { macSigningIdentity, signMacBundle } from './mac-signing.mjs'
 /**
  * macOS 打包：release/DSH-X.app + release/DSH-X-mac-<arch>.dmg。
  *
- * 包的布局（platform.js 的 appBundle / 外壳的 app_root 都按它找文件）：
+ * 包的布局（filemanager-mac.js 的 appBundle / 外壳的 app_root 都按它找文件）：
  *   DSH-X.app/Contents/MacOS/DSH            原生外壳（launcher/）
  *   DSH-X.app/Contents/Resources/app/…      和 Windows 安装目录一样的内容，node 在 app/node/node
  *   DSH-X.app/Contents/Resources/AppIcon.icns
