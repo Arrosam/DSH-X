@@ -1715,7 +1715,11 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .diag-output-title:not([hidden]) + .notice-detail { margin-top: 6px; }
 /* 修复方案卡片（repairCard / cardLine / evidenceDetails）：标签列 + 内容列的两行结构，
    折叠证据统一成带边框的日志块；DOM 形状被 diagnostic-command-error 的断言钉着，样式只走 class */
-#noticeCards { display: grid; gap: 10px; align-content: start; }
+#noticeCards { display: grid; gap: 10px; align-content: start; margin-top: 10px; }
+/* 诊断弹窗内容多：顶部、标题下和正文与滚动区之间都留出呼吸空间，别贴着边 */
+#notice .ask-card { padding-top: 28px; }
+#notice .ask-title { margin-bottom: 14px; }
+#notice .notice-text { margin-bottom: 4px; }
 .repair-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 13px; margin: 0; display: grid; gap: 8px; background: var(--card); }
 .rc-title { margin: 0; font-size: 13px; font-weight: 650; }
 .rc-line { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 10px; align-items: baseline; font-size: 12.5px; line-height: 1.65; overflow-wrap: anywhere; }
