@@ -2372,10 +2372,14 @@
       details.append(summary, text)
       card.append(details)
     }
-    function repairCard(component, chip = '') {
-      const card = document.createElement('section')
-      card.className = 'repair-card'
-      const head = document.createElement('div')
+    /**
+     * 故障卡。fold=true 时整张卡是 <details>：标题 + 状态胶囊当 summary，
+     * 下面的证据、判断、方案默认全部收起——多张卡堆在一起时先看标题就能扫完。
+     */
+    function repairCard(component, chip = '', fold = false) {
+      const card = document.createElement(fold ? 'details' : 'section')
+      card.className = fold ? 'repair-card rc-fold' : 'repair-card'
+      const head = document.createElement(fold ? 'summary' : 'div')
       head.className = 'rc-head'
       const heading = document.createElement('h3')
       heading.className = 'rc-title'
@@ -2527,7 +2531,7 @@
         const first = repairPresentation(actions[0])
         const problem = actions[0].problem
         const kinds = { configuration: '配置问题', compatibility: '插件版本不兼容', plugin: '插件激活异常', unclassified: '问题类型未确认' }
-        const card = repairCard(first.title, t(kinds[problem?.classification?.kind] || '问题类型未确认'))
+        const card = repairCard(first.title, t(kinds[problem?.classification?.kind] || '问题类型未确认'), true)
         for (const action of actions) {
           actionCards.set(action.id, card)
         }

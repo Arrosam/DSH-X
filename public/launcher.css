@@ -1745,6 +1745,11 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .rc-quote-line + .rc-quote-line { margin-top: 3px; }
 .rc-rule { background: var(--accent-soft); border-radius: 8px; padding: 7px 10px; }
 .rc-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+/* 整张故障卡可折叠：summary 是标题行，箭头在最右；收起时只剩标题 + 状态胶囊 */
+.rc-fold > summary { list-style: none; cursor: pointer; user-select: none; }
+.rc-fold > summary::-webkit-details-marker { display: none; }
+.rc-fold > summary::after { content: '▸'; margin-left: auto; padding-left: 8px; font-size: 10px; color: var(--muted); transition: transform .15s ease; }
+.rc-fold[open] > summary::after { transform: rotate(90deg); }
 .rc-chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--accent-soft); color: var(--muted); }
 .rc-note { color: var(--muted); font-size: 12px; }
 .rc-note .rc-label { color: var(--muted); }
