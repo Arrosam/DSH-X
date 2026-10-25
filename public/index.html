@@ -2371,14 +2371,43 @@
       details.append(summary, text)
       card.append(details)
     }
-    function repairCard(component) {
+    function repairCard(component, chip = '') {
       const card = document.createElement('section')
       card.className = 'repair-card'
+      const head = document.createElement('div')
+      head.className = 'rc-head'
       const heading = document.createElement('h3')
       heading.className = 'rc-title'
       heading.textContent = component
-      card.append(heading)
+      head.append(heading)
+      if (chip) {
+        const badge = document.createElement('span')
+        badge.className = 'rc-chip'
+        badge.textContent = chip
+        head.append(badge)
+      }
+      card.append(head)
       return card
+    }
+    /** 证据引用块：一条一行，比把多条拼成一整段好读（本次事实用）。 */
+    function cardQuote(card, label, items) {
+      const list = items.filter(Boolean)
+      if (!list.length) {
+        return
+      }
+      const box = document.createElement('div')
+      box.className = 'rc-quote'
+      const heading = document.createElement('strong')
+      heading.className = 'rc-label'
+      heading.textContent = `${t(label)}：`
+      box.append(heading)
+      for (const item of list) {
+        const line = document.createElement('p')
+        line.className = 'rc-quote-line'
+        line.textContent = String(item)
+        box.append(line)
+      }
+      card.append(box)
     }
     function repairLabel(component) {
       const names = {
@@ -2496,13 +2525,27 @@
       for (const actions of groups.values()) {
         const first = repairPresentation(actions[0])
         const problem = actions[0].problem
-        const card = repairCard(first.title)
+        const kinds = { configuration: '配置问题', compatibility: '插件版本不兼容', plugin: '插件激活异常', unclassified: '问题类型未确认' }
+        const card = repairCard(first.title, t(kinds[problem?.classification?.kind] || '问题类型未确认'))
         for (const action of actions) {
           actionCards.set(action.id, card)
         }
-        const kinds = { configuration: '配置问题', compatibility: '插件版本不兼容', plugin: '插件激活异常', unclassified: '问题类型未确认' }
-        cardLine(card, '问题类型', t(kinds[problem?.classification?.kind] || '问题类型未确认'))
-        cardLine(card, '本次事实', problem?.observations?.map(observationText).join('；') || t('没有结构化日志证据，不能推断原因。'), false, 'rc-quote')
+        // 同一版本被多行拒绝时合并成一条：重复三遍的包名/版本号只会淹没信息
+        const versionRows = new Map()
+        const facts = []
+        for (const item of problem?.observations || []) {
+          if (item.kind === 'version_rejection') {
+            const key = `${item.package}\u0000${item.runtime}`
+            versionRows.set(key, [...(versionRows.get(key) || []), item.rowId])
+          } else {
+            facts.push(observationText(item))
+          }
+        }
+        for (const [key, rows] of versionRows) {
+          const [pkg, runtime] = key.split('\u0000')
+          facts.push(`${t('日志拒绝此版本')} ${pkg}；Harness ${runtime}（${rows.join('、')}）`)
+        }
+        cardQuote(card, '本次事实', facts.length ? facts : [t('没有结构化日志证据，不能推断原因。')])
         const confirmations = problem?.confirmations || []
         const roots = confirmations.filter(item => item.kind === 'installed_dependency' && item.verifiedInstallation && item.field !== 'peerDependencies').map(item => `${item.owner}@${item.version}（${t(item.disabled === true ? '已禁用但仍安装' : item.disabled === false ? '未全部禁用' : '启用状态未核实')}） → ${item.target.name}@${item.target.version}`)
         cardLine(card, '已核实依赖来源', roots.join('；'))
@@ -2534,13 +2577,16 @@
           cardLine(card, '关联方案', `${t('此故障也在该引入者的同一次卸载影响范围内')}：${action.owner.name}；${t('不会单独重复卸载。')}`)
           card.append(link)
         }
+        const labels = actions.map(action => repairPresentation(action).button)
+        // 标题重复（比如都是「查看证据」）就别并排，两列一样的卡只是噪音
+        const sideBySide = actions.length > 1 && new Set(labels).size === labels.length
         const options = document.createElement('div')
-        options.className = `rc-options${actions.length > 1 ? ' multi' : ''}`
+        options.className = `rc-options${sideBySide ? ' multi' : ''}`
         for (const action of actions) {
           const presentation = repairPresentation(action)
           const option = document.createElement('section')
           option.className = 'rc-option'
-          if (actions.length > 1) {
+          if (sideBySide) {
             const heading = document.createElement('h4')
             heading.className = 'rc-option-title'
             heading.textContent = presentation.button
@@ -2606,7 +2652,7 @@
         noticeCardsEl.replaceChildren()
         noticeTextEl.textContent = `${t('当前启动项')} · ${preview.target.profile} · ${preview.target.version}`
         evidenceDetails(noticeCardsEl, '启动项数据位置', preview.target.home)
-        cardLine(noticeCardsEl, '影响', t('修复时会重启这个启动项，正在进行的任务会中断。每次只处理你确认的这一项。'))
+        cardLine(noticeCardsEl, '影响', t('修复时会重启这个启动项，正在进行的任务会中断。每次只处理你确认的这一项。'), false, 'rc-note')
         const waitingDetails = document.createElement('details')
         waitingDetails.className = 'rc-details rc-details--group'
         const waitingSummary = document.createElement('summary')

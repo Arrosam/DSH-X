@@ -1736,7 +1736,13 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 /* 本次事实按日志引用块呈现；规则判断是这张卡的结论，给一条高亮底 */
 .rc-quote { display: block; padding: 8px 10px; background: var(--accent-soft); border-radius: 8px; font: 11.5px/1.6 ui-monospace, Consolas, monospace; color: var(--muted); }
 .rc-quote .rc-label { display: block; margin-bottom: 3px; }
+.rc-quote-line { margin: 0; }
+.rc-quote-line + .rc-quote-line { margin-top: 3px; }
 .rc-rule { background: var(--accent-soft); border-radius: 8px; padding: 7px 10px; }
+.rc-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.rc-chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--accent-soft); color: var(--muted); }
+.rc-note { color: var(--muted); font-size: 12px; }
+.rc-note .rc-label { color: var(--muted); }
 /* 托盘退出后：浏览器不一定会让脚本关标签页，那就换一张干净的告别页 */
 .gone {
   position: fixed;
