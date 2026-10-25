@@ -1733,10 +1733,13 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .rc-details > summary { cursor: pointer; padding: 8px 12px; font-size: 12.5px; color: var(--muted); user-select: none; list-style: none; display: flex; align-items: center; gap: 7px; transition: color .15s ease, background-color .15s ease; }
 .rc-details > summary:hover { color: var(--text); background: var(--accent-soft); }
 .rc-details > summary::-webkit-details-marker { display: none; }
+/* 默认焦点环在深色下是一圈刺眼的白边，换成和线条同色的柔和描边 */
+.rc-details > summary:focus-visible, .rc-fold > summary:focus-visible { outline: 2px solid var(--line); outline-offset: 1px; }
 .rc-details > summary::before { content: '▸'; font-size: 10px; color: var(--muted); transition: transform .18s ease; }
 .rc-details[open] > summary::before { transform: rotate(90deg); }
 .rc-details[open] > summary { border-bottom: 1px solid var(--line); border-radius: 9px 9px 0 0; }
 .rc-details-pre { margin: 0; padding: 10px 12px; max-height: 30vh; overflow: auto; font: 11.5px/1.55 ui-monospace, Consolas, monospace; color: #3f5478; background: #f7faff; border-radius: 0 0 9px 9px; overflow-wrap: anywhere; scrollbar-width: thin; }
+.rc-details-pre:empty { display: none; }
 .rc-options { display: grid; gap: 12px; grid-template-columns: 1fr; }
 .rc-options.multi { grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); }
 .rc-option { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; display: grid; gap: 10px; justify-items: start; background: #f9fbff; }

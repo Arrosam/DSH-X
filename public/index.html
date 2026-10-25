@@ -2361,15 +2361,20 @@
       card.append(line)
     }
     function evidenceDetails(card, label, value) {
+      // 没有内容就不占位置：运行中的警告没有原始输出，空块展开后只剩一圈 padding
+      const text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value, null, 2)
+      if (!text.trim()) {
+        return
+      }
       const details = document.createElement('details')
       details.className = 'rc-details'
       const summary = document.createElement('summary')
       summary.textContent = t(label)
-      const text = document.createElement('pre')
-      text.className = 'rc-details-pre'
-      text.style.whiteSpace = 'pre-wrap'
-      text.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-      details.append(summary, text)
+      const pre = document.createElement('pre')
+      pre.className = 'rc-details-pre'
+      pre.style.whiteSpace = 'pre-wrap'
+      pre.textContent = text
+      details.append(summary, pre)
       card.append(details)
     }
     /**
