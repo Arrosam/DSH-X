@@ -91,6 +91,8 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
+/* 单独一条：不认 ::details-content 的浏览器只会丢掉这条，不会连累上面的通用规则 */
+html.reduce-motion *::details-content { transition-duration: 0.01ms !important; }
 @media (prefers-reduced-motion: reduce) {
   .backdrop-character, .backdrop::before, .backdrop::after { animation: none; }
 }
@@ -1715,44 +1717,65 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .diag-output-title:not([hidden]) + .notice-detail { margin-top: 6px; }
 /* 修复方案卡片（repairCard / cardLine / evidenceDetails）：标签列 + 内容列的两行结构，
    折叠证据统一成带边框的日志块；DOM 形状被 diagnostic-command-error 的断言钉着，样式只走 class */
-#noticeCards { display: grid; gap: 10px; align-content: start; margin-top: 10px; }
+#noticeCards { display: grid; gap: 12px; align-content: start; margin-top: 10px; }
 /* 诊断弹窗内容多：顶部、标题下和正文与滚动区之间都留出呼吸空间，别贴着边 */
 #notice .ask-card { padding-top: 28px; }
 #notice .ask-title { margin-bottom: 14px; }
 #notice .notice-text { margin-bottom: 4px; }
-.repair-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 13px; margin: 0; display: grid; gap: 8px; background: var(--card); }
+.repair-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 15px; margin: 0; display: grid; gap: 10px; background: var(--card); }
+/* 整张卡可折叠时改成 block，靠 ::details-content 承载正文（展开动画见下方） */
+.rc-fold { display: block; }
+.rc-fold::details-content { display: grid; gap: 10px; padding-top: 10px; }
 .rc-title { margin: 0; font-size: 13px; font-weight: 650; }
 .rc-line { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 10px; align-items: baseline; font-size: 12.5px; line-height: 1.65; overflow-wrap: anywhere; }
 .rc-label { font-weight: 600; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .rc-details { border: 1px solid var(--line); border-radius: 9px; }
-.rc-details > summary { cursor: pointer; padding: 7px 11px; font-size: 12.5px; color: var(--muted); user-select: none; list-style: none; display: flex; align-items: center; gap: 7px; }
+.rc-details > summary { cursor: pointer; padding: 8px 12px; font-size: 12.5px; color: var(--muted); user-select: none; list-style: none; display: flex; align-items: center; gap: 7px; transition: color .15s ease, background-color .15s ease; }
+.rc-details > summary:hover { color: var(--text); background: var(--accent-soft); }
 .rc-details > summary::-webkit-details-marker { display: none; }
-.rc-details > summary::before { content: '▸'; font-size: 10px; color: var(--muted); transition: transform .15s ease; }
+.rc-details > summary::before { content: '▸'; font-size: 10px; color: var(--muted); transition: transform .18s ease; }
 .rc-details[open] > summary::before { transform: rotate(90deg); }
 .rc-details[open] > summary { border-bottom: 1px solid var(--line); border-radius: 9px 9px 0 0; }
-.rc-details-pre { margin: 0; padding: 10px 11px; max-height: 30vh; overflow: auto; font: 11.5px/1.55 ui-monospace, Consolas, monospace; color: #3f5478; background: #f7faff; border-radius: 0 0 9px 9px; overflow-wrap: anywhere; scrollbar-width: thin; }
+.rc-details-pre { margin: 0; padding: 10px 12px; max-height: 30vh; overflow: auto; font: 11.5px/1.55 ui-monospace, Consolas, monospace; color: #3f5478; background: #f7faff; border-radius: 0 0 9px 9px; overflow-wrap: anywhere; scrollbar-width: thin; }
 .rc-options { display: grid; gap: 12px; grid-template-columns: 1fr; }
 .rc-options.multi { grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); }
-.rc-option { border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; display: grid; gap: 8px; justify-items: start; background: #f9fbff; }
+.rc-option { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; display: grid; gap: 10px; justify-items: start; background: #f9fbff; }
 .rc-option-title { margin: 0; font-size: 12.5px; font-weight: 600; }
-.rc-option > .rc-run { justify-self: start; width: auto; min-width: 90px; }
+.rc-option > .rc-run { justify-self: start; width: auto; min-width: 90px; font-size: 13px; padding: 9px 14px; border-radius: 9px; }
 .rc-option > .rc-details { justify-self: stretch; }
 .repair-card > button.ghost { justify-self: start; }
 /* 本次事实按日志引用块呈现；规则判断是这张卡的结论，给一条高亮底 */
-.rc-quote { display: block; padding: 7px 10px; background: var(--accent-soft); border-radius: 8px; font: 11px/1.55 ui-monospace, Consolas, monospace; color: var(--muted); }
+.rc-quote { display: block; padding: 8px 12px; background: var(--accent-soft); border-radius: 8px; font: 11px/1.55 ui-monospace, Consolas, monospace; color: var(--muted); }
 .rc-quote .rc-label { display: block; margin-bottom: 3px; }
 .rc-quote-line { margin: 0; }
 .rc-quote-line + .rc-quote-line { margin-top: 3px; }
-.rc-rule { background: var(--accent-soft); border-radius: 8px; padding: 7px 10px; }
+.rc-rule { background: var(--accent-soft); border-radius: 8px; padding: 8px 12px; }
 .rc-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 /* 整张故障卡可折叠：summary 是标题行，箭头在最右；收起时只剩标题 + 状态胶囊 */
-.rc-fold > summary { list-style: none; cursor: pointer; user-select: none; }
+.rc-fold > summary { list-style: none; cursor: pointer; user-select: none; border-radius: 10px; margin: -4px -6px; padding: 4px 6px; transition: background-color .15s ease; }
+.rc-fold > summary:hover { background: var(--accent-soft); }
 .rc-fold > summary::-webkit-details-marker { display: none; }
-.rc-fold > summary::after { content: '▸'; margin-left: auto; padding-left: 8px; font-size: 10px; color: var(--muted); transition: transform .15s ease; }
+.rc-fold > summary::after { content: '▸'; margin-left: auto; padding-left: 8px; font-size: 10px; color: var(--muted); transition: transform .18s ease; }
 .rc-fold[open] > summary::after { transform: rotate(90deg); }
 .rc-chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--accent-soft); color: var(--muted); }
 .rc-note { color: var(--muted); font-size: 12px; }
 .rc-note .rc-label { color: var(--muted); }
+/* 折叠展开：Chromium 131+ 的 ::details-content 高度过渡；不支持的浏览器直接切换 */
+.rc-details, .rc-fold { interpolate-size: allow-keywords; }
+.rc-details::details-content, .rc-fold::details-content {
+  block-size: 0;
+  overflow: hidden;
+  transition: block-size .22s cubic-bezier(.2, .7, .2, 1), content-visibility .22s;
+  transition-behavior: allow-discrete;
+}
+.rc-details[open]::details-content, .rc-fold[open]::details-content { block-size: auto; }
+/* 卡片载入时轻微上浮淡入；减动效由全局规则和下面的媒体查询兜住 */
+@keyframes rc-in { from { opacity: 0; transform: translateY(5px); } }
+.repair-card, .diag-section { animation: rc-in .24s cubic-bezier(.2, .7, .2, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .repair-card, .diag-section { animation: none; }
+  .rc-details::details-content, .rc-fold::details-content { transition: none; }
+}
 /* 托盘退出后：浏览器不一定会让脚本关标签页，那就换一张干净的告别页 */
 .gone {
   position: fixed;
