@@ -1335,6 +1335,7 @@
   "被跳过的插件包": "Skipped bundles",
   "等待服务（受影响项，不等于根因）": "Waiting for services (affected entries, not necessarily causes)",
   "修复建议（不会自动执行）": "Suggested repairs (not executed automatically)",
+  "方案详情": "Plan details",
   "实际加载来源尚未确认；先核对来源和兼容版本，不要豁免版本检查或批量禁用插件。": "The actual loaded source is unconfirmed. Check its origin and compatible versions; do not bypass version checks or disable plugins in bulk.",
   "配置报告 serviceVersion 缺失；仅核对字段定义文件及引用的环境变量，不代填或改写。": "The configuration reports a missing serviceVersion. Only inspect the field definition file and referenced environment variable; do not fill in or rewrite values.",
   "本次启动未传入 DSH_CLIENT_VERSION；字段是否引用此变量及定义文件，以已核实来源证据为准。": "DSH_CLIENT_VERSION was absent from this launch environment. Whether the field references this variable, and where it is defined, must be established from verified source evidence.",
@@ -2600,22 +2601,27 @@
           button.onclick = () => {
             void executeRepair(preview, action, sequence, button)
           }
-          cardLine(option, '方案', presentation.recommendation)
-          cardLine(option, '功能影响', action.disabledReason || !action.solution?.steps?.length ? t('此方案当前不可执行，尚未修改任何组件。') : action.kind === 'uninstall-introducer' ? t('移除引入者的安装声明及不再需要的依赖；不能直接重新启用它。预计影响不是保证删除范围，实际结果以执行后核对为准。') : action.solution?.effects?.bypass ? t('仅跳过这些插件并关闭相关功能；不保证恢复启动或解除其他等待，结果以复验为准。') : t('不禁用组件；实际结果以复验为准。'))
+          // 为什么不能执行留在外面，细节默认折叠：上方「处理方式」已有结论，按钮始终可见
+          cardLine(option, '禁修原因', action.disabledReason)
+          const planDetails = document.createElement('details')
+          planDetails.className = 'rc-details rc-option-details'
+          const planSummary = document.createElement('summary')
+          planSummary.textContent = t('方案详情')
+          planDetails.append(planSummary)
+          cardLine(planDetails, '方案', presentation.recommendation)
+          cardLine(planDetails, '功能影响', action.disabledReason || !action.solution?.steps?.length ? t('此方案当前不可执行，尚未修改任何组件。') : action.kind === 'uninstall-introducer' ? t('移除引入者的安装声明及不再需要的依赖；不能直接重新启用它。预计影响不是保证删除范围，实际结果以执行后核对为准。') : action.solution?.effects?.bypass ? t('仅跳过这些插件并关闭相关功能；不保证恢复启动或解除其他等待，结果以复验为准。') : t('不禁用组件；实际结果以复验为准。'))
           if (!action.disabledReason && ['runtime-schema-leaf', 'runtime-import-leaf'].includes(action.proof)) {
-            cardLine(option, '禁用范围', t('只处理此故障条目；等待组件不关闭，是否恢复可用以复验结果为准。'))
+            cardLine(planDetails, '禁用范围', t('只处理此故障条目；等待组件不关闭，是否恢复可用以复验结果为准。'))
           }
           if (action.kind === 'uninstall-introducer') {
-            cardLine(option, '同一次卸载处理', (action.affectedComponents || []).join('、'))
-            cardLine(option, '预计影响启用项', `${(action.affected || []).length}：` + (action.affected || []).map(entry => `${entry.id}${entry.required ? ' (' + t('必需') + ')' : ''}`).join('、'))
+            cardLine(planDetails, '同一次卸载处理', (action.affectedComponents || []).join('、'))
+            cardLine(planDetails, '预计影响启用项', `${(action.affected || []).length}：` + (action.affected || []).map(entry => `${entry.id}${entry.required ? ' (' + t('必需') + ')' : ''}`).join('、'))
           }
           if (!action.disabledReason && (action.solution?.rollback || action.kind === 'uninstall-introducer')) {
-            cardLine(option, '回退', presentation.rollback)
+            cardLine(planDetails, '回退', presentation.rollback)
           }
-          cardLine(option, '禁修原因', action.disabledReason)
-          evidenceDetails(option, '修改位置与证据', { component: action.component, solution: action.solution, affected: action.affected, observations: problem?.observations, confirmations: problem?.confirmations, classification: problem?.classification, capability: problem?.capability })
-          // 按钮放在说明之后：先读方案再决定是否执行，也避免长说明把 CTA 推到视线外
-          option.append(button)
+          evidenceDetails(planDetails, '修改位置与证据', { component: action.component, solution: action.solution, affected: action.affected, observations: problem?.observations, confirmations: problem?.confirmations, classification: problem?.classification, capability: problem?.capability })
+          option.append(planDetails, button)
           options.append(option)
         }
         card.append(options)
