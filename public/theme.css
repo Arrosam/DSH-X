@@ -147,6 +147,7 @@ html[data-color-scheme="dark"] .diag-tone-warn .diag-section-title { color: #c9c
 html[data-color-scheme="dark"] .diag-tone-info .diag-section-title { color: #d4d5da; }
 html[data-color-scheme="dark"] .diag-advice { background: #26272c; border-left-color: #8a8b92; }
 html[data-color-scheme="dark"] .repair-card { background: #26272c; }
+html[data-color-scheme="dark"] .rc-option { background: #222227; }
 html[data-color-scheme="dark"] .rc-details-pre { background: #202024; color: #dddde0; }
 html[data-color-scheme="dark"] .progress { background: #4a4b50; }
 html[data-color-scheme="dark"] .ask { background: rgba(12, 12, 16, .75); }

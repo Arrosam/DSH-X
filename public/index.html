@@ -2139,7 +2139,8 @@
     }
     noticeCopyEl.onclick = async () => {
       try {
-        const diagnosis = noticeDiagnosisEl.hidden ? '' : `${diagnosisText(lastDiagnosisReport)}\n\n`
+        // 卡片模式下诊断块是隐藏的，但副本仍要带上纯文本诊断
+        const diagnosis = lastDiagnosisReport ? `${diagnosisText(lastDiagnosisReport)}\n\n` : ''
         await navigator.clipboard.writeText(`${noticeTextEl.textContent}\n\n${diagnosis}${noticeDetailEl.textContent}`)
       } catch {
         // 剪贴板接口不给用时退回「选中再复制」
@@ -2343,12 +2344,12 @@
       showRepairCards(failure)
     }
 
-    function cardLine(card, label, value, multiline = false) {
+    function cardLine(card, label, value, multiline = false, extraClass = '') {
       if (!value) {
         return
       }
       const line = document.createElement('p')
-      line.className = 'rc-line'
+      line.className = `rc-line${extraClass ? ' ' + extraClass : ''}`
       if (multiline) {
         line.style.whiteSpace = 'pre-wrap'
       }
@@ -2430,7 +2431,8 @@
       if (item.kind === 'version_rejection') {
         return `${item.rowId}：${t('日志拒绝此版本')} ${item.package}；Harness ${item.runtime}`
       }
-      return `${item.rowId || ''}：${item.reason || t('详情未记录')}`
+      // rowId 为空时不要留下孤零零的冒号
+      return item.rowId ? `${item.rowId}：${item.reason || t('详情未记录')}` : (item.reason || t('详情未记录'))
     }
     function confirmationText(item) {
       if (item.kind === 'installed_dependency') {
@@ -2500,13 +2502,13 @@
         }
         const kinds = { configuration: '配置问题', compatibility: '插件版本不兼容', plugin: '插件激活异常', unclassified: '问题类型未确认' }
         cardLine(card, '问题类型', t(kinds[problem?.classification?.kind] || '问题类型未确认'))
-        cardLine(card, '本次事实', problem?.observations?.map(observationText).join('；') || t('没有结构化日志证据，不能推断原因。'))
+        cardLine(card, '本次事实', problem?.observations?.map(observationText).join('；') || t('没有结构化日志证据，不能推断原因。'), false, 'rc-quote')
         const confirmations = problem?.confirmations || []
         const roots = confirmations.filter(item => item.kind === 'installed_dependency' && item.verifiedInstallation && item.field !== 'peerDependencies').map(item => `${item.owner}@${item.version}（${t(item.disabled === true ? '已禁用但仍安装' : item.disabled === false ? '未全部禁用' : '启用状态未核实')}） → ${item.target.name}@${item.target.version}`)
         cardLine(card, '已核实依赖来源', roots.join('；'))
         evidenceDetails(card, '配置来源与完整证据', confirmations.map(confirmationText).filter(Boolean).join('；'))
         const rules = { loader_rejection: '启动日志明确拒绝了该插件版本', schema_missing: '配置校验报告缺少必填字段', schema_type: '配置校验报告字段类型不符', schema_range: '配置校验报告数值或长度越界', schema_enum: '配置校验报告选项不符', schema_validation: '配置校验失败，具体约束尚未确认', activation_report: '日志报告组件未激活', insufficient_evidence: '证据不足，未形成判断' }
-        cardLine(card, '规则判断', t(rules[problem?.classification?.ruleId] || '证据不足，未形成判断'))
+        cardLine(card, '规则判断', t(rules[problem?.classification?.ruleId] || '证据不足，未形成判断'), false, 'rc-rule')
         if (problem?.unknowns?.length) {
           cardLine(card, '未确认', problem.unknowns.map(item => item.detail).join('；'))
         }
@@ -2537,8 +2539,8 @@
         for (const action of actions) {
           const presentation = repairPresentation(action)
           const option = document.createElement('section')
+          option.className = 'rc-option'
           if (actions.length > 1) {
-            option.className = 'rc-option'
             const heading = document.createElement('h4')
             heading.className = 'rc-option-title'
             heading.textContent = presentation.button
@@ -2552,7 +2554,6 @@
           button.onclick = () => {
             void executeRepair(preview, action, sequence, button)
           }
-          option.append(button)
           cardLine(option, '方案', presentation.recommendation)
           cardLine(option, '功能影响', action.disabledReason || !action.solution?.steps?.length ? t('此方案当前不可执行，尚未修改任何组件。') : action.kind === 'uninstall-introducer' ? t('移除引入者的安装声明及不再需要的依赖；不能直接重新启用它。预计影响不是保证删除范围，实际结果以执行后核对为准。') : action.solution?.effects?.bypass ? t('仅跳过这些插件并关闭相关功能；不保证恢复启动或解除其他等待，结果以复验为准。') : t('不禁用组件；实际结果以复验为准。'))
           if (!action.disabledReason && ['runtime-schema-leaf', 'runtime-import-leaf'].includes(action.proof)) {
@@ -2567,6 +2568,8 @@
           }
           cardLine(option, '禁修原因', action.disabledReason)
           evidenceDetails(option, '修改位置与证据', { component: action.component, solution: action.solution, affected: action.affected, observations: problem?.observations, confirmations: problem?.confirmations, classification: problem?.classification, capability: problem?.capability })
+          // 按钮放在说明之后：先读方案再决定是否执行，也避免长说明把 CTA 推到视线外
+          option.append(button)
           options.append(option)
         }
         card.append(options)
@@ -2579,6 +2582,10 @@
       const sequence = repairPlanView.sequence
       noticeCardsEl.hidden = false
       noticeDetailEl.hidden = true
+      // 卡片本身已经把诊断拆成了分节内容，弹窗里别再叠一份结构化诊断和「原始输出」标题，
+      // 否则底部会留下一条孤零零的启动入口和空块
+      noticeDiagnosisEl.hidden = true
+      noticeOutputTitleEl.hidden = true
       noticeTextEl.textContent = t('正在核对组件来源；核对完成前不会执行修改。')
       for (const row of [...(failure.diagnosis?.failed || []), ...(failure.diagnosis?.rejected || [])]) {
         const card = repairCard(row.package || row.id)

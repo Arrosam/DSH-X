@@ -42,6 +42,7 @@ function fixture() {
     noticeEl: { classList: { add() {
     } } },
     noticeTextEl: { textContent: '' },
+    noticeDiagnosisEl: {}, noticeOutputTitleEl: {},
     noticeCardsEl: cards,
     notify() {
       cards.replaceChildren()

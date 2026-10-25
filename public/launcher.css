@@ -1729,10 +1729,14 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .rc-details-pre { margin: 0; padding: 10px 11px; max-height: 30vh; overflow: auto; font: 11.5px/1.55 ui-monospace, Consolas, monospace; color: #3f5478; background: #f7faff; border-radius: 0 0 9px 9px; overflow-wrap: anywhere; scrollbar-width: thin; }
 .rc-options { display: grid; gap: 12px; grid-template-columns: 1fr; }
 .rc-options.multi { grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); }
-.rc-option { border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; display: grid; gap: 8px; justify-items: start; }
+.rc-option { border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; display: grid; gap: 8px; justify-items: start; background: #f9fbff; }
 .rc-option-title { margin: 0; font-size: 12.5px; font-weight: 600; }
-.rc-option > .rc-run { justify-self: start; }
+.rc-option > .rc-run { justify-self: start; width: auto; min-width: 90px; }
 .repair-card > button.ghost { justify-self: start; }
+/* 本次事实按日志引用块呈现；规则判断是这张卡的结论，给一条高亮底 */
+.rc-quote { display: block; padding: 8px 10px; background: var(--accent-soft); border-radius: 8px; font: 11.5px/1.6 ui-monospace, Consolas, monospace; color: var(--muted); }
+.rc-quote .rc-label { display: block; margin-bottom: 3px; }
+.rc-rule { background: var(--accent-soft); border-radius: 8px; padding: 7px 10px; }
 /* 托盘退出后：浏览器不一定会让脚本关标签页，那就换一张干净的告别页 */
 .gone {
   position: fixed;
