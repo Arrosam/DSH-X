@@ -178,15 +178,13 @@ header {
 .mac-window .win-controls { display: none; }
 .mac-window header { padding-left: 96px; }
 /* macOS 外壳（Electron）：拖窗口只能靠 app-region——Chromium 没有「从页面发起一次系统拖动」的接口。
-   控件和标签条要挖出来，否则点不动、标签也拖不了序。双击空白处缩放由系统处理。 */
+   只挖控件和标签本身：标签条的空白处要能拖窗口（像浏览器标签栏那样），双击空白缩放由系统处理。 */
 .mac-window header { -webkit-app-region: drag; }
-.mac-window header :is(button, a, input, select, .select),
-.mac-window .internal-tabs-area { -webkit-app-region: no-drag; }
+.mac-window header :is(button, a, input, select, .select, .internal-tab) { -webkit-app-region: no-drag; }
 /* Windows 外壳（Electron）：无边框窗口，窗口按钮由页面画（.app-window 的 win-controls），
    拖动同样只能靠 app-region。类由 shell/preload.cjs 加，只在 Windows 的 Electron 里出现。 */
 .electron-window header { -webkit-app-region: drag; }
-.electron-window header :is(button, a, input, select, .select),
-.electron-window .internal-tabs-area { -webkit-app-region: no-drag; }
+.electron-window header :is(button, a, input, select, .select, .internal-tab) { -webkit-app-region: no-drag; }
 .win-btn {
   width: 34px;
   height: 30px;
