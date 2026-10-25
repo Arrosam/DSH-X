@@ -1739,7 +1739,7 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .rc-option > .rc-details { justify-self: stretch; }
 .repair-card > button.ghost { justify-self: start; }
 /* 本次事实按日志引用块呈现；规则判断是这张卡的结论，给一条高亮底 */
-.rc-quote { display: block; padding: 8px 10px; background: var(--accent-soft); border-radius: 8px; font: 11.5px/1.6 ui-monospace, Consolas, monospace; color: var(--muted); }
+.rc-quote { display: block; padding: 7px 10px; background: var(--accent-soft); border-radius: 8px; font: 11px/1.55 ui-monospace, Consolas, monospace; color: var(--muted); }
 .rc-quote .rc-label { display: block; margin-bottom: 3px; }
 .rc-quote-line { margin: 0; }
 .rc-quote-line + .rc-quote-line { margin-top: 3px; }

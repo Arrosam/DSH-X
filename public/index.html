@@ -2582,13 +2582,28 @@
           cardLine(card, '关联方案', `${t('此故障也在该引入者的同一次卸载影响范围内')}：${action.owner.name}；${t('不会单独重复卸载。')}`)
           card.append(link)
         }
-        const labels = actions.map(action => repairPresentation(action).button)
-        // 标题重复（比如都是「查看证据」）就别并排，两列一样的卡只是噪音
-        const sideBySide = actions.length > 1 && new Set(labels).size === labels.length
-        const options = document.createElement('div')
-        options.className = `rc-options${sideBySide ? ' multi' : ''}`
+        const entries = []
+        const byKey = new Map()
         for (const action of actions) {
           const presentation = repairPresentation(action)
+          // 展示完全相同的受限方案合并成一个框：同一原因（比如 probe 失败）挡住多个操作时，
+          // 重复的框只是噪音。可执行的方案各自独立，绝不合并。
+          const key = action.disabledReason
+            ? JSON.stringify([presentation.button, action.disabledReason, presentation.recommendation, presentation.rollback])
+            : `action:${action.id}`
+          if (!byKey.has(key)) {
+            byKey.set(key, { presentation, actions: [] })
+            entries.push(byKey.get(key))
+          }
+          byKey.get(key).actions.push(action)
+        }
+        // 标题重复（比如都是「查看证据」）就别并排，两列一样的卡只是噪音
+        const sideBySide = entries.length > 1 && new Set(entries.map(entry => entry.presentation.button)).size === entries.length
+        const options = document.createElement('div')
+        options.className = `rc-options${sideBySide ? ' multi' : ''}`
+        for (const entry of entries) {
+          const action = entry.actions[0]
+          const presentation = entry.presentation
           const option = document.createElement('section')
           option.className = 'rc-option'
           if (sideBySide) {
@@ -2610,7 +2625,7 @@
           const planDetails = document.createElement('details')
           planDetails.className = 'rc-details rc-option-details'
           const planSummary = document.createElement('summary')
-          planSummary.textContent = t('方案详情')
+          planSummary.textContent = entry.actions.length > 1 ? `${t('方案详情')}（${entry.actions.length}）` : t('方案详情')
           planDetails.append(planSummary)
           cardLine(planDetails, '方案', presentation.recommendation)
           cardLine(planDetails, '功能影响', action.disabledReason || !action.solution?.steps?.length ? t('此方案当前不可执行，尚未修改任何组件。') : action.kind === 'uninstall-introducer' ? t('移除引入者的安装声明及不再需要的依赖；不能直接重新启用它。预计影响不是保证删除范围，实际结果以执行后核对为准。') : action.solution?.effects?.bypass ? t('仅跳过这些插件并关闭相关功能；不保证恢复启动或解除其他等待，结果以复验为准。') : t('不禁用组件；实际结果以复验为准。'))
