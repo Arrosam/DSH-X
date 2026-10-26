@@ -458,6 +458,7 @@
   </main>
   <div class="ask" id="ask" hidden>
     <div class="ask-card" role="dialog" aria-modal="true" aria-labelledby="askTitle" data-dialog-size="medium">
+      <button type="button" class="ask-close" id="askClose" title="关闭" aria-label="关闭" data-i18n-title="关闭" data-i18n-aria-label="关闭">×</button>
       <h2 class="ask-title" id="askTitle" data-i18n="检测到新版本">检测到新版本</h2>
       <div class="ask-items" id="askItems"></div>
       <p class="ask-note" id="askNote" hidden></p>
@@ -1218,6 +1219,13 @@
   "正在安装…": "Installing…",
   "正在更新…": "Updating…",
   "正在下载…": "Downloading…",
+  "安装并重启": "Install and restart",
+  "下载失败": "Download failed",
+  "更新已就绪": "Update ready",
+  "新版本已下载，点这里完成安装": "New version downloaded — click to finish installing",
+  "正在后台下载新版本": "Downloading the new version in the background",
+  "新版本已下载，点左上角「更新 {latest}」完成安装。": "The new version is downloaded. Click the Update button at the top left to finish installing.",
+  "新版本已下载，安装后启动器会重启。": "The new version is downloaded; the launcher will restart after installing.",
   "正在下载新版本…": "Downloading the new version…",
   "正在读取更新内容…": "Loading the changelog…",
   "正在读取版本…": "Loading versions…",
@@ -4931,7 +4939,7 @@
           }
         }
       })
-      // 更新下载的进度：弹窗里那根进度条就是靠它
+      // 更新下载的进度：弹窗里那根进度条就是靠它；弹窗关着时进度记在左上角胶囊上
       events.addEventListener('selfUpdate', (event) => {
         let data
         try { data = JSON.parse(event.data) } catch { return }
@@ -4946,14 +4954,30 @@
           askNoteEl.hidden = false
           const mb = (n) => (n / 1048576).toFixed(1)
           askNoteEl.textContent = t('正在下载新版本 {pct}%（{mb} / {size}）', { pct, mb: mb(data.done), size: data.total ? mb(data.total) : '?' })
+          selfState.downloading = true
+          selfState.pct = pct
+          paintSelfPill()
+          if (askSelfButton && !askEl.hidden) {
+            askSelfButton.disabled = true
+            askSelfButton.textContent = t('正在下载…')
+          }
         } else if (data.phase === 'ready') {
           wrap.hidden = false
           wrap.classList.remove('indeterminate')
           bar.style.width = '100%'
+          selfState.downloading = false
+          selfState.ready = data.latest || selfState.latest
+          paintSelfPill()
+          if (askSelfButton && !askEl.hidden) {
+            askSelfButton.disabled = false
+            askSelfButton.textContent = t('安装并重启')
+          }
         } else if (data.phase === 'install') {
           // 后面的事在安装程序自己的窗口里，进度条留着只会让人以为还在下载
           wrap.hidden = true
           bar.style.width = ''
+          selfState.downloading = false
+          paintSelfPill()
         }
       })
       events.addEventListener('bye', () => launcherExited())
@@ -5000,6 +5024,21 @@
 
     const selfUpdateEl = document.getElementById('selfUpdate')
     const appVerEl = document.getElementById('appVer')
+    /** 启动器自更新的页面状态：下载在服务端跑，弹窗关掉也继续（进度走 selfUpdate 事件）。 */
+    const selfState = { current: '', latest: '', url: '', downloading: false, ready: '', pct: 0 }
+    let askSelfButton = null
+
+    function paintSelfPill() {
+      if (!selfUpdateEl || selfUpdateEl.hidden) return
+      const latest = selfState.latest || ''
+      selfUpdateEl.textContent = selfState.downloading
+        ? `更新 ${latest} · ${selfState.pct}%`
+        : selfState.ready ? `更新 ${latest} · 已下载` : (latest ? `更新 ${latest}` : t('更新'))
+      selfUpdateEl.title = selfState.ready ? t('新版本已下载，点这里完成安装')
+        : selfState.downloading ? t('正在后台下载新版本')
+          : (latest ? `更新启动器到 ${latest}` : t('更新启动器'))
+    }
+
     /**
      * 首页那个「更新 X」按钮：初始加载与版本管理的检测共用这条路。
      * 检测到启动器有新版本时按钮当场冒出来，不用刷新页面才能看到。
@@ -5007,15 +5046,72 @@
     function applySelfUpdate(data) {
       if (!data || !selfUpdateEl) return
       if (appVerEl) appVerEl.textContent = data.current || ''
+      selfState.current = data.current || selfState.current
+      selfState.latest = data.latest || selfState.latest
+      selfState.url = data.url || selfState.url
+      selfState.downloading = data.downloading === true
+      selfState.ready = data.staged || selfState.ready
       if (!data.update) { selfUpdateEl.hidden = true; return }
-      const url = data.url || `https://github.com/yyh-001/DSH-X/releases/latest/download/DSH-Setup.exe`
       selfUpdateEl.hidden = false
-      selfUpdateEl.textContent = data.latest ? `更新 ${data.latest}` : t('更新')
-      selfUpdateEl.title = data.latest ? `更新启动器到 ${data.latest}` : t('更新启动器')
+      paintSelfPill()
       selfUpdateEl.onclick = () => {
         // 先问一句再把新版本摆出来（弹窗里会拉这个版本的更新内容），
         // 而不是直接下载安装包——那会立刻弹出安装程序，用户连看都没看清
-        showAsk({ dsh: null, self: { current: data.current, latest: data.latest, url } })
+        showAsk({ dsh: null, self: { current: selfState.current, latest: selfState.latest, url: selfState.url } })
+      }
+    }
+
+    /** 下载完成后的安装步骤：装完启动器会关闭，新版自动打开。 */
+    async function installSelfUpdate(btn) {
+      if (btn) { btn.disabled = true; btn.textContent = t('正在安装…') }
+      askNoteEl.hidden = false
+      askNoteEl.textContent = t('下载完成，正在安装新版本…')
+      try {
+        await post('/api/self/install')
+        askNoteEl.textContent = t('新版本正在安装，启动器这就关闭，装完会自动打开新版。')
+      } catch (error) {
+        if (btn) { btn.disabled = false; btn.textContent = t('重试') }
+        askNoteEl.textContent = t('安装没能开始：{message}', { message: error.message })
+      }
+    }
+
+    /**
+     * 开始下载启动器更新。下载在服务端进行：弹窗关掉也不中断，
+     * 完成后如果弹窗已经关了，就提示用户点左上角「更新」完成安装。
+     */
+    async function startSelfUpdate(btn) {
+      if (selfState.downloading) return
+      if (selfState.ready) { await installSelfUpdate(btn); return }
+      selfState.downloading = true
+      selfState.pct = 0
+      if (btn) { btn.disabled = true; btn.textContent = t('正在下载…') }
+      askNoteEl.hidden = false
+      askNoteEl.textContent = t('正在下载新版本…')
+      const wrap = document.getElementById('askProgress')
+      const bar = document.getElementById('askProgressBar')
+      if (wrap && bar) { wrap.hidden = false; wrap.classList.remove('indeterminate') }
+      paintSelfPill()
+      try {
+        await post('/api/self/download')
+        selfState.downloading = false
+        selfState.ready = selfState.latest || t('最新')
+        paintSelfPill()
+        if (!askEl.hidden) {
+          await installSelfUpdate(btn)
+        } else {
+          notify(t('新版本已下载，点左上角「更新 {latest}」完成安装。', { latest: selfState.latest || '' }), t('更新已就绪'))
+        }
+      } catch (error) {
+        selfState.downloading = false
+        paintSelfPill()
+        const message = t('下载失败：{message}。可以点「手动下载」到发布页取安装包。', { message: error.message })
+        if (!askEl.hidden) {
+          if (btn) { btn.disabled = false; btn.textContent = t('更新启动器') }
+          askNoteEl.textContent = message
+          if (wrap) wrap.hidden = true
+        } else {
+          notify(message, t('下载失败'))
+        }
       }
     }
     getJson('/api/self').then(applySelfUpdate).catch(() => {})
@@ -5130,49 +5226,29 @@
         ))
       }
       if (update.self) {
+        const ready = Boolean(selfState.ready)
+        const downloading = selfState.downloading && !ready
         const selfRow = askRow(
           'self',
           t('DSH-X 启动器'),
           update.self.current,
           update.self.latest || t('最新'),
-          t('更新启动器'),
-          (event) => {
-            const btn = event.currentTarget
-            const wrap = document.getElementById('askProgress')
-            const bar = document.getElementById('askProgressBar')
-
-            // 安装。下载完自动走这一步，静默安装，不需要用户再点任何东西
-            const openInstaller = async () => {
-              btn.disabled = true
-              btn.textContent = t('正在安装…')
-              askNoteEl.textContent = t('下载完成，正在安装新版本…')
-              try {
-                await post('/api/self/install')
-                askNoteEl.textContent = t('新版本正在安装，启动器这就关闭，装完会自动打开新版。')
-              } catch (error) {
-                btn.disabled = false
-                btn.textContent = t('重试')
-                askNoteEl.textContent = t('安装没能开始：{message}', { message: error.message })
-              }
-            }
-            btn.onclick = openInstaller
-
-            // 下载。期间按钮是禁用的，进度由服务端的 selfUpdate 事件推过来；
-            // 下完不用再点一次，直接接上打开安装程序那一步
-            btn.disabled = true
-            btn.textContent = t('正在下载…')
-            askNoteEl.textContent = t('正在下载新版本…')
-            askNoteEl.hidden = false
-            wrap.hidden = false
-            wrap.classList.remove('indeterminate')
-            post('/api/self/download').then(openInstaller).catch((error) => {
-              btn.disabled = false
-              btn.textContent = t('更新启动器')
-              askNoteEl.textContent = t('下载失败：{message}。可以点「手动下载」到发布页取安装包。', { message: error.message })
-              wrap.hidden = true
-            })
-          },
+          ready ? t('安装并重启') : downloading ? t('正在下载…') : t('更新启动器'),
+          (event) => { void startSelfUpdate(event.currentTarget) },
         )
+        askSelfButton = selfRow.action
+        askSelfButton.disabled = downloading
+        if (downloading) {
+          // 页面重载后重新打开弹窗：下载还在服务端跑，进度条接着走
+          const wrap = document.getElementById('askProgress')
+          const bar = document.getElementById('askProgressBar')
+          if (wrap && bar) { wrap.hidden = false; wrap.classList.remove('indeterminate') }
+          askNoteEl.hidden = false
+          askNoteEl.textContent = t('正在下载新版本…')
+        } else if (ready) {
+          askNoteEl.hidden = false
+          askNoteEl.textContent = t('新版本已下载，安装后启动器会重启。')
+        }
         // 自动更新不管用时的退路：直接给发布页，自己挑对应平台的安装包。
         // 外链走普通 <a>（/api/open 只允许本机地址），WebView 和浏览器里都能打开。
         const manual = document.createElement('a')
@@ -5199,6 +5275,8 @@
     }
 
     askSkipEl.onclick = () => {
+      // 正在下载时「暂不更新」只关弹窗：下载继续跑，也不记跳过（下次还会提醒）
+      if (selfState.downloading) { dismissAsk(false); return }
       // 记住跳过的版本，下次别拿同一个版本再问一遍
       const skip = {}
       if (askPending?.dsh) skip.dsh = askPending.dsh.latest
@@ -5206,6 +5284,8 @@
       if (Object.keys(skip).length) post('/api/pending/skip', skip).catch(() => {})
       dismissAsk(false)
     }
+    // 右上角关闭：只关弹窗（下载照常继续），也不记跳过
+    document.getElementById('askClose').onclick = () => dismissAsk(false)
 
     const autoStartEl = document.getElementById('autoStart')
     const pluginMarketSourcesEl = document.getElementById('pluginMarketSources')

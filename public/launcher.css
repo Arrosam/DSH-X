@@ -2187,3 +2187,9 @@ html.reduce-motion #launchIconTrigger, html.reduce-motion #launchDialog .launch-
   .boot-bar span { animation: none; width: 100%; }
 }
 html[data-color-scheme="dark"] .boot-overlay { background: rgba(10, 11, 14, .62); }
+
+/* 更新弹窗右上角的关闭：下载在服务端进行，关掉弹窗不影响下载 */
+.ask-card { position: relative; }
+#ask .ask-title { padding-right: 36px; }
+.ask-close { position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
+.ask-close:hover { background: var(--accent-soft); color: var(--text); }

@@ -657,8 +657,23 @@ function safeHost(url) {
   }
 }
 
-/** 第一步：下载 + 校验。进度通过 selfUpdate 事件推给页面。 */
+/**
+ * 第一步：下载 + 校验。进度通过 selfUpdate 事件推给页面。
+ * 下载在服务端进行，页面关掉更新弹窗也不影响；已经下过就直接复用。
+ */
+let selfDownloadInFlight = false
 async function downloadSelfUpdate() {
+  if (selfDownloadInFlight) throw new Error('更新正在下载，请稍候')
+  if (stagedUpdate) return { latest: stagedUpdate.latest, file: stagedUpdate.file, staged: true }
+  selfDownloadInFlight = true
+  try {
+    return await downloadSelfUpdateOnce()
+  } finally {
+    selfDownloadInFlight = false
+  }
+}
+
+async function downloadSelfUpdateOnce() {
   if (IS_MAC) assertMacUpdatable()
   const info = await checkSelfUpdate()
   const target = join(tmpdir(), `DSH-X-update-${info.latest || 'latest'}.${SELF_UPDATE_PACKAGE.ext}`)
@@ -5053,7 +5068,9 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/self') {
-    send(res, 200, await checkSelfUpdate({ force: url.searchParams.get('refresh') === '1' }))
+    const info = await checkSelfUpdate({ force: url.searchParams.get('refresh') === '1' })
+    // staged / downloading 让页面重载后也能知道下载进度：下载在服务端跑，和弹窗开不开无关
+    send(res, 200, { ...info, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight })
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/pending') {
