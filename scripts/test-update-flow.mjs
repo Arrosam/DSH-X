@@ -48,6 +48,22 @@ async function buildAssets() {
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
   const assets = await buildAppAssets({ appDir: staged, version: NEXT, electronVersion, platform: 'win', outDir: TEST_RELEASE })
   console.log(`假发布资产：${basename(assets.zipPath)}（${(assets.manifest.archive.size / 1048576).toFixed(1)} MB）`)
+
+  // Electron 升级链路：如果准备了 37.5.1 的运行时目录，就再出一套「新版 runtime + 配套 app」
+  const runtimeSrc = join(RELEASE, 'test-runtime-37')
+  if (existsSync(runtimeSrc)) {
+    const rt = await buildAppAssets({ appDir: runtimeSrc, version: '37.5.1', electronVersion: '37.5.1', platform: 'win', prefix: 'runtime', outDir: TEST_RELEASE })
+    console.log(`假运行时资产：${basename(rt.zipPath)}（${(rt.manifest.archive.size / 1048576).toFixed(1)} MB）`)
+    const staged2 = join(RELEASE, 'test-app-022')
+    rmSync(staged2, { recursive: true, force: true })
+    await cp(source, staged2, { recursive: true })
+    const pkg2 = JSON.parse(readFileSync(join(staged2, 'package.json'), 'utf8'))
+    pkg2.version = '0.1.22'
+    writeFileSync(join(staged2, 'package.json'), `${JSON.stringify(pkg2, null, 2)}
+`)
+    const app2 = await buildAppAssets({ appDir: staged2, version: '0.1.22', electronVersion: '37.5.1', platform: 'win', outDir: TEST_RELEASE })
+    console.log(`假应用资产：${basename(app2.zipPath)}（0.1.22 / Electron 37.5.1）`)
+  }
 }
 
 function serve() {
@@ -86,9 +102,13 @@ await buildAssets()
 const server = serve()
 prepareInstall()
 console.log('')
-console.log('启动引导器（首次安装会从本地发布页下载 0.1.20）：')
+console.log('阶段 A：应用增量（0.1.20 → 0.1.21）——启动引导器：')
 console.log(`  DSH_BOOT_BASE=http://127.0.0.1:${PORT} DSH_BOOT_VERSION=${CURRENT} DSH_UPDATE_BASE=http://127.0.0.1:${PORT} DSH_UPDATE_VERSION=${NEXT} "${join(TEST_INSTALL, 'DSH.exe')}"`)
 console.log('')
 console.log(`装完应用会带着 DSH_UPDATE_* 启动：管理器里点「更新」应看到 ${NEXT}，走增量下载 → 切换 → 重启，版本号变成 ${NEXT}。`)
+console.log('')
+console.log('阶段 B：Electron 运行时升级（需要 release/test-runtime-37 存在）')
+console.log('  重启应用时把 DSH_UPDATE_VERSION 改成 0.1.22：管理器会提示更新运行时（37.5.1，约 120 MB），')
+console.log('  切完运行时会重启到新 runtime，随后再提示应用更新到 0.1.22。')
 console.log('测试完 Ctrl+C 结束本地发布页。')
 void server

@@ -5,7 +5,7 @@
 // 逐个校验，退出后由 apply-update.mjs 换目录。Electron 版本变了就不能用增量，走全量安装包。
 
 import { createHash, verify as cryptoVerify } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { readZipEntry, readZipIndex } from './zipfile.js'
@@ -107,7 +107,10 @@ export async function extractVerified(zipPath, manifest, stagingDir, onProgress)
     if (createHash('sha256').update(data).digest('hex') !== file.sha256) throw new Error(`${file.path} 的哈希与清单不一致`)
     const target = join(stagingDir, ...file.path.split('/'))
     mkdirSync(dirname(target), { recursive: true })
-    writeFileSync(target, data)
+    // Electron 主进程会拦截 .asar 路径的写操作（报 Invalid package），先写临时名再改名
+    const temp = `${target}.part`
+    writeFileSync(temp, data)
+    renameSync(temp, target)
     done += 1
     if (onProgress) onProgress(done, files.length)
   }
@@ -132,6 +135,6 @@ export function stagingStats(dir) {
   return { files, bytes }
 }
 
-export function stagingExists(dir) {
-  return Boolean(dir) && existsSync(join(dir, 'server.js'))
+export function stagingExists(dir, marker = 'server.js') {
+  return Boolean(dir) && existsSync(join(dir, marker))
 }

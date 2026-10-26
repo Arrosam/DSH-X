@@ -3698,8 +3698,9 @@ async function testNetwork() {
 /** 下载上限：整合包只装清单与配置，超过这个量级的多半不是包（也免得把内存吃光）。 */
 const PACK_DOWNLOAD_LIMIT = 64 * 1024 * 1024
 
-async function downloadToFile(url, dest, { sha256 = '', log = pushLog, onProgress } = {}) {
-  const candidates = updateUrlCandidates(url, UPDATE_SOURCE)
+async function downloadToFile(url, dest, { sha256 = '', log = pushLog, onProgress, limit = PACK_DOWNLOAD_LIMIT } = {}) {
+  // 只有 GitHub 发布资产才套镜像前缀；本地/其他地址原样请求
+  const candidates = /^https:\/\/github\.com\//i.test(url) ? updateUrlCandidates(url, UPDATE_SOURCE) : [url]
   let last = null
   for (const candidate of candidates) {
     try {
@@ -3707,13 +3708,13 @@ async function downloadToFile(url, dest, { sha256 = '', log = pushLog, onProgres
       const res = await netFetch(candidate, { redirect: 'follow' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const total = Number(res.headers.get('content-length')) || 0
-      if (total > PACK_DOWNLOAD_LIMIT) throw new Error(`文件太大（${Math.round(total / 1048576)} MB，上限 ${PACK_DOWNLOAD_LIMIT / 1048576} MB）`)
+      if (total > limit) throw new Error(`文件太大（${Math.round(total / 1048576)} MB，上限 ${Math.round(limit / 1048576)} MB）`)
       const chunks = []
       let done = 0
       for await (const chunk of res.body) {
         chunks.push(chunk)
         done += chunk.length
-        if (done > PACK_DOWNLOAD_LIMIT) throw new Error(`下载超过上限（${PACK_DOWNLOAD_LIMIT / 1048576} MB），已停下`)
+        if (done > limit) throw new Error(`下载超过上限（${Math.round(limit / 1048576)} MB），已停下`)
         onProgress?.({ phase: 'download', done, total })
       }
       const buffer = Buffer.concat(chunks)
@@ -5484,6 +5485,7 @@ async function handleApi(req, res, url) {
       const archive = pendingAppUpdate.manifest.archive || {}
       const result = await downloadToFile(releaseUrl(data.version, archive.name), zipPath, {
         sha256: archive.sha256 || '',
+        limit: 512 * 1024 * 1024,
         onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'app', done, total }),
       })
       const staging = join(tmpdir(), `DSH-X-app-${data.version}-${process.pid}`)
@@ -5551,7 +5553,7 @@ async function handleApi(req, res, url) {
       if (!layout) throw new Error('当前不是引导器安装的版本，请用完整安装包')
       const data = await checkAppUpdate({ force: true })
       if (!data.runtime || !pendingRuntimeUpdate) throw new Error('没有可用的运行时更新')
-      if (stagedRuntime && stagedRuntime.version === data.runtime.version && stagingExists(stagedRuntime.dir)) {
+      if (stagedRuntime && stagedRuntime.version === data.runtime.version && stagingExists(stagedRuntime.dir, 'DSH.exe')) {
         send(res, 200, { ok: true, version: stagedRuntime.version, reused: true })
         return
       }
@@ -5559,6 +5561,7 @@ async function handleApi(req, res, url) {
       const zipPath = join(tmpdir(), `DSH-X-runtime-${data.runtime.version}-${process.pid}.zip`)
       const result = await downloadToFile(releaseUrl(data.latest, manifest.archive?.name || ''), zipPath, {
         sha256: manifest.archive?.sha256 || '',
+        limit: 512 * 1024 * 1024,
         onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'runtime', done, total }),
       })
       const staging = join(tmpdir(), `DSH-X-runtime-${data.runtime.version}-${process.pid}`)
@@ -5580,7 +5583,7 @@ async function handleApi(req, res, url) {
     try {
       const layout = bootLayout()
       if (!layout) throw new Error('当前不是引导器安装的版本，请用完整安装包')
-      if (!stagedRuntime || !stagingExists(stagedRuntime.dir)) throw new Error('还没有下载好的运行时更新')
+      if (!stagedRuntime || !stagingExists(stagedRuntime.dir, 'DSH.exe')) throw new Error('还没有下载好的运行时更新')
       switchBootRuntimeVersion({
         link: layout.link,
         installRoot: layout.installRoot,

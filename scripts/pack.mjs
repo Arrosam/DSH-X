@@ -254,6 +254,8 @@ async function buildParts() {
   await cp(OUT, runtimeDir, { recursive: true })
   // runtime 里不带 app：安装时由引导器建 junction 指到 app/<启动器版本>
   rmSync(join(runtimeDir, 'resources', 'app'), { recursive: true, force: true })
+  // Electron 自带的兜底 app 用不上，而且它的 .asar 会被 Electron 的 fs 拦截（写不进去）
+  rmSync(join(runtimeDir, 'resources', 'default_app.asar'), { force: true })
   await cp(join(OUT, 'resources', 'app'), appDir, { recursive: true })
   const { buildAppAssets } = await import('./app-manifest.mjs')
   const runtimeAssets = await buildAppAssets({ appDir: runtimeDir, version: electronVersion, electronVersion, platform: 'win', prefix: 'runtime' })
