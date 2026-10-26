@@ -679,14 +679,14 @@ async function downloadSelfUpdateOnce() {
   const target = join(tmpdir(), `DSH-X-update-${info.latest || 'latest'}.${SELF_UPDATE_PACKAGE.ext}`)
   pushLog(`下载更新${info.latest ? ` ${info.latest}` : ''}…`)
 
-  // 按下载源展开成待试列表：直连排第一，选了「国内加速」的话后面跟镜像前缀。
+  // 按下载源展开成待试列表：选了「国内加速」先走镜像前缀，直连放最后兜底。
   // GitHub 在国内经常直接连不上，直连失败就换镜像重来（同一个文件，只是换个入口）。
   const candidates = updateUrlCandidates(info.url, UPDATE_SOURCE)
   let res = null
   let lastError = null
   for (const [index, url] of candidates.entries()) {
     try {
-      if (index > 0) pushLog(`直连没成功，改用加速镜像重试：${safeHost(url)}`)
+      if (index > 0) pushLog(`上一个源没成功，改用 ${safeHost(url)} 重试`)
       const attempt = await netFetch(url, { redirect: 'follow', signal: AbortSignal.timeout(10 * 60 * 1000) })
       if (!attempt.ok) throw new Error(`HTTP ${attempt.status}`)
       res = attempt
@@ -1225,7 +1225,7 @@ async function publicSettings() {
     systemPathCommand: manualPathCommand(systemBinDir()),
     updateSource: updateSourceForDownload(stored.downloadSource),
     updateSources: [
-      { id: 'mirror', label: '国内加速（先直连，连不上走镜像）' },
+      { id: 'mirror', label: '国内加速（先走镜像，连不上再直连）' },
       { id: 'direct', label: '只直连（不用镜像）' },
     ],
     // 网络代理：模式 + 手动地址 + 「现在实际在用哪个」（探测结果，页面拿它显示提示行）。

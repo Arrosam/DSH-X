@@ -87,17 +87,17 @@ test('设置页有下载源选择器：改动即保存，并说明两种源各�
 })
 
 // 启动器自更新的下载源：默认「国内加速」——它不是「只走镜像」，候选顺序永远是
-// 「先直连、失败才按前缀走镜像」，所以能直连的网络一次都碰不到镜像，只是多一条退路；
+// 「镜像优先、直连兜底」，直连放最后，免得每次更新都先等一次直连超时；
 // 而「直连」在国内等于没有退路（市场索引的域名被 DNS 污染、release 资产的 443 连不上）。
-test('更新下载源：默认国内加速，但候选永远是「直连排第一、失败才走镜像」', () => {
+test('更新下载源：默认国内加速，镜像优先、直连兜底', () => {
   const url = 'https://github.com/yyh-001/DSH-X/releases/latest/download/DSH-Setup.exe'
   assert.equal(DEFAULT_UPDATE_SOURCE, 'mirror', '默认国内加速')
   assert.equal(DEFAULTS.updateSource, 'mirror')
   assert.deepEqual(updateUrlCandidates(url, 'direct'), [url], '只直连时没有镜像候选')
   const mirror = updateUrlCandidates(url, 'mirror')
-  assert.equal(mirror[0], url, '直连排第一，成功就不用镜像')
+  assert.equal(mirror.at(-1), url, '直连放最后当兜底')
   assert.ok(mirror.length > 1, '国内加速要带上镜像候选')
-  for (const candidate of mirror.slice(1)) {
+  for (const candidate of mirror.slice(0, -1)) {
     assert.ok(candidate.endsWith(url), `镜像应该是「前缀 + 原地址」，实际：${candidate}`)
   }
   // 脏值不能把源弄丢，也不该抛错

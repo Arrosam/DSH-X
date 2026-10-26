@@ -66,12 +66,9 @@ export const DOWNLOAD_SOURCES = {
 export const DEFAULT_SOURCE = 'mirror'
 
 /**
- * 启动器自身更新的下载源。GitHub 在国内经常连不上或慢到超时，直连失败时按这里的
- * 前缀再试一遍（顺序即优先级）；镜像只做转发，包本身没变——但仍然经过第三方。
- *
- * 默认「国内加速」，注意它不是「只走镜像」：候选列表永远是「先直连、失败才走前缀」
- * （见 updateUrlCandidates），所以能直连的网络一次都碰不到镜像，只是多一条退路；
- * 而「直连」在国内等于没有退路——自更新、整合包市场与包下载会直接失败。
+ * 启动器自身更新的下载源。GitHub 在国内经常连不上或慢到超时，所以「国内加速」的候选
+ * 列表是「镜像优先、直连兜底」：直连放最后，免得每次更新都先等一次直连超时。
+ * 镜像只做转发，包本身没变——但仍然经过第三方；增量更新的清单带签名，可以校验。
  */
 export const UPDATE_SOURCES = {
   direct: [],
@@ -82,7 +79,7 @@ export const UPDATE_SOURCES = {
 }
 export const DEFAULT_UPDATE_SOURCE = 'mirror'
 
-/** 更新下载源只认内置选项，脏值回默认（国内加速：直连优先、失败走镜像）。 */
+/** 更新下载源只认内置选项，脏值回默认（国内加速：镜像优先、直连兜底）。 */
 export function safeUpdateSource(value) {
   const name = String(value ?? '').trim()
   return UPDATE_SOURCES[name] ? name : DEFAULT_UPDATE_SOURCE
@@ -170,12 +167,12 @@ export function safeOpenMode(value) {
   return OPEN_MODES.includes(name) ? name : DEFAULT_OPEN_MODE
 }
 
-/** 按下载源把发布页地址展开成待试列表：直连永远排第一，后面才是镜像前缀。 */
+/** 按下载源把发布页地址展开成待试列表：国内加速是镜像优先、直连兜底。 */
 export function updateUrlCandidates(url, source = DEFAULT_UPDATE_SOURCE) {
   const direct = String(url ?? '').trim()
   if (!direct) return []
   const prefixes = UPDATE_SOURCES[safeUpdateSource(source)] || []
-  return [direct, ...prefixes.map((prefix) => `${prefix}${direct}`)]
+  return [...prefixes.map((prefix) => `${prefix}${direct}`), direct]
 }
 
 /** dsh 用户目录（DSH_HOME）：留空用默认 ~/.dsh；填了必须是绝对路径。 */
