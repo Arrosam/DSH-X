@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>DSH-X</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: grid; place-items: center;
+    background: radial-gradient(ellipse at 24% 10%, #303035, #1c1c21 62%, #151519);
+    color: #f4f4f5;
+    font: 13px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    user-select: none; -webkit-user-select: none;
+  }
+  .card {
+    width: 480px; padding: 34px 36px 30px; border-radius: 18px;
+    background: #27272b; border: 1px solid #49494e;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .32);
+    display: grid; gap: 14px;
+  }
+  h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: .2px; }
+  .sub { margin: 0; color: #b8b8bc; font-size: 12px; }
+  .bar { height: 4px; border-radius: 999px; background: #3a3b40; overflow: hidden; }
+  .bar > span { display: block; width: 0%; height: 100%; border-radius: inherit; background: #f0f0f2; transition: width .18s ease; }
+  .bar.indeterminate > span { width: 38%; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
+  .status { margin: 0; color: #b8b8bc; font-size: 12px; font-variant-numeric: tabular-nums; min-height: 18px; }
+  .status.error { color: #e4a0a8; }
+  .tip { margin: 0; color: #8a8b92; font-size: 11px; }
+  @media (prefers-reduced-motion: reduce) { .bar.indeterminate > span { animation: none; width: 100%; } .bar > span { transition: none; } }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="title">DSH-X</h1>
+    <p class="sub" id="sub"></p>
+    <div class="bar" id="bar"><span id="fill"></span></div>
+    <p class="status" id="status"></p>
+    <p class="tip" id="tip"></p>
+  </div>
+<script>
+  const LANG = '__LANG__'
+  const TEXT = LANG === 'zh'
+    ? { sub: '首次启动需要下载 Electron 运行时与启动器，之后更新只需下载少量文件。', tip: '下载完成后会自动启动，请保持网络连接。' }
+    : { sub: 'The first launch downloads the Electron runtime and the launcher; later updates only fetch changed files.', tip: 'The app starts automatically when ready. Keep the connection open.' }
+  document.documentElement.lang = LANG === 'zh' ? 'zh-CN' : 'en'
+  document.getElementById('sub').textContent = TEXT.sub
+  document.getElementById('tip').textContent = TEXT.tip
+  const bar = document.getElementById('bar')
+  const fill = document.getElementById('fill')
+  const status = document.getElementById('status')
+  window.bootProgress = (p) => {
+    if (!p) return
+    if (p.phase === 'error') {
+      status.classList.add('error')
+      status.textContent = p.message || 'Error'
+      bar.classList.remove('indeterminate')
+      fill.style.width = '100%'
+      fill.style.background = '#e4a0a8'
+      return
+    }
+    if (p.phase === 'done') {
+      status.textContent = p.message || ''
+      bar.classList.remove('indeterminate')
+      fill.style.width = '100%'
+      return
+    }
+    if (p.total > 0) {
+      const pct = Math.max(0, Math.min(100, Math.round((p.done / p.total) * 100)))
+      bar.classList.remove('indeterminate')
+      fill.style.width = pct + '%'
+      const mb = (n) => (n / 1048576).toFixed(1)
+      status.textContent = (p.message || '') + '  ' + pct + '%  (' + mb(p.done) + ' / ' + mb(p.total) + ' MB)'
+    } else {
+      bar.classList.add('indeterminate')
+      status.textContent = p.message || ''
+    }
+  }
+</script>
+</body>
+</html>

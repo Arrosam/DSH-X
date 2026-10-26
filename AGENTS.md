@@ -119,11 +119,15 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 
 ### 应用层增量更新（app-update.js / apply-update.mjs）
 
-- 发布侧：`scripts/app-manifest.mjs build` 给打包后的 `resources/app` 生成文件清单（路径/大小/sha256、启动器版本、Electron 版本、平台）与整包 `app-<版本>-<平台>.zip`；有 `release/release-key.pem`（或 `DSH_RELEASE_KEY`）时用 Ed25519 给清单签名。CI 两个平台各自产出，挂到同 tag 的 Release 上。
-- 客户端：`/api/self` 带 `app` 检查结果（清单签名必须用内置公钥 `APP_PUBLIC_KEY` 校验通过、Electron 版本一致、平台是 win），页面按「约 N MB」展示增量大小；`/api/self/app-download` 下载整包并逐文件核对哈希后解到暂存目录，`/api/self/app-apply` 起替换助手并退出。
-- 替换助手（`apply-update.mjs`）用 `ELECTRON_RUN_AS_NODE` 跑：等父进程退出 → 备份旧 app → 换上新目录 → 重启 → 45 秒内等不到启动标记（`<APP_DIR>/update-ok`）就回滚。只替换 `resources/app`，不碰 `DSH.exe` 和 Electron 运行时，所以不受 Windows 文件锁影响；备份最多留一份（下次更新时清掉）。
-- 边界：只有「已打包的 Windows 安装版 + 签名清单 + Electron 版本相同」才走增量；其他情况（未签名、Electron 升级、mac、源码运行）自动回退完整安装包。旧版本客户端不认识这些资产，忽略即可。
+- 发布侧：`scripts/app-manifest.mjs build` 给打包后的目录生成文件清单（路径/大小/sha256、启动器版本、Electron 版本、平台）与整包 zip；有 `release/release-key.pem`（或 `DSH_RELEASE_KEY`）时用 Ed25519 给清单签名。`pack.mjs` 产出两套：`app-<版本>-win.*`（`resources/app`）与 `runtime-<electron>-win.*`（Electron 壳）。CI 两个平台各自产出 app 资产，Windows 另外产出 runtime 与 `DSH-Setup-lite.exe`，一起挂到同 tag 的 Release。
+- 客户端：`/api/self` 带 `app` 检查结果（清单签名必须用内置公钥 `APP_PUBLIC_KEY` 校验通过、平台是 win；Electron 版本不一致时带 `runtime` 信息），页面按「约 N MB」展示增量大小；`/api/self/app-download` 下载整包并逐文件核对哈希后解到暂存目录，`/api/self/app-apply` 负责切换。
+- **两种安装布局**：
+  - 完整安装包（`DSH-Setup.exe`）：Electron 壳在安装根目录，`resources/app` 是普通目录；更新走替换助手（`apply-update.mjs`，等父进程退出 → 备份旧 app → 换目录 → 重启 → 45 秒内等不到启动标记 `<APP_DIR>/update-ok` 就回滚）。
+  - 引导器安装（`DSH-Setup-lite.exe`，约 5 MB）：`DSH.exe` 是 Rust 引导器，布局为 `current.json` + `runtime/<electron版本>/` + `app/<启动器版本>/`，`runtime/<v>/resources/app` 是指向 app 目录的 junction。app 更新 = 换 junction + 写 current.json（`switchBootAppVersion`）；Electron 升级 = 下载新 runtime 目录 + junction 指回当前 app + 写 current.json（`switchBootRuntimeVersion`），旧 runtime 保留供回滚。引导器在 current.json 带 `previous` 时等 45 秒启动标记，等不到自动回滚。
+  - 引导器首次运行下载 runtime + app（两套清单都验签、逐文件核对哈希），之后只负责启动当前版本；自启/快捷方式指向安装根目录的引导器（`launcherExecutable()` 会识别 junction 布局）。
+- 边界：只有「已打包的 Windows 安装版 + 签名清单」才走增量；未签名、mac、源码运行自动回退完整安装包。旧版本客户端不认识这些资产，忽略即可。
 - 所有下载都走 `updateUrlCandidates`：默认「国内加速」是镜像优先（gh-proxy → ghfast → 直连兜底）。
+- 本地调试引导器：`DSH_BOOT_BASE=http://127.0.0.1:端口 DSH_BOOT_VERSION=<版本>` 让它从本地目录取资产（扁平存放），`DSH_BOOT_LOG` 指定日志文件。
 
 ### 打包与安装布局
 

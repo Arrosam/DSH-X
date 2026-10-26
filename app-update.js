@@ -17,7 +17,7 @@ export const APP_SCHEMA = 'dsh-x.app/v1'
  * 应用清单必须用对应私钥签名，否则不提供增量更新。
  */
 export const APP_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAMLWjUtLegI3HpVQliKDRmMtEYfbzb66rIPgOTxdcTsg=
+MCowBQYDK2VwAyEAqIKBGwG4iFvoqTtqIN+rcWgOsTjGRmM0BggjZBDAspU=
 -----END PUBLIC KEY-----`
 
 export function hashFile(file) {
@@ -37,8 +37,13 @@ export function appAssetName(version, platform, ext) {
   return `app-${version}-${platform}${ext}`
 }
 
+/** 发布页上的任意资产：tag 是启动器版本（v<版本>），name 是资产文件名。 */
+export function releaseAssetUrl(repo, version, name) {
+  return `https://github.com/${repo}/releases/download/v${version}/${name}`
+}
+
 export function appAssetUrl(repo, version, platform, ext) {
-  return `https://github.com/${repo}/releases/download/v${version}/${appAssetName(version, platform, ext)}`
+  return releaseAssetUrl(repo, version, appAssetName(version, platform, ext))
 }
 
 /**

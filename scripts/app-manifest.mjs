@@ -86,8 +86,8 @@ export async function verifyAppArchive({ manifestPath, zipPath, sigPath, publicK
 }
 
 /** 生成资产：zip 先落盘，再把 archive 信息写进清单并签名。 */
-export async function buildAppAssets({ appDir, version, electronVersion, platform = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : process.platform, outDir = join(ROOT, 'release'), privateKeyPem = process.env.DSH_RELEASE_KEY } = {}) {
-  const base = `app-${version}-${platform}`
+export async function buildAppAssets({ appDir, version, electronVersion, platform = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : process.platform, prefix = 'app', outDir = join(ROOT, 'release'), privateKeyPem = process.env.DSH_RELEASE_KEY } = {}) {
+  const base = `${prefix}-${version}-${platform}`
   const zipPath = join(outDir, `${base}.zip`)
   const archive = await buildAppZip(appDir, zipPath)
   const manifest = buildAppManifest(appDir, { version, electronVersion, platform, archive: { name: `${base}.zip`, ...archive } })
@@ -116,10 +116,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const version = argValue(process.argv, '--version')
     const electronVersion = argValue(process.argv, '--electron')
     const platform = argValue(process.argv, '--platform')
+    const prefix = argValue(process.argv, '--prefix', 'app')
     const outDir = resolve(argValue(process.argv, '--out', join(ROOT, 'release')))
     if (!version) throw new Error('缺少 --version')
     if (!existsSync(appDir)) throw new Error(`找不到 app 目录：${appDir}`)
-    const result = await buildAppAssets({ appDir, version, electronVersion, ...(platform ? { platform } : {}), outDir })
+    const result = await buildAppAssets({ appDir, version, electronVersion, prefix, ...(platform ? { platform } : {}), outDir })
     console.log(`应用清单：${result.manifestPath}（${result.manifest.files.length} 个文件）`)
     console.log(`应用整包：${result.zipPath}（${(result.manifest.archive.size / 1048576).toFixed(1)} MB）`)
     console.log(result.sigPath ? `签名：${result.sigPath}` : '未签名：没有 release/release-key.pem 或 DSH_RELEASE_KEY，本次不提供增量更新')

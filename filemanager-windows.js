@@ -1,4 +1,5 @@
-import { join } from 'node:path'
+import { lstatSync, realpathSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { FileManager } from './filemanager-base.js'
 import { APP_DIR_NAME, IN_ELECTRON, LAUNCHER_NAME } from './platform.js'
 
@@ -50,9 +51,21 @@ export class WindowsFileManager extends FileManager {
    * Electron 外壳里 DSH.exe 就是 process.execPath（打包后在安装目录根上，不在 resources/app 里）。
    * 源码运行（npm run electron）时 defaultApp 为真，execPath 是 node_modules 里的 electron.exe，
    * 不能让开机自启把它写进注册表。老的 Rust 外壳布局仍然认（装过 0.1.19 及以前的机器）。
+   * 引导器安装的新布局里 resources/app 是 junction：自启要指向安装根目录的引导器，
+   * 它按 current.json 挑当前版本；直接写 execPath 会把自启钉死在这一份 runtime 上。
    */
   launcherExecutable() {
-    if (IN_ELECTRON) return process.defaultApp ? '' : process.execPath
+    if (IN_ELECTRON) {
+      if (process.defaultApp) return ''
+      try {
+        if (lstatSync(this.root).isSymbolicLink()) {
+          const installRoot = dirname(dirname(realpathSync.native(this.root)))
+          const boot = join(installRoot, `${LAUNCHER_NAME}.exe`)
+          if (this.exists(join(installRoot, 'current.json')) && this.exists(boot)) return boot
+        }
+      } catch { /* 保持旧行为 */ }
+      return process.execPath
+    }
     const exe = join(this.root, `${LAUNCHER_NAME}.exe`)
     return this.exists(exe) ? exe : ''
   }
