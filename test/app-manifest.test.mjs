@@ -23,7 +23,7 @@ test('应用清单与整包：逐文件哈希、签名可校验', async () => {
     writeFileSync(join(app, 'server.js'), 'console.log(1)\n')
     writeFileSync(join(app, 'shell', 'main.mjs'), 'export {}\n')
     const { publicKeyPem, privateKeyPem } = keyPair()
-    const result = await buildAppAssets({ appDir: app, version: '9.9.9', electronVersion: '44.7.0', outDir: root, privateKeyPem })
+    const result = await buildAppAssets({ appDir: app, version: '9.9.9', electronVersion: '44.7.0', platform: 'win', outDir: root, privateKeyPem })
     assert.deepEqual(result.manifest.files.map((file) => file.path), ['server.js', 'shell/main.mjs'])
     assert.ok(result.sigPath, '有私钥就要出签名')
     assert.equal(result.manifest.archive.name, 'app-9.9.9-win.zip')

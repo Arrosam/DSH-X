@@ -98,6 +98,7 @@ test('解包校验：逐个文件核对哈希，zip 与清单不一致就拒绝'
 
 test('内置公钥必须与 scripts/release-pubkey.pem 一致（换钥匙时两边一起改）', async () => {
   const { APP_PUBLIC_KEY } = await import('../app-update.js')
-  const repoKey = readFileSync(new URL('../scripts/release-pubkey.pem', import.meta.url), 'utf8').trim()
+  // Windows 检出时 PEM 会被换成 CRLF，比较前统一成 LF
+  const repoKey = readFileSync(new URL('../scripts/release-pubkey.pem', import.meta.url), 'utf8').replace(/\r\n/g, '\n').trim()
   assert.equal(APP_PUBLIC_KEY.trim(), repoKey)
 })

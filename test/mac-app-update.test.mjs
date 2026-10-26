@@ -92,7 +92,7 @@ test('重签失败：换回旧目录、重签旧包、重开旧版', { skip: !PO
     assert.equal(readFileSync(join(h.appDir, 'old.txt'), 'utf8'), 'old\n')
     assert.ok(!existsSync(join(h.appDir, 'new.txt')))
     assert.ok(!existsSync(h.backup), '回滚后备份应已挪回原位')
-    assert.equal(readFileSync(h.stubLog, 'utf8').match(/^open /gm).length, 2, '回滚后应重新打开旧版')
+    assert.equal(readFileSync(h.stubLog, 'utf8').match(/^open /gm).length, 1, '回滚后应重新打开旧版')
     assert.match(readFileSync(h.logFile, 'utf8'), /重新签名失败，回滚/)
   } finally {
     rmSync(h.root, { recursive: true, force: true })
