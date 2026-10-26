@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RuntimeDiagnostics, importDisableReason, schemaDisableReason } from '../runtime-diagnostics.mjs'
@@ -30,7 +30,7 @@ test('same text cannot impersonate the audited fatal Error and multiple owners a
 })
 
 test('early fatal proof requires complete current root, unique identity and no apply', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'd14-import-proof-'))
+  const directory = mkdtempSync(join(realpathSync.native(tmpdir()), 'd14-import-proof-'))
   try {
     writeFileSync(join(directory, 'package.json'), JSON.stringify({ name: 'example-fault', version: '1.0.0', type: 'module' }))
     writeFileSync(join(directory, 'index.js'), 'export function apply() {}\n')

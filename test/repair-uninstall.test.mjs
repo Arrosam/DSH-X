@@ -1,12 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DiagnosticRepairs } from '../repair-actions.js'
 
 function fixture() {
-  const home = mkdtempSync(join(tmpdir(), 'diagnostic-uninstall-'))
+  const home = mkdtempSync(join(realpathSync.native(tmpdir()), 'diagnostic-uninstall-'))
   const profile = join(home, 'profiles/desktop')
   const source = join(profile, 'node_modules/renamed-introducer')
   mkdirSync(source, { recursive: true })

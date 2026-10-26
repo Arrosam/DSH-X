@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, symlinkSync, lstatSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, symlinkSync, lstatSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { archivePackage, restorePackage, packageFingerprint } from '../diagnostic-repair.js'
@@ -8,7 +8,7 @@ import { DiagnosticRepairs, verificationSummary } from '../repair-actions.js'
 import vm from 'node:vm'
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'diagnostic-repair-'))
+  const root = mkdtempSync(join(realpathSync.native(tmpdir()), 'diagnostic-repair-'))
   const source = join(root, 'profile/node_modules/@deepseek-ai/example')
   const backup = join(root, 'profile/.dsh-x-repairs/one/packages/@deepseek-ai/example')
   mkdirSync(source, { recursive: true })
