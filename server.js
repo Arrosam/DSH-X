@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { createInterface } from 'node:readline'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { accessSync, chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { accessSync, chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -2628,11 +2628,18 @@ let stagedRuntime = null
 let pendingAppUpdate = null
 let pendingRuntimeUpdate = null
 let appUpdateCache = { at: 0, data: null }
+/** 本地测试通道：DSH_UPDATE_BASE 指到本地资产目录、DSH_UPDATE_VERSION 当最新版本。 */
+const TEST_UPDATE_BASE = String(process.env.DSH_UPDATE_BASE || '').trim().replace(/\/+$/, '')
+const TEST_UPDATE_VERSION = String(process.env.DSH_UPDATE_VERSION || '').trim().replace(/^v/i, '')
+
+function releaseUrl(tagVersion, name) {
+  return TEST_UPDATE_BASE ? `${TEST_UPDATE_BASE}/${name}` : releaseAssetUrl(APP_REPO, tagVersion, name)
+}
 const APP_UPDATE_CACHE_MS = 30 * 60 * 1000
 
 /** 拉某个发布资产（清单 + 签名），与安装包共用「镜像优先、直连兜底」的候选列表。 */
 async function fetchSignedManifest(tagVersion, assetName) {
-  const manifestUrl = releaseAssetUrl(APP_REPO, tagVersion, assetName)
+  const manifestUrl = releaseUrl(tagVersion, assetName)
   const pairs = updateUrlCandidates(manifestUrl, UPDATE_SOURCE).map((candidate) => ({
     manifest: candidate,
     sig: candidate.replace(/\.manifest\.json$/, '.manifest.json.sig'),
@@ -2654,19 +2661,45 @@ async function fetchSignedManifest(tagVersion, assetName) {
 }
 
 /**
- * 新布局（引导器装的）：resources/app 是指向 app/<版本> 的 junction，安装根目录有 current.json。
- * 旧布局（完整安装包装的）返回 null。
+ * 新布局（引导器装的）：app 目录在 <安装根>/app/<版本>，runtime 里用 junction 指过来。
+ * 注意 ESM 加载会把 ROOT 解析成真实路径（app/<版本>），不能靠「ROOT 是链接」来判断；
+ * 用安装根目录的 current.json 对照目录名。旧布局（完整安装包装的）返回 null。
  */
 function bootLayout() {
-  let isLink = false
-  try { isLink = lstatSync(ROOT).isSymbolicLink() } catch { return null }
-  if (!isLink) return null
   let appRoot
-  try { appRoot = realpathSync(ROOT) } catch { return null }
+  try { appRoot = realpathSync.native(ROOT) } catch { return null }
   const installRoot = dirname(dirname(appRoot))
   const currentPath = join(installRoot, 'current.json')
   if (!existsSync(currentPath) || !existsSync(join(installRoot, 'DSH.exe'))) return null
-  return { installRoot, appRoot, currentPath }
+  let current = {}
+  try { current = JSON.parse(readFileSync(currentPath, 'utf8')) } catch { return null }
+  // 完整安装包的布局也是 <安装根>/resources/app：current.json 里的 app 版本必须对上目录名
+  if (String(current.app) !== basename(appRoot)) return null
+  const runtime = String(current.runtime || '')
+  return {
+    installRoot,
+    appRoot,
+    currentPath,
+    runtime,
+    link: join(installRoot, 'runtime', runtime, 'resources', 'app'),
+  }
+}
+
+/**
+ * 换掉一个目录链接。正在运行的进程可能还开着链接下的文件，直接删有时会被拒；
+ * 依次尝试 rm / rmdir / unlink，都不行就把链接改名挪开（reparse point 本身可以移动），
+ * 保证后面能建新的。返回被挪走的旧链接路径（没有就返回空串）。
+ */
+function removeDirectoryLink(link) {
+  for (const attempt of [() => rmSync(link), () => rmdirSync(link), () => unlinkSync(link)]) {
+    try {
+      attempt()
+      return ''
+    } catch { /* 换下一种 */ }
+  }
+  const aside = `${link}.old-${Date.now()}`
+  renameSync(link, aside)
+  return aside
 }
 
 /**
@@ -2680,8 +2713,12 @@ export function switchBootAppVersion({ link, installRoot, currentPath }, version
   renameSync(stagedDir, target)
   let previous = {}
   try { previous = JSON.parse(readFileSync(currentPath, 'utf8')) } catch { /* 首次 */ }
-  try { rmSync(link) } catch { /* 链接不在了也继续 */ }
+  const aside = removeDirectoryLink(link)
   symlinkSync(target, link, 'junction')
+  if (aside) {
+    // 旧链接只是被挪开，目标目录不动；这里顺手清掉，清不掉也不影响
+    try { rmSync(aside, { recursive: false, force: true }) } catch { /* ignore */ }
+  }
   const next = { runtime: previous.runtime, app: version, previous: { runtime: previous.runtime, app: previous.app } }
   writeFileSync(currentPath, `${JSON.stringify(next, null, 2)}\n`)
   return next
@@ -2766,6 +2803,7 @@ async function checkAppUpdate({ force = false } = {}) {
 }
 
 async function fetchLatestTag() {
+  if (TEST_UPDATE_VERSION) return TEST_UPDATE_VERSION
   const apiUrl = `https://api.github.com/repos/${APP_REPO}/releases/latest`
   const pageUrl = `https://github.com/${APP_REPO}/releases/latest`
   // 版本检查也走下载源：国内直连 api.github.com 常常超时或撞限流，选了「国内加速」就带镜像前缀
@@ -5444,7 +5482,7 @@ async function handleApi(req, res, url) {
       }
       const zipPath = join(tmpdir(), `DSH-X-app-${data.version}-${process.pid}.zip`)
       const archive = pendingAppUpdate.manifest.archive || {}
-      const result = await downloadToFile(releaseAssetUrl(APP_REPO, data.version, archive.name), zipPath, {
+      const result = await downloadToFile(releaseUrl(data.version, archive.name), zipPath, {
         sha256: archive.sha256 || '',
         onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'app', done, total }),
       })
@@ -5471,10 +5509,10 @@ async function handleApi(req, res, url) {
       const layout = bootLayout()
       if (layout) {
         // 新布局：暂存目录搬到 app/<新版本>，把 resources/app 的 junction 指过去，写 current.json
-        switchBootAppVersion({ link: ROOT, installRoot: layout.installRoot, currentPath: layout.currentPath }, stagedApp.version, stagedApp.dir)
+        switchBootAppVersion({ link: layout.link, installRoot: layout.installRoot, currentPath: layout.currentPath }, stagedApp.version, stagedApp.dir)
         pushLog(`应用增量更新：切换到 ${stagedApp.version}，重启引导器`)
         send(res, 200, { ok: true, version: stagedApp.version })
-        spawn(join(layout.installRoot, 'DSH.exe'), [], { cwd: layout.installRoot, detached: true, stdio: 'ignore', windowsHide: true }).unref()
+        spawn(join(layout.installRoot, 'DSH.exe'), ['--wait-pid', String(process.pid)], { cwd: layout.installRoot, detached: true, stdio: 'ignore', windowsHide: true }).unref()
         setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
         return
       }
@@ -5519,7 +5557,7 @@ async function handleApi(req, res, url) {
       }
       const manifest = pendingRuntimeUpdate.manifest
       const zipPath = join(tmpdir(), `DSH-X-runtime-${data.runtime.version}-${process.pid}.zip`)
-      const result = await downloadToFile(releaseAssetUrl(APP_REPO, data.latest, manifest.archive?.name || ''), zipPath, {
+      const result = await downloadToFile(releaseUrl(data.latest, manifest.archive?.name || ''), zipPath, {
         sha256: manifest.archive?.sha256 || '',
         onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'runtime', done, total }),
       })
@@ -5544,14 +5582,14 @@ async function handleApi(req, res, url) {
       if (!layout) throw new Error('当前不是引导器安装的版本，请用完整安装包')
       if (!stagedRuntime || !stagingExists(stagedRuntime.dir)) throw new Error('还没有下载好的运行时更新')
       switchBootRuntimeVersion({
-        link: ROOT,
+        link: layout.link,
         installRoot: layout.installRoot,
         currentPath: layout.currentPath,
-        appTarget: realpathSync(ROOT),
+        appTarget: layout.appRoot,
       }, stagedRuntime.version, stagedRuntime.dir)
       pushLog(`运行时更新：切换到 Electron ${stagedRuntime.version}，重启引导器`)
       send(res, 200, { ok: true, version: stagedRuntime.version })
-      spawn(join(layout.installRoot, 'DSH.exe'), [], { cwd: layout.installRoot, detached: true, stdio: 'ignore', windowsHide: true }).unref()
+      spawn(join(layout.installRoot, 'DSH.exe'), ['--wait-pid', String(process.pid)], { cwd: layout.installRoot, detached: true, stdio: 'ignore', windowsHide: true }).unref()
       setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

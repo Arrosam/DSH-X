@@ -14,25 +14,29 @@
     user-select: none; -webkit-user-select: none;
   }
   .card {
-    width: 480px; padding: 34px 36px 30px; border-radius: 18px;
+    position: relative;
+    width: min(480px, calc(100vw - 32px)); padding: 28px 30px 24px; border-radius: 16px;
     background: #27272b; border: 1px solid #49494e;
     box-shadow: 0 18px 48px rgba(0, 0, 0, .32);
     display: grid; gap: 14px;
   }
-  h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: .2px; }
+  h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: .2px; padding-right: 30px; }
+  .close { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #b8b8bc; font-size: 18px; line-height: 1; cursor: pointer; }
+  .close:hover { background: #34353a; color: #f4f4f5; }
   .sub { margin: 0; color: #b8b8bc; font-size: 12px; }
   .bar { height: 4px; border-radius: 999px; background: #3a3b40; overflow: hidden; }
   .bar > span { display: block; width: 0%; height: 100%; border-radius: inherit; background: #f0f0f2; transition: width .18s ease; }
   .bar.indeterminate > span { width: 38%; animation: slide 1.2s ease-in-out infinite; }
   @keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
   .status { margin: 0; color: #b8b8bc; font-size: 12px; font-variant-numeric: tabular-nums; min-height: 18px; }
-  .status.error { color: #e4a0a8; }
+  .status.error { color: #e4a0a8; user-select: text; -webkit-user-select: text; }
   .tip { margin: 0; color: #8a8b92; font-size: 11px; }
   @media (prefers-reduced-motion: reduce) { .bar.indeterminate > span { animation: none; width: 100%; } .bar > span { transition: none; } }
 </style>
 </head>
 <body>
   <div class="card">
+    <button class="close" id="close" title="关闭" aria-label="关闭">×</button>
     <h1 id="title">DSH-X</h1>
     <p class="sub" id="sub"></p>
     <div class="bar" id="bar"><span id="fill"></span></div>
@@ -45,6 +49,7 @@
     ? { sub: '首次启动需要下载 Electron 运行时与启动器，之后更新只需下载少量文件。', tip: '下载完成后会自动启动，请保持网络连接。' }
     : { sub: 'The first launch downloads the Electron runtime and the launcher; later updates only fetch changed files.', tip: 'The app starts automatically when ready. Keep the connection open.' }
   document.documentElement.lang = LANG === 'zh' ? 'zh-CN' : 'en'
+  document.getElementById('close').onclick = () => window.ipc.postMessage('close')
   document.getElementById('sub').textContent = TEXT.sub
   document.getElementById('tip').textContent = TEXT.tip
   const bar = document.getElementById('bar')

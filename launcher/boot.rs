@@ -460,7 +460,49 @@ mod boot {
         result
     }
 
+    fn arg_value(name: &str) -> String {
+        let args: Vec<String> = std::env::args().collect();
+        args.iter().position(|arg| arg == name).and_then(|index| args.get(index + 1)).cloned().unwrap_or_default()
+    }
+
+    /// 启动标记：应用在管理服务起来后写到 APPDATA 下的 DSH/update-ok（和 APP_DIR 一致）。
+    fn marker_path(root: &Path) -> PathBuf {
+        let custom = arg_value("--marker");
+        if !custom.is_empty() {
+            return PathBuf::from(custom);
+        }
+        match std::env::var("APPDATA") {
+            Ok(base) => PathBuf::from(base).join("DSH").join("update-ok"),
+            Err(_) => root.join("update-ok"),
+        }
+    }
+
+    /// 等旧进程退出：更新后重启时它可能还占着管理端口。
+    fn wait_process_exit(pid: u32, timeout: Duration) -> bool {
+        if pid == 0 {
+            return true;
+        }
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            let alive = Command::new("cmd")
+                .args(["/c", "tasklist", "/FI", &format!("PID eq {pid}"), "/NH"])
+                .creation_flags(NO_WINDOW)
+                .output()
+                .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
+                .unwrap_or(false);
+            if !alive {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+        false
+    }
+
     pub fn run() {
+        let wait_pid: u32 = arg_value("--wait-pid").parse().unwrap_or(0);
+        if wait_pid > 0 {
+            wait_process_exit(wait_pid, Duration::from_secs(60));
+        }
         let root = match install_root() {
             Ok(root) => root,
             Err(error) => {
@@ -474,7 +516,7 @@ mod boot {
             // 上一次更新还没被确认（current.json 里有 previous）：等新版本写出启动标记，
             // 等不到就回滚到 previous 并重启旧版本
             if current.get("previous").is_some() {
-                let marker = root.join("update-ok");
+                let marker = marker_path(&root);
                 let _ = fs::remove_file(&marker);
                 if launch(&root, &runtime).is_ok() && wait_marker(&marker, Duration::from_secs(45)) {
                     let mut next = current.clone();
@@ -526,12 +568,29 @@ mod boot {
 
     fn first_run(root: PathBuf) {
         let event_loop = EventLoopBuilder::<Progress>::with_user_event().build();
-        let window = match WindowBuilder::new()
+        // 居中到主屏；允许缩放（内容长的时候用户可以自己拉大）
+        let size = LogicalSize::new(520.0, 280.0);
+        let position = event_loop
+            .primary_monitor()
+            .or_else(|| event_loop.available_monitors().next())
+            .map(|monitor| {
+                let screen = monitor.size();
+                let window = size.to_physical::<u32>(monitor.scale_factor());
+                tao::dpi::PhysicalPosition::new(
+                    screen.width.saturating_sub(window.width) / 2,
+                    screen.height.saturating_sub(window.height) / 2,
+                )
+            });
+        let mut builder = WindowBuilder::new()
             .with_title("DSH-X")
             .with_decorations(false)
-            .with_resizable(false)
-            .with_inner_size(LogicalSize::new(560.0, 300.0))
-            .build(&event_loop)
+            .with_resizable(true)
+            .with_inner_size(size)
+            .with_min_inner_size(LogicalSize::new(420.0, 220.0));
+        if let Some(position) = position {
+            builder = builder.with_position(position);
+        }
+        let window = match builder.build(&event_loop)
         {
             Ok(window) => window,
             Err(error) => {
@@ -542,8 +601,14 @@ mod boot {
         let proxy = event_loop.create_proxy();
         let mut context = WebContext::new(Some(std::env::temp_dir().join("dsh-boot-webview")));
         let page = PAGE.replace("__LANG__", if zh() { "zh" } else { "en" });
+        let ipc_proxy = proxy.clone();
         let view = match WebViewBuilder::new_with_web_context(&mut context)
             .with_url("about:blank")
+            .with_ipc_handler(move |request| {
+                if request.body().contains("close") {
+                    let _ = ipc_proxy.send_event(Progress { phase: "close".into(), done: 0, total: 0, message: String::new() });
+                }
+            })
             .with_navigation_handler(|url| url == "about:blank" || url.starts_with("data:text/html"))
             .build(&window)
         {
@@ -563,6 +628,9 @@ mod boot {
                 Event::NewEvents(tao::event::StartCause::Init) if !loaded => {
                     loaded = true;
                     let _ = view.load_html(&page);
+                }
+                Event::UserEvent(progress) if progress.phase == "close" => {
+                    *flow = ControlFlow::Exit;
                 }
                 Event::UserEvent(progress) => {
                     let script = format!(
