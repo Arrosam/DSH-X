@@ -117,6 +117,14 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - dsh 自己的 Node 开关（系统证书库、请求头上限、两个 ESM 补丁钩子）走**命令行参数**，不塞 NODE_OPTIONS：后者会被 dsh 的所有子进程继承，agent 在 shell 里跑的 node 可能是老版本。
 - 改会话事件词汇表（`SESSION_TYPES`）要**两处同步**：主线程的 `compat/session-events.mjs` 与 worker 的 `compat/worker-events.cjs` 各有一份副本。
 
+### 应用层增量更新（app-update.js / apply-update.mjs）
+
+- 发布侧：`scripts/app-manifest.mjs build` 给打包后的 `resources/app` 生成文件清单（路径/大小/sha256、启动器版本、Electron 版本、平台）与整包 `app-<版本>-<平台>.zip`；有 `release/release-key.pem`（或 `DSH_RELEASE_KEY`）时用 Ed25519 给清单签名。CI 两个平台各自产出，挂到同 tag 的 Release 上。
+- 客户端：`/api/self` 带 `app` 检查结果（清单签名必须用内置公钥 `APP_PUBLIC_KEY` 校验通过、Electron 版本一致、平台是 win），页面按「约 N MB」展示增量大小；`/api/self/app-download` 下载整包并逐文件核对哈希后解到暂存目录，`/api/self/app-apply` 起替换助手并退出。
+- 替换助手（`apply-update.mjs`）用 `ELECTRON_RUN_AS_NODE` 跑：等父进程退出 → 备份旧 app → 换上新目录 → 重启 → 45 秒内等不到启动标记（`<APP_DIR>/update-ok`）就回滚。只替换 `resources/app`，不碰 `DSH.exe` 和 Electron 运行时，所以不受 Windows 文件锁影响；备份最多留一份（下次更新时清掉）。
+- 边界：只有「已打包的 Windows 安装版 + 签名清单 + Electron 版本相同」才走增量；其他情况（未签名、Electron 升级、mac、源码运行）自动回退完整安装包。旧版本客户端不认识这些资产，忽略即可。
+- 所有下载都走 `updateUrlCandidates`：默认「国内加速」是镜像优先（gh-proxy → ghfast → 直连兜底）。
+
 ### 打包与安装布局
 
 - 文件管理的实现类不在 `APP_FILES` 里，由 `copyAppFiles(out, platform)` 按平台挑一个（`FILE_MANAGERS`）：Windows 的包里没有 `filemanager-mac.js`，反之亦然。平台没有对应实现时打包直接报错，不会装出一个起不来的包。

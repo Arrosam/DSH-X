@@ -51,6 +51,8 @@ const APP_FILES = [
   'sync.js',
   'version.js',
   'zipfile.js',
+  'app-update.js',
+  'apply-update.mjs',
   'plugin-tool.js',
   'reserved-profile-boot.mjs',
   'stdio-unblock.cjs',

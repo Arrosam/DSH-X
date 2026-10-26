@@ -46,6 +46,19 @@ jobs:
       - name: 打包（Rust + Inno Setup，脚本会在 runner 上自己装 Inno）
         run: npm run dist
 
+      # 应用层增量更新：给 resources/app 生成清单 + 整包 zip（有私钥就签名）
+      - name: 生成应用层增量资产
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          ELECTRON="$(node -p "require('./node_modules/electron/package.json').version")"
+          node scripts/app-manifest.mjs build --app release/DSH/resources/app --version "$VERSION" --electron "$ELECTRON" --platform win --out release
+          if [ -f release/app-"$VERSION"-win.manifest.json.sig ]; then
+            node scripts/app-manifest.mjs verify --manifest release/app-"$VERSION"-win.manifest.json --zip release/app-"$VERSION"-win.zip --sig release/app-"$VERSION"-win.manifest.json.sig
+          else
+            node scripts/app-manifest.mjs verify --manifest release/app-"$VERSION"-win.manifest.json --zip release/app-"$VERSION"-win.zip
+          fi
+
       - name: 校验清单（没配签名私钥就按「未签名」核体积与哈希）
         shell: bash
         run: |
@@ -57,6 +70,9 @@ jobs:
           name: DSH-Setup-windows
           path: |
             release/DSH-Setup.exe
+            release/app-*-win.zip
+            release/app-*-win.manifest.json
+            release/app-*-win.manifest.json.sig
             release/dsh-x-*.spdx.json
             release/release-manifest.json
             release/release-manifest.sig
@@ -128,13 +144,26 @@ jobs:
         if: steps.probe.outputs.ready == 'yes'
         run: npm run dist
 
+      # 应用层增量资产（mac 的 app 在 .app/Contents/Resources/app）
+      - name: 生成应用层增量资产
+        if: steps.probe.outputs.ready == 'yes'
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          ELECTRON="$(node -p "require('./node_modules/electron/package.json').version")"
+          node scripts/app-manifest.mjs build --app "release/DSH-X.app/Contents/Resources/app" --version "$VERSION" --electron "$ELECTRON" --platform mac --out release
+
       - uses: actions/upload-artifact@v4
         if: steps.probe.outputs.ready == 'yes'
         with:
           name: DSH-X-mac-${{ matrix.arch }}
           # 清单/SBOM 目前只有 Windows 的 pack.mjs 会生成，mac 这边先只传 dmg；
           # 两平台各写一份同名清单会互相覆盖，等清单支持多产物之后再说
-          path: release/DSH-X-mac-*.dmg
+          path: |
+            release/DSH-X-mac-*.dmg
+            release/app-*-mac.zip
+            release/app-*-mac.manifest.json
+            release/app-*-mac.manifest.json.sig
           if-no-files-found: error
 
       - name: 挂到同 tag 的 Release 上
@@ -144,7 +173,7 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" release/DSH-X-mac-*.dmg --clobber
+            gh release upload "$tag" release/DSH-X-mac-*.dmg release/app-*-mac.zip release/app-*-mac.manifest.json release/app-*-mac.manifest.json.sig --clobber
           else
             echo "还没有 $tag 的 Release，dmg 先留在 workflow artifacts 里"
           fi

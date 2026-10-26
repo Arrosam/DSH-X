@@ -224,6 +224,9 @@ export async function writeZip(target, entries) {
         handle.write(chunk, 0, chunk.length, at).then(() => callback(), callback)
       },
     })
+    // pipeline(…, sink, { end: false }) 每个条目都会往 sink 上挂一个 end 监听；
+    // 条目一多（应用整包 2000+ 文件）就会撞上默认的 10 个上限告警
+    sink.setMaxListeners(0)
     const put = (chunk) => new Promise((resolve, reject) => {
       sink.write(chunk, (error) => (error ? reject(error) : resolve()))
     })

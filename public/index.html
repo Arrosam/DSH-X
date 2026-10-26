@@ -1221,6 +1221,14 @@
   "正在下载…": "Downloading…",
   "安装并重启": "Install and restart",
   "下载失败": "Download failed",
+  "更新到 {latest}（约 {size} MB）": "Update to {latest} (about {size} MB)",
+  "本次只需下载约 {size} MB（应用层增量），Electron 运行时不变。": "Only about {size} MB to download this time (app-layer update); the Electron runtime stays unchanged.",
+  "这次更新包含 Electron 运行时升级，需要完整安装包。": "This update includes an Electron runtime upgrade and needs the full installer.",
+  "增量更新失败：{message}。可以改用完整安装包。": "Incremental update failed: {message}. You can switch to the full installer.",
+  "改用完整安装包": "Use the full installer",
+  "正在替换应用文件，启动器会重启…": "Replacing application files; the launcher will restart…",
+  "正在重启…": "Restarting…",
+  "增量更新没能开始：{message}": "The incremental update could not start: {message}",
   "更新已就绪": "Update ready",
   "新版本已下载，点这里完成安装": "New version downloaded — click to finish installing",
   "正在后台下载新版本": "Downloading the new version in the background",
@@ -4975,6 +4983,19 @@
             askSelfButton.disabled = false
             askSelfButton.textContent = t('安装并重启')
           }
+        } else if (data.phase === 'app-ready') {
+          // 应用层增量已就绪：按钮变成「安装并重启」，点下去走替换助手
+          wrap.hidden = false
+          wrap.classList.remove('indeterminate')
+          bar.style.width = '100%'
+          selfState.downloading = false
+          selfState.appStaged = data.latest || selfState.latest
+          paintSelfPill()
+          if (askSelfButton && !askEl.hidden) {
+            askSelfButton.disabled = false
+            askSelfButton.textContent = t('安装并重启')
+            askSelfButton.onclick = () => { void startAppUpdate(askSelfButton) }
+          }
         } else if (data.phase === 'install') {
           // 后面的事在安装程序自己的窗口里，进度条留着只会让人以为还在下载
           wrap.hidden = true
@@ -5028,16 +5049,17 @@
     const selfUpdateEl = document.getElementById('selfUpdate')
     const appVerEl = document.getElementById('appVer')
     /** 启动器自更新的页面状态：下载在服务端跑，弹窗关掉也继续（进度走 selfUpdate 事件）。 */
-    const selfState = { current: '', latest: '', url: '', downloading: false, ready: '', pct: 0 }
+    const selfState = { current: '', latest: '', url: '', downloading: false, ready: '', app: null, appStaged: '', pct: 0 }
     let askSelfButton = null
 
     function paintSelfPill() {
       if (!selfUpdateEl || selfUpdateEl.hidden) return
       const latest = selfState.latest || ''
+      const downloaded = Boolean(selfState.ready || selfState.appStaged)
       selfUpdateEl.textContent = selfState.downloading
         ? `更新 ${latest} · ${selfState.pct}%`
-        : selfState.ready ? `更新 ${latest} · 已下载` : (latest ? `更新 ${latest}` : t('更新'))
-      selfUpdateEl.title = selfState.ready ? t('新版本已下载，点这里完成安装')
+        : downloaded ? `更新 ${latest} · 已下载` : (latest ? `更新 ${latest}` : t('更新'))
+      selfUpdateEl.title = downloaded ? t('新版本已下载，点这里完成安装')
         : selfState.downloading ? t('正在后台下载新版本')
           : (latest ? `更新启动器到 ${latest}` : t('更新启动器'))
     }
@@ -5054,6 +5076,8 @@
       selfState.url = data.url || selfState.url
       selfState.downloading = data.downloading === true
       selfState.ready = data.staged || selfState.ready
+      selfState.app = data.app || selfState.app
+      selfState.appStaged = data.appStaged || selfState.appStaged
       if (!data.update) { selfUpdateEl.hidden = true; return }
       selfUpdateEl.hidden = false
       paintSelfPill()
@@ -5117,6 +5141,53 @@
         }
       }
     }
+    /**
+     * 应用层增量更新：只下载并替换 resources/app，Electron 运行时不动。
+     * 下载完成 → 起替换助手 → 启动器退出重启；失败时按钮换成完整安装包那条路。
+     */
+    async function startAppUpdate(btn) {
+      if (selfState.downloading) return
+      if (selfState.appStaged) { await applyAppUpdate(btn); return }
+      selfState.downloading = true
+      selfState.pct = 0
+      if (btn) { btn.disabled = true; btn.textContent = t('正在下载…') }
+      askNoteEl.hidden = false
+      askNoteEl.textContent = t('正在下载新版本…')
+      const wrap = document.getElementById('askProgress')
+      const bar = document.getElementById('askProgressBar')
+      if (wrap && bar) { wrap.hidden = false; wrap.classList.remove('indeterminate') }
+      paintSelfPill()
+      try {
+        await post('/api/self/app-download')
+        selfState.downloading = false
+        selfState.appStaged = selfState.latest || t('最新')
+        paintSelfPill()
+        await applyAppUpdate(btn)
+      } catch (error) {
+        selfState.downloading = false
+        paintSelfPill()
+        askNoteEl.textContent = t('增量更新失败：{message}。可以改用完整安装包。', { message: error.message })
+        if (wrap) wrap.hidden = true
+        if (btn) {
+          btn.disabled = false
+          btn.textContent = t('改用完整安装包')
+          btn.onclick = () => { void startSelfUpdate(btn) }
+        }
+      }
+    }
+
+    async function applyAppUpdate(btn) {
+      if (btn) { btn.disabled = true; btn.textContent = t('正在重启…') }
+      askNoteEl.hidden = false
+      askNoteEl.textContent = t('正在替换应用文件，启动器会重启…')
+      try {
+        await post('/api/self/app-apply')
+      } catch (error) {
+        if (btn) { btn.disabled = false; btn.textContent = t('重试') }
+        askNoteEl.textContent = t('增量更新没能开始：{message}', { message: error.message })
+      }
+    }
+
     getJson('/api/self').then(applySelfUpdate).catch(() => {})
 
     // ---- 启动时检测到新版本：先问用户，定下来之前不自动启动 dsh ----
@@ -5229,15 +5300,24 @@
         ))
       }
       if (update.self) {
-        const ready = Boolean(selfState.ready)
+        const app = selfState.app
+        const appAvailable = Boolean(app?.available)
+        const ready = Boolean(selfState.ready || selfState.appStaged)
         const downloading = selfState.downloading && !ready
+        const sizeMb = appAvailable && app.downloadSize ? (app.downloadSize / 1048576).toFixed(1) : ''
         const selfRow = askRow(
           'self',
           t('DSH-X 启动器'),
           update.self.current,
           update.self.latest || t('最新'),
-          ready ? t('安装并重启') : downloading ? t('正在下载…') : t('更新启动器'),
-          (event) => { void startSelfUpdate(event.currentTarget) },
+          ready ? t('安装并重启')
+            : downloading ? t('正在下载…')
+              : appAvailable ? t('更新到 {latest}（约 {size} MB）', { latest: update.self.latest || '', size: sizeMb })
+                : t('更新启动器'),
+          (event) => {
+            if (appAvailable) void startAppUpdate(event.currentTarget)
+            else void startSelfUpdate(event.currentTarget)
+          },
         )
         askSelfButton = selfRow.action
         askSelfButton.disabled = downloading
@@ -5251,6 +5331,13 @@
         } else if (ready) {
           askNoteEl.hidden = false
           askNoteEl.textContent = t('新版本已下载，安装后启动器会重启。')
+        } else if (appAvailable) {
+          // 增量更新：只换应用层，Electron 运行时不动
+          askNoteEl.hidden = false
+          askNoteEl.textContent = t('本次只需下载约 {size} MB（应用层增量），Electron 运行时不变。', { size: sizeMb })
+        } else if (app?.reason === 'electron') {
+          askNoteEl.hidden = false
+          askNoteEl.textContent = t('这次更新包含 Electron 运行时升级，需要完整安装包。')
         }
         // 自动更新不管用时的退路：直接给发布页，自己挑对应平台的安装包。
         // 外链走普通 <a>（/api/open 只允许本机地址），WebView 和浏览器里都能打开。

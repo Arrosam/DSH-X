@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { createInterface } from 'node:readline'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { accessSync, chmodSync, closeSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { accessSync, chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -126,7 +126,8 @@ import {
 // 带代理的 fetch：Node 的全局 fetch 既不看系统代理也不看 HTTP_PROXY，外网请求都走 netFetch
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
 import { APP_DIR, fileManager } from './filemanager.js'
-import { IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
+import { appAssetUrl, assertManifestShape, extractVerified, localDiff, stagingExists, stagingStats, verifyAppManifest } from './app-update.js'
+import { IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -2621,6 +2622,72 @@ async function checkSelfUpdate({ force = false } = {}) {
   }
 }
 
+/** 应用层增量更新：清单缓存与暂存状态（见 app-update.js 与 apply-update.mjs）。 */
+let stagedApp = null
+let pendingAppUpdate = null
+let appUpdateCache = { at: 0, data: null }
+const APP_UPDATE_CACHE_MS = 30 * 60 * 1000
+
+/** 拉最新版本的应用清单与签名（与安装包共用「镜像优先、直连兜底」的候选列表）。 */
+async function fetchSignedManifest(version) {
+  const manifestUrl = appAssetUrl(APP_REPO, version, 'win', '.manifest.json')
+  const pairs = updateUrlCandidates(manifestUrl, UPDATE_SOURCE).map((candidate) => ({
+    manifest: candidate,
+    sig: candidate.replace(/\.manifest\.json$/, '.manifest.json.sig'),
+  }))
+  let last = null
+  for (const pair of pairs) {
+    try {
+      const manifestRes = await netFetch(pair.manifest, { redirect: 'follow', signal: AbortSignal.timeout(60_000) })
+      if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status}`)
+      const bytes = Buffer.from(await manifestRes.arrayBuffer())
+      const sigRes = await netFetch(pair.sig, { redirect: 'follow', signal: AbortSignal.timeout(30_000) })
+      if (!sigRes.ok) throw new Error(`HTTP ${sigRes.status}`)
+      return { bytes, signature: await sigRes.text() }
+    } catch (error) {
+      last = error
+    }
+  }
+  throw new Error(`拉不到应用清单：${describeFetchError(last, manifestUrl)}`)
+}
+
+/**
+ * 检查能不能走应用层增量：只认「已打包的 Windows 安装版 + 清单签名有效 + Electron 版本一致」。
+ * 返回的字段给页面用；完整清单留在 pendingAppUpdate 里，下载时再对照。
+ */
+async function checkAppUpdate({ force = false } = {}) {
+  if (!PACKAGED || !IS_WINDOWS) return { available: false, reason: IS_WINDOWS ? 'source' : 'platform' }
+  if (!force && appUpdateCache.data && Date.now() - appUpdateCache.at < APP_UPDATE_CACHE_MS) return appUpdateCache.data
+  const remember = (data) => { appUpdateCache = { at: Date.now(), data }; return data }
+  const self = await checkSelfUpdate()
+  const latest = self.latest
+  if (!self.update || !latest) return remember({ available: false, reason: 'current', latest })
+  let got
+  let manifest
+  try {
+    got = await fetchSignedManifest(latest)
+    manifest = JSON.parse(got.bytes.toString('utf8'))
+  } catch (error) {
+    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
+  }
+  if (!verifyAppManifest(got.bytes, got.signature)) return remember({ available: false, reason: 'unsigned', latest })
+  try {
+    assertManifestShape(manifest, { version: latest, electronVersion: process.versions.electron, platform: 'win' })
+  } catch (error) {
+    return remember({ available: false, reason: error?.code === 'electron_mismatch' ? 'electron' : 'manifest', latest, error: error?.message || String(error) })
+  }
+  const diff = localDiff(ROOT, manifest)
+  pendingAppUpdate = { version: latest, manifest }
+  return remember({
+    available: true,
+    latest,
+    version: latest,
+    downloadSize: Number(manifest.archive?.size) || 0,
+    changed: diff.changed,
+    changedBytes: diff.changedBytes,
+  })
+}
+
 async function fetchLatestTag() {
   const apiUrl = `https://api.github.com/repos/${APP_REPO}/releases/latest`
   const pageUrl = `https://github.com/${APP_REPO}/releases/latest`
@@ -5070,7 +5137,8 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/self') {
     const info = await checkSelfUpdate({ force: url.searchParams.get('refresh') === '1' })
     // staged / downloading 让页面重载后也能知道下载进度：下载在服务端跑，和弹窗开不开无关
-    send(res, 200, { ...info, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight })
+    const app = await checkAppUpdate().catch((error) => ({ available: false, reason: 'error', error: error?.message || String(error) }))
+    send(res, 200, { ...info, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight, app, appStaged: stagedApp?.version || '' })
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/pending') {
@@ -5283,6 +5351,71 @@ async function handleApi(req, res, url) {
       const message = error instanceof Error ? error.message : String(error)
       pushLog(`更新安装失败：${message}`)
       send(res, 500, { error: message })
+    }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/self/app-download') {
+    // 应用层增量：下载整包 → 逐文件校验 → 解到暂存目录；进度复用 selfUpdate 事件
+    try {
+      const data = await checkAppUpdate({ force: true })
+      if (!data.available) {
+        throw new Error(data.reason === 'electron' ? 'Electron 版本不同，需要完整安装包' : '当前没有可用的增量更新')
+      }
+      if (stagedApp && stagedApp.version === data.version && stagingExists(stagedApp.dir)) {
+        send(res, 200, { ok: true, version: stagedApp.version, reused: true })
+        return
+      }
+      const zipPath = join(tmpdir(), `DSH-X-app-${data.version}-${process.pid}.zip`)
+      const archive = pendingAppUpdate.manifest.archive || {}
+      const result = await downloadToFile(appAssetUrl(APP_REPO, data.version, 'win', '.zip'), zipPath, {
+        sha256: archive.sha256 || '',
+        onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'app', done, total }),
+      })
+      const staging = join(tmpdir(), `DSH-X-app-${data.version}-${process.pid}`)
+      await extractVerified(zipPath, pendingAppUpdate.manifest, staging)
+      rmSync(zipPath, { force: true })
+      stagedApp = { version: data.version, dir: staging }
+      pushLog(`应用增量已就绪：${data.version}（${(result.bytes / 1048576).toFixed(1)} MB），等用户确认后替换`)
+      emit('selfUpdate', { phase: 'app-ready', latest: data.version })
+      send(res, 200, { ok: true, version: data.version })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushLog(`应用增量下载失败：${message}`)
+      send(res, 400, { error: message })
+    }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/self/app-apply') {
+    // 应用层增量：起替换助手（等本进程退出后换目录），然后收尾退出
+    try {
+      if (!stagedApp || !stagingExists(stagedApp.dir)) throw new Error('还没有下载好的应用更新')
+      const stats = stagingStats(stagedApp.dir)
+      if (stats.files < 100) throw new Error('暂存目录不完整，重新下载一次')
+      const helper = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.mjs`)
+      copyFileSync(join(ROOT, 'apply-update.mjs'), helper)
+      const child = spawn(RUNTIME_NODE, [helper,
+        '--app', ROOT,
+        '--staged', stagedApp.dir,
+        '--exe', process.execPath,
+        '--pid', String(process.pid),
+        '--backup', `${ROOT}.bak-${APP_VERSION}`,
+        '--marker', join(APP_DIR, 'update-ok'),
+        '--log', join(APP_DIR, 'update.log'),
+      ], {
+        cwd: tmpdir(),
+        env: { ...process.env, ...RUNTIME_NODE_ENV },
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      child.unref()
+      pushLog(`应用增量更新：替换助手已启动（${stagedApp.version}），启动器即将退出`)
+      send(res, 200, { ok: true, version: stagedApp.version })
+      setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushLog(`应用增量更新失败：${message}`)
+      send(res, 400, { error: message })
     }
     return
   }
@@ -6234,6 +6367,8 @@ export async function startServer() {
     PORT = candidate
     if (offset > 0) pushLog(`管理页改用端口 ${PORT}（${preferred} 起被占用）`)
     pushLog(`DSH 管理器 http://127.0.0.1:${PORT}`)
+    // 给应用层增量更新的替换助手留一个「新版本启动成功」的标记
+    try { writeFileSync(join(APP_DIR, 'update-ok'), String(Date.now())) } catch { /* 标记写不了不影响启动 */ }
     pushLog(`版本目录 ${DATA}`)
     pushLog(`DSH_HOME ${homeDir()}`)
     const system = detectSystemDsh()
