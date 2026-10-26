@@ -2169,3 +2169,21 @@ html.reduce-motion #launchIconTrigger, html.reduce-motion #launchDialog .launch-
 #skillInstallDialog .skill-source-tabs button[aria-pressed=true] { border-bottom-color: var(--accent); }
 
 @media (max-width: 560px) { .version-manage-info { align-items: flex-start; flex-direction: column; gap: 2px; } .version-manage-row .version-manage-info span { max-width: 100%; } }
+
+/* 启动实例的全屏加载层：点「启动」后立刻出现，实例就绪后随任务结束自动收起 */
+.boot-overlay { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(18, 20, 26, .52); backdrop-filter: blur(6px); }
+.boot-overlay[hidden] { display: none; }
+.boot-card { display: grid; justify-items: center; gap: 10px; min-width: 300px; padding: 30px 36px 26px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 18px 48px rgba(0, 0, 0, .3); }
+.boot-spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: boot-spin .9s linear infinite; }
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+.boot-title { margin: 0; font-size: 14px; font-weight: 650; }
+.boot-phase { margin: 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.boot-bar { width: 190px; height: 3px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.boot-bar span { display: block; width: 42%; height: 100%; border-radius: inherit; background: var(--accent); animation: boot-slide 1.2s ease-in-out infinite; }
+@keyframes boot-slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
+.boot-hint { margin: 0; font-size: 11.5px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) {
+  .boot-spinner { animation: none; }
+  .boot-bar span { animation: none; width: 100%; }
+}
+html[data-color-scheme="dark"] .boot-overlay { background: rgba(10, 11, 14, .62); }

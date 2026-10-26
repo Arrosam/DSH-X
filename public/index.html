@@ -1336,6 +1336,18 @@
   "等待服务（受影响项，不等于根因）": "Waiting for services (affected entries, not necessarily causes)",
   "修复建议（不会自动执行）": "Suggested repairs (not executed automatically)",
   "方案详情": "Plan details",
+  "插件版本不兼容": "Incompatible plugin versions",
+  "这些插件与 dsh {version} 不兼容，已被自动禁用：": "These plugins are incompatible with dsh {version} and have been disabled:",
+  "升级到兼容版本？升级后会自动重启这个实例。": "Upgrade to compatible versions? The instance will restart automatically afterwards.",
+  "已升级 {n} 个插件并重启实例：{list}": "Upgraded {n} plugin(s) and restarted the instance: {list}",
+  "其余插件请在插件市场里升级：{list}": "Upgrade the remaining plugins in the plugin market: {list}",
+  "插件已升级": "Plugins upgraded",
+  "升级失败": "Upgrade failed",
+  "正在启动 dsh": "Starting dsh",
+  "正在加载插件": "Loading plugins",
+  "正在校验依赖": "Verifying dependencies",
+  "正在启动 {version}": "Starting {version}",
+  "启动完成后会自动打开": "It will open automatically when ready",
   "实际加载来源尚未确认；先核对来源和兼容版本，不要豁免版本检查或批量禁用插件。": "The actual loaded source is unconfirmed. Check its origin and compatible versions; do not bypass version checks or disable plugins in bulk.",
   "配置报告 serviceVersion 缺失；仅核对字段定义文件及引用的环境变量，不代填或改写。": "The configuration reports a missing serviceVersion. Only inspect the field definition file and referenced environment variable; do not fill in or rewrite values.",
   "本次启动未传入 DSH_CLIENT_VERSION；字段是否引用此变量及定义文件，以已核实来源证据为准。": "DSH_CLIENT_VERSION was absent from this launch environment. Whether the field references this variable, and where it is defined, must be established from verified source evidence.",
@@ -1585,6 +1597,9 @@
     const versionValueEl = document.getElementById('versionValue')
     const versionPanelEl = document.getElementById('versionPanel')
     const instancesEl = document.getElementById('instances')
+    const bootOverlayEl = document.getElementById('bootOverlay')
+    const bootTitleEl = document.getElementById('bootTitle')
+    const bootPhaseEl = document.getElementById('bootPhase')
     const instancesListEl = document.getElementById('instancesList')
     const launchProfileEl = document.getElementById('launchProfile')
     const launchDshHomeEl = document.getElementById('launchDshHome')
@@ -3760,6 +3775,34 @@
      * 只要有一个实例在跑就列出来（不是只在多开时才出现）——选中另一个版本时，
      * 这栏是唯一能看到"还有东西在跑"的地方。
      */
+    /** 启动阶段文案（服务端只给粗粒度阶段，不透出日志原文）与已用秒数。 */
+    const startupPhaseText = (phase) => phase === 'loading' ? t('正在加载插件')
+      : phase === 'verifying' ? t('正在校验依赖')
+        : phase === 'launching' ? t('正在启动 dsh') : ''
+    const startupElapsed = (item) => {
+      const started = Number(item?.startedAt) || 0
+      return started ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0
+    }
+
+    /**
+     * 启动实例时的全屏加载层：点「启动」后立刻出现（实例还没起好），
+     * 显示版本、阶段和已用秒数，实例就绪后随任务结束自动收起并打开页面。
+     * 首次启动的下载/安装阶段不铺这层，交给已有的安装进度。
+     */
+    function paintBootOverlay() {
+      const starting = [...launchActions.values()].find((task) => task.phase === 'start')
+      if (!starting) {
+        bootOverlayEl.hidden = true
+        return
+      }
+      const live = (state.instances || []).find((item) => item.status === 'starting'
+        && (!starting.version || item.version === starting.version)
+        && (!starting.profile || item.profile === starting.profile))
+      bootTitleEl.textContent = t('正在启动 {version}', { version: starting.version || t('自动选择版本') })
+      bootPhaseEl.textContent = [starting.profile, live ? startupPhaseText(live.startupPhase) : '', live ? `${startupElapsed(live)}s` : ''].filter(Boolean).join(' · ')
+      bootOverlayEl.hidden = false
+    }
+
     function paintInstances() {
       const list = (state.instances || []).filter((item) => !launchEntries().some((entry) =>
         resolveLaunchVersion(entry) === item.version && entry.profile === item.profile && (entry.dshHome || state.dshHome) === (item.home || state.dshHome)))
@@ -3771,7 +3814,9 @@
       }
       instancesListEl.innerHTML = list.map((item) => {
         const busy = item.status === 'starting' || item.status === 'stopping'
-        const stateText = item.status === 'starting' ? t('启动中') : item.status === 'stopping' ? t('停止中') : ''
+        const stateText = item.status === 'starting'
+          ? `${t('启动中')} · ${startupElapsed(item)}s${startupPhaseText(item.startupPhase) ? ' · ' + startupPhaseText(item.startupPhase) : ''}`
+          : item.status === 'stopping' ? t('停止中') : ''
         const url = item.url || ''
         return `<div class="instance-row">
           <span class="instance-main">
@@ -3943,7 +3988,7 @@
         const ownAction = launchEntryTask(entry, version)?.phase || ''
         const installBlocked = Boolean(state.installing) && !installedList().includes(version) && !versionInstalls.has(version) && live?.status !== 'running'
         const label = ownAction === 'install' ? t('安装中') : busy || ownAction
-          ? t(live?.status === 'stopping' || ownAction === 'stop' ? '停止中' : '启动中')
+          ? t(live?.status === 'stopping' || ownAction === 'stop' ? '停止中' : '启动中') + (live?.status === 'starting' ? ` · ${startupElapsed(live)}s` : '')
           : live?.status === 'running' ? t(live.url ? '打开' : '运行中') : t('启动')
         // 默认目录省略，独立数据目录显示在卡片上，方便辨认隔离的环境。
         const note = [version || t('自动选择版本'), entry.profile, entry.dshHome].filter(Boolean).join(' · ')
@@ -3955,11 +4000,13 @@
         // 想动钉子走「编辑启动项」的版本下拉。提醒的是这个启动项所跟通道里的最新版。
         const hasNewVersion = entry.version === 'auto' && version && latest && compareVersion(latest, version) > 0
         const installNote = !installedList().includes(version) && !live ? t('首次启动会自动安装') : ''
+        // 启动中的阶段（启动进程 → 加载插件 → 校验依赖）显示在说明行，按钮上的秒表每秒走一格
+        const startupNote = live?.status === 'starting' ? startupPhaseText(live.startupPhase) : ''
         return `<div class="launch-preset" data-launch-key="${escapeHtml(entry.id)}">
           <button class="launch-app-icon" type="button" data-launch-drag-handle title="${escapeHtml(t('拖动或用方向键排序'))}" aria-label="${escapeHtml(t('调整 {name} 的顺序', { name }))}">${launchIconMarkup(entry.icon)}</button>
           <span class="launch-preset-copy"><span class="launch-preset-heading">
             <span class="launch-preset-name">${escapeHtml(name)}</span>${builtin ? `<span class="launch-builtin">${escapeHtml(t('内置'))}</span>` : ''}</span>
-            <span class="launch-preset-meta" title="${escapeHtml(automaticHint)}"><span>${escapeHtml([note, installNote].filter(Boolean).join(' · '))}</span></span>
+            <span class="launch-preset-meta" title="${escapeHtml(automaticHint)}"><span>${escapeHtml([note, installNote, startupNote].filter(Boolean).join(' · '))}</span></span>
             ${hasNewVersion ? `<button class="launch-new-version" type="button" data-version-id="${entry.id}" ${action || state.installing ? 'disabled' : ''}>${escapeHtml(t('新版本 {version}', { version: latest }))}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>` : ''}</span>
           <span class="launch-actions"><button class="launch-edit launch-plugins" type="button" data-plugins-id="${entry.id}" title="${escapeHtml(t('管理插件'))}" aria-label="${escapeHtml(t('管理 {name} 的插件', { name }))}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9M8 5.25l8 4.5"/></svg></button><button class="launch-edit" type="button" data-edit-id="${entry.id}" title="${escapeHtml(t('编辑 {name}', { name }))}" aria-label="${escapeHtml(t('编辑 {name}', { name }))}" ${action || state.installing || ownAction || busy ? 'disabled' : ''}>
@@ -4414,6 +4461,57 @@
       finally { launchDeleteEl.disabled = false; render() }
     }
 
+    const promptedIncompatible = new Set()
+    let incompatiblePromptBusy = false
+    /**
+     * 实例启动后日志报告插件版本不兼容：自动弹一次窗，引导升级到与 dsh 对齐的版本。
+     * 每次警告只提示一次；有别的弹窗开着就先不打扰，等下一轮状态推送再试。
+     */
+    async function maybePromptIncompatible(warnings) {
+      if (incompatiblePromptBusy) {
+        return
+      }
+      for (const item of warnings) {
+        const warning = item.diagnosticWarning
+        const rejected = warning?.diagnosis?.rejected || []
+        if (!rejected.length) {
+          continue
+        }
+        const key = `${item.version}/${item.profile}/${warning.at}`
+        if (promptedIncompatible.has(key)) {
+          continue
+        }
+        if (document.querySelector('.ask:not([hidden])')) {
+          return
+        }
+        const specs = [...new Set(rejected.map((entry) => String(entry.package || '').replace(/@[^@/]+$/, '')).filter(Boolean))]
+        if (!specs.length) {
+          continue
+        }
+        promptedIncompatible.add(key)
+        incompatiblePromptBusy = true
+        try {
+          const ok = await appConfirm(
+            `${t('这些插件与 dsh {version} 不兼容，已被自动禁用：', { version: item.version })}\n${specs.join('\n')}\n\n${t('升级到兼容版本？升级后会自动重启这个实例。')}`,
+            { title: t('插件版本不兼容') },
+          )
+          if (!ok) {
+            continue
+          }
+          const result = await post('/api/plugins/upgrade-incompatible', { version: item.version, profile: item.profile })
+          await post('/api/stop', { version: item.version, profile: item.profile }).catch(() => {})
+          await post('/api/start', { version: item.version, profile: item.profile })
+          const rest = result.skipped?.length ? `\n${t('其余插件请在插件市场里升级：{list}', { list: result.skipped.join('、') })}` : ''
+          notify(`${t('已升级 {n} 个插件并重启实例：{list}', { n: result.upgraded.length, list: result.upgraded.join('、') })}${rest}`, t('插件已升级'))
+        } catch (error) {
+          notify(error.message, t('升级失败'))
+        } finally {
+          incompatiblePromptBusy = false
+        }
+        return
+      }
+    }
+
     function render() {
       const have = new Set(installedList())
       const allVersions = allVersionList()
@@ -4456,6 +4554,7 @@
       setPluginProgress(Boolean(pluginProgress))
       paintLaunchHome()
       paintInstances()
+      paintBootOverlay()
       hintEl.textContent = action === 'optimize' || installProgress?.phase === 'optimize' ? t('正在优化依赖…')
         : action === 'install' || action === 'update' || state.installing ? progressHint(t('正在安装'))
         : action === 'uninstall' ? t('正在卸载…') : ''
@@ -4472,6 +4571,8 @@
         const links = warnings.map((item, index) => `<button type="button" data-diagnostic-warning="${index}">${escapeHtml(item.version + '/' + item.profile)} · ${escapeHtml(t('查看错误信息'))}</button>`)
         hintEl.insertAdjacentHTML('beforeend', `${hintEl.textContent ? ' · ' : ''}${[...new Set(warnings.map(item => t(item.diagnosticWarning.message || '运行中插件诊断')))].map(escapeHtml).join(' · ')} · ${links.join(' · ')}`)
       }
+      // 不兼容插件在实例启动后自动提示一次升级（用户正在别的弹窗里时推迟到下一轮）
+      void maybePromptIncompatible(warnings)
       if (state.diagnosticRepairs?.length) {
         const historyButton = document.createElement('button')
         historyButton.type = 'button'
@@ -4508,7 +4609,7 @@
     async function runLaunchAction(version, profile, launchId, phase, run) {
       const key = launchActionKey(version, profile, launchId)
       if (launchActions.has(key) || (launchId && [...launchActions.values()].some((task) => task.launchId === launchId))) return
-      const task = { phase, launchId }
+      const task = { phase, launchId, version, profile }
       launchActions.set(key, task)
       render()
       try {
@@ -4756,6 +4857,16 @@
     }
 
     document.getElementById('goneClose').onclick = () => window.close()
+
+    // 启动中的实例：状态推送只在事件点发生，秒表靠本地每秒重绘（没有实例在启动就不画）
+    setInterval(() => {
+      if (!(state.instances || []).some((item) => item.status === 'starting')) {
+        return
+      }
+      paintLaunchHome()
+      paintInstances()
+      paintBootOverlay()
+    }, 1000)
 
     function listenEvents() {
       const events = new EventSource('/api/events')
@@ -7652,6 +7763,15 @@
     applyLang()
     loadSettings()
   </script>
+  <div class="boot-overlay" id="bootOverlay" hidden>
+    <div class="boot-card" role="status" aria-live="polite">
+      <div class="boot-spinner" aria-hidden="true"></div>
+      <p class="boot-title" id="bootTitle"></p>
+      <p class="boot-phase" id="bootPhase"></p>
+      <div class="boot-bar" aria-hidden="true"><span></span></div>
+      <p class="boot-hint" data-i18n="启动完成后会自动打开">启动完成后会自动打开</p>
+    </div>
+  </div>
   <script src="/idle.js" defer></script>
   <script src="/mascot.js" defer></script>
   <script src="/water.js" defer></script>

@@ -950,8 +950,28 @@ function instanceInfo(proc) {
     status: proc.status,
     url: proc.url,
     startedAt: proc.startedAt,
+    startupPhase: proc.status === 'starting' ? (proc.startupPhase || 'launching') : '',
     diagnosticWarning: publicFailure(proc.diagnosticWarning),
   }
+}
+
+/**
+ * 直接依赖里，精确钉死 @deepseek-ai/* 版本且不等于当前运行时的包——dsh 启动时会拒载它们。
+ * 只认精确版本（dsh 的兼容检查就是精确比对）；^ / ~ 这类范围不算不兼容。
+ */
+export function incompatibleDirectDeps(profileDir, version) {
+  let manifest = {}
+  try { manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8')) } catch { /* 空 profile */ }
+  const exact = (range) => /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(String(range))
+  const result = []
+  for (const name of Object.keys(manifest?.dependencies ?? {})) {
+    let pkg = {}
+    try { pkg = JSON.parse(readFileSync(join(profileDir, 'node_modules', name, 'package.json'), 'utf8')) } catch { continue }
+    const requirements = { ...(pkg.peerDependencies || {}), ...(pkg.dependencies || {}) }
+    const mismatch = Object.entries(requirements).filter(([dep, range]) => dep.startsWith('@deepseek-ai/') && exact(range) && String(range) !== version)
+    if (mismatch.length) result.push({ name, requirements: mismatch.map(([dep, range]) => `${dep}@${range}`) })
+  }
+  return result
 }
 
 /** 方案只引用本管理进程持有的诊断；新启动期间旧失败也不能充当当前证据。 */
@@ -3895,6 +3915,7 @@ function attachProcess(version, profile, child, diagnosticContext) {
     home: homeDir(),
     child,
     status: 'starting',
+    startupPhase: 'launching',
     url: null,
     tail: [],
     diagnosis: createStartupDiagnosis(diagnosticContext, line => redact(line, secretValues)),
@@ -3935,6 +3956,14 @@ function attachProcess(version, profile, child, diagnosticContext) {
   const onLine = (line) => {
     if (proc.diagnosis.addLine(line)) {
       scheduleDiagnosis()
+    }
+    // 启动阶段只做粗粒度推断给界面看（不透出日志原文，日志里可能有 token）
+    if (proc.status === 'starting') {
+      if (/incompatible|skipping profile bundle|disabling profile plugin row/.test(String(line))) {
+        proc.startupPhase = 'verifying'
+      } else if (proc.startupPhase !== 'verifying') {
+        proc.startupPhase = 'loading'
+      }
     }
     if (line.trim()) {
       proc.tail.push(line)
@@ -5413,6 +5442,35 @@ async function handleApi(req, res, url) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       pushLog(`插件更新失败：${message}`)
+      send(res, 400, { error: message })
+    }
+    return
+  }
+/**
+ * 把启动日志里报「版本不兼容」的官方插件升级到与 dsh 运行时对齐的版本。
+ *
+ * 日志里报的是加载行（可能是传递依赖，比如 codex 拉进来的 tool-subagent），直接升级传递依赖
+ * 只会多装一份；真正该动的是声明了精确版本约束的直接依赖。所以这里从磁盘扫（见
+ * incompatibleDirectDeps）。官方包的版本跟 dsh 对齐；第三方插件的兼容版本推断不了，
+ * 跳过并让用户去插件市场。
+ */
+  if (req.method === 'POST' && url.pathname === '/api/plugins/upgrade-incompatible') {
+    try {
+      const profile = safeProfile(String(body.profile || PROFILE_NAME))
+      const version = String(body.version || '')
+      if (!VERSION_RE.test(version)) throw new Error('版本号不正确')
+      const candidates = incompatibleDirectDeps(profileDirOf(profile), version)
+      const official = candidates.map((item) => item.name).filter((name) => name.startsWith('@deepseek-ai/'))
+      const skipped = candidates.map((item) => item.name).filter((name) => !name.startsWith('@deepseek-ai/'))
+      if (!official.length) throw new Error('没有可自动升级的官方插件，请在插件市场里处理')
+      for (const name of official) {
+        await runPluginCommand(version, ['add', `${name}@${version}`], `升级 ${name}`, { profile })
+      }
+      pushLog(`插件升级到 ${version}：${official.join('、')}（重启实例后生效）`)
+      send(res, 200, { ok: true, upgraded: official, skipped })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushLog(`插件升级失败：${message}`)
       send(res, 400, { error: message })
     }
     return
