@@ -146,6 +146,15 @@ jobs:
         run: npm run dist
 
       # 应用层增量资产（mac 的 app 在 .app/Contents/Resources/app）
+      - name: 写入签名私钥（没配 secret 就跳过）
+        if: steps.probe.outputs.ready == 'yes'
+        shell: bash
+        env:
+          KEY: ${{ secrets.DSH_RELEASE_KEY }}
+        run: |
+          mkdir -p release
+          if [ -n "$KEY" ]; then printf '%s' "$KEY" > release/release-key.pem; echo "有私钥，本次会签名"; else echo "没有私钥，只出清单"; fi
+
       - name: 生成应用层增量资产
         if: steps.probe.outputs.ready == 'yes'
         shell: bash
@@ -174,7 +183,11 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" release/DSH-X-mac-*.dmg release/app-*-mac.zip release/app-*-mac.manifest.json release/app-*-mac.manifest.json.sig --clobber
+            gh release upload "$tag" release/DSH-X-mac-*.dmg --clobber
+            # app 资产两架构内容相同，只让 arm64 传，避免两个 job 的 zip/清单/签名互相覆盖
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              gh release upload "$tag" release/app-*-mac.zip release/app-*-mac.manifest.json release/app-*-mac.manifest.json.sig --clobber
+            fi
           else
             echo "还没有 $tag 的 Release，dmg 先留在 workflow artifacts 里"
           fi

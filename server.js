@@ -649,6 +649,25 @@ function assertMacUpdatable() {
   return bundle
 }
 
+/**
+ * mac 的增量更新只换 Resources/app，换完必须重签整个 .app。
+ * 只有 ad-hoc / 未签名的包能安全地用 ad-hoc 重签；固定证书签名的包重签会破坏公证，
+ * 直接让用户走完整安装包。返回 { ok, identity } 或 { ok: false, reason, error }。
+ */
+export function macSignatureAllowsIncremental(text) {
+  const output = String(text || '')
+  if (/Signature=adhoc/.test(output)) return { ok: true, identity: '-' }
+  if (/not signed at all/.test(output)) return { ok: true, identity: '-' }
+  return { ok: false, reason: 'signed', error: '当前包使用固定证书签名，增量更新会破坏签名，请用完整安装包' }
+}
+
+function macIncrementalReadiness() {
+  const bundle = fileManager.appBundle()
+  if (!bundle) return { ok: false, reason: 'source' }
+  const result = spawnSync('codesign', ['-dv', '--verbose=4', bundle], { encoding: 'utf8' })
+  return { ...macSignatureAllowsIncremental(`${result.stdout || ''}${result.stderr || ''}`), bundle }
+}
+
 /** URL 的主机名，只用于日志（解析不了就原样返回）。 */
 function safeHost(url) {
   try {
@@ -828,6 +847,50 @@ rm -rf "$3.old"
 mv "$3" "$3.old" || { echo "move old app failed"; open "$3"; exit 1; }
 if mv "$4" "$3"; then rm -rf "$3.old"; else echo "move new app failed"; mv "$3.old" "$3"; fi
 open "$3"
+`
+
+/**
+ * mac 应用层增量更新的落地助手：等启动器退出 → 备份 Resources/app → 换上新目录 →
+ * 重签整个 .app → open 重启 → 等启动标记；没等到就回滚、重签、重开旧版。
+ * 参数：$1 父进程 pid，$2 app 目录，$3 暂存目录，$4 .app 包，$5 日志，
+ *       $6 启动标记，$7 备份目录，$8 签名身份（- 表示 ad-hoc）。
+ */
+export const MAC_APP_SWAP_SCRIPT = `
+pid=$1; app=$2; staged=$3; bundle=$4; logfile=$5; marker=$6; backup=$7; identity=$8
+log() { echo "[$(date '+%Y-%m-%dT%H:%M:%S')] $*" >>"$logfile" 2>/dev/null; }
+sign() { codesign --force --deep --sign "$identity" "$bundle" >>"$logfile" 2>&1; }
+n=0
+while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 450 ]; do sleep 0.2; n=$((n + 1)); done
+if kill -0 "$pid" 2>/dev/null; then log "父进程 90 秒内没有退出，放弃更新（暂存目录保留，下次可重试）"; exit 1; fi
+rm -f "$marker"
+log "替换 $app"
+rm -rf "$backup"
+if ! mv "$app" "$backup" 2>>"$logfile"; then log "备份失败，放弃更新"; exit 1; fi
+if ! mv "$staged" "$app" 2>>"$logfile"; then log "换入失败，回滚"; mv "$backup" "$app"; open "$bundle"; exit 1; fi
+if ! sign; then
+  log "重新签名失败，回滚"
+  rm -rf "$app"
+  mv "$backup" "$app"
+  sign
+  open "$bundle"
+  exit 1
+fi
+# 包内容变了，旧包的隔离属性会让 Gatekeeper 再拦一次；内容已按签名清单逐个校验过
+xattr -dr com.apple.quarantine "$bundle" >/dev/null 2>&1
+open "$bundle"
+n=0
+while [ "$n" -lt 225 ]; do
+  if [ -f "$marker" ]; then log "新版本启动成功，更新完成"; rm -rf "$backup"; exit 0; fi
+  sleep 0.2; n=$((n + 1))
+done
+log "新版本 45 秒内没有启动成功，开始回滚"
+pkill -f "^$bundle/Contents/MacOS/" >/dev/null 2>&1
+sleep 1
+rm -rf "$app"
+mv "$backup" "$app"
+sign
+open "$bundle"
+exit 1
 `
 
 /**
@@ -2807,22 +2870,33 @@ function writeCurrentJson(layout, value) {
 }
 
 /**
- * 检查能不能走应用层增量：只认「已打包的 Windows 安装版 + 清单签名有效」。
- * Electron 版本一致时给 app 增量；不一致时额外查运行时清单，让页面能走「只换 runtime」。
+ * 检查能不能走应用层增量：只认「已打包的安装版 + 清单签名有效」。
+ * Windows 走 boot 布局（换 app/<版本> + junction）；mac 换 .app 里的 Resources/app 后重签。
+ * Electron 版本一致时给 app 增量；不一致时 Windows 额外查运行时清单，mac 只能走完整安装包。
  * 返回的字段给页面用；完整清单留在 pendingAppUpdate / pendingRuntimeUpdate 里。
  */
 async function checkAppUpdate({ force = false } = {}) {
-  if (!PACKAGED || !IS_WINDOWS) return { available: false, reason: IS_WINDOWS ? 'source' : 'platform' }
+  if (!PACKAGED || (!IS_WINDOWS && !IS_MAC)) return { available: false, reason: PACKAGED ? 'platform' : 'source' }
   if (!force && appUpdateCache.data && Date.now() - appUpdateCache.at < APP_UPDATE_CACHE_MS) return appUpdateCache.data
   const remember = (data) => { appUpdateCache = { at: Date.now(), data }; return data }
   const layout = bootLayout()
+  const platform = IS_MAC ? 'mac' : 'win'
   const self = await checkSelfUpdate()
   const latest = self.latest
   if (!self.update || !latest) return remember({ available: false, reason: 'current', latest, layout: layout ? 'boot' : 'full' })
+  if (IS_MAC) {
+    try {
+      assertMacUpdatable()
+    } catch (error) {
+      return remember({ available: false, reason: 'unwritable', latest, error: error?.message || String(error), layout: 'full' })
+    }
+    const ready = macIncrementalReadiness()
+    if (!ready.ok) return remember({ available: false, reason: ready.reason, latest, error: ready.error, layout: 'full' })
+  }
   let got
   let manifest
   try {
-    got = await fetchSignedManifest(latest, appAssetName(latest, 'win', '.manifest.json'))
+    got = await fetchSignedManifest(latest, appAssetName(latest, platform, '.manifest.json'))
     manifest = JSON.parse(got.bytes.toString('utf8'))
   } catch (error) {
     return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error), layout: layout ? 'boot' : 'full' })
@@ -2830,6 +2904,7 @@ async function checkAppUpdate({ force = false } = {}) {
   if (!verifyAppManifest(got.bytes, got.signature)) return remember({ available: false, reason: 'unsigned', latest, layout: layout ? 'boot' : 'full' })
   const targetElectron = String(manifest.electronVersion || '')
   if (targetElectron !== String(process.versions.electron)) {
+    if (IS_MAC) return remember({ available: false, reason: 'electron', latest, electron: targetElectron, layout: 'full' })
     // Electron 升级：查一下新运行时清单，页面据此提供「只换运行时」
     let runtime = null
     try {
@@ -2843,7 +2918,7 @@ async function checkAppUpdate({ force = false } = {}) {
     return remember({ available: false, reason: 'electron', latest, electron: targetElectron, runtime, layout: layout ? 'boot' : 'full' })
   }
   try {
-    assertManifestShape(manifest, { version: latest, electronVersion: process.versions.electron, platform: 'win' })
+    assertManifestShape(manifest, { version: latest, electronVersion: process.versions.electron, platform })
   } catch (error) {
     return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error), layout: layout ? 'boot' : 'full' })
   }
@@ -5611,6 +5686,30 @@ async function handleApi(req, res, url) {
         pushLog(`应用增量更新：切换到 ${stagedApp.version}，重启引导器`)
         send(res, 200, { ok: true, version: stagedApp.version })
         spawn(join(layout.installRoot, 'DSH.exe'), ['--wait-pid', String(process.pid)], { cwd: layout.installRoot, detached: true, stdio: 'ignore', windowsHide: true }).unref()
+        setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
+        return
+      }
+      if (IS_MAC) {
+        // mac：换 .app/Contents/Resources/app，重签后重启；助手用 /bin/sh，不依赖包里的可执行文件
+        const bundle = assertMacUpdatable()
+        const ready = macIncrementalReadiness()
+        if (!ready.ok) throw new Error(ready.error || '当前安装不支持增量更新，请用完整安装包')
+        const script = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.sh`)
+        writeFileSync(script, MAC_APP_SWAP_SCRIPT)
+        chmodSync(script, 0o755)
+        const child = spawn('/bin/sh', [script,
+          String(process.pid),
+          ROOT,
+          stagedApp.dir,
+          bundle,
+          join(APP_DIR, 'update.log'),
+          join(APP_DIR, 'update-ok'),
+          join(dirname(ROOT), `app.bak-${APP_VERSION}`),
+          ready.identity || '-',
+        ], { cwd: tmpdir(), detached: true, stdio: 'ignore' })
+        child.unref()
+        pushLog(`应用增量更新：替换助手已启动（${stagedApp.version}），启动器即将退出`)
+        send(res, 200, { ok: true, version: stagedApp.version })
         setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
         return
       }

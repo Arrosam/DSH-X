@@ -39,7 +39,9 @@ export function listFiles(dir) {
 export function buildAppManifest(appDir, { version, electronVersion, platform, archive, boot } = {}) {
   const files = listFiles(appDir).map((path) => {
     const stat = statSync(join(appDir, path))
-    return { path, size: stat.size, sha256: hashFile(join(appDir, path)) }
+    // mac 的 node/npm/pnpm 包装脚本要靠执行位才能直接跑；zip 不存权限，所以记在签名清单里
+    const mode = stat.mode & 0o111 ? stat.mode & 0o777 : 0
+    return { path, size: stat.size, sha256: hashFile(join(appDir, path)), ...(mode ? { mode } : {}) }
   })
   return {
     schema: APP_SCHEMA,

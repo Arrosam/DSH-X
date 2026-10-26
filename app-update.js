@@ -1,11 +1,12 @@
 // 应用层增量更新（客户端侧）：拉清单、验签、对比本地文件、下载与暂存。
 //
-// 思路：发布时给 resources/app 生成「路径 + 大小 + sha256」清单并用发布私钥签名；客户端
-// 用内置公钥校验清单，按哈希找出变化的文件，下载整包（app-<版本>-win.zip）解到临时目录
-// 逐个校验，退出后由 apply-update.mjs 换目录。Electron 版本变了就不能用增量，走全量安装包。
+// 思路：发布时给 resources/app 生成「路径 + 大小 + sha256（+ 可执行位）」清单并用发布私钥签名；
+// 客户端用内置公钥校验清单，按哈希找出变化的文件，下载整包（app-<版本>-<平台>.zip）解到临时目录
+// 逐个校验，退出后由替换助手换目录。Electron 版本变了就不能用增量，走全量安装包。
+// Windows 换 app/<版本> 目录 + junction；mac 换 .app/Contents/Resources/app 后重签。
 
 import { createHash, verify as cryptoVerify } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { readZipEntry, readZipIndex } from './zipfile.js'
@@ -57,7 +58,10 @@ export function localDiff(appDir, manifest) {
     const target = join(appDir, ...String(file.path).split('/'))
     let same = false
     try {
-      if (statSync(target).size === file.size) same = hashFile(target) === file.sha256
+      const stat = statSync(target)
+      // 权限也算差异：mac 的可执行位丢了（比如被旧版本助手解包过）也要重新装一次
+      const modeOk = file.mode === undefined || (stat.mode & 0o777) === file.mode
+      if (stat.size === file.size && modeOk) same = hashFile(target) === file.sha256
     } catch { /* 缺失按变化处理 */ }
     if (!same) {
       changed.push(file)
@@ -85,6 +89,9 @@ export function assertManifestShape(manifest, { version, electronVersion, platfo
     if (!Number.isFinite(file.size) || typeof file.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sha256)) {
       throw new Error(`应用清单里的 ${file.path} 缺少有效的大小/哈希`)
     }
+    if (file.mode !== undefined && (!Number.isInteger(file.mode) || file.mode < 0 || file.mode > 0o777)) {
+      throw new Error(`应用清单里的 ${file.path} 权限不合法`)
+    }
   }
   return manifest
 }
@@ -111,6 +118,8 @@ export async function extractVerified(zipPath, manifest, stagingDir, onProgress)
     const temp = `${target}.part`
     writeFileSync(temp, data)
     renameSync(temp, target)
+    // mac 的可执行包装脚本（node/npm/pnpm）：zip 不存权限，按签名清单里的 mode 恢复
+    if (file.mode) chmodSync(target, file.mode)
     done += 1
     if (onProgress) onProgress(done, files.length)
   }
