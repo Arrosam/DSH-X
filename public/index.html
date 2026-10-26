@@ -2171,18 +2171,21 @@
       noticeDetailEl.scrollTop = fromTop ? 0 : noticeDetailEl.scrollHeight
     }
     noticeCopyEl.onclick = async () => {
+      // 卡片模式下诊断块是隐藏的，但副本仍要带上纯文本诊断
+      const diagnosis = lastDiagnosisReport ? `${diagnosisText(lastDiagnosisReport)}\n\n` : ''
+      const payload = `${noticeTextEl.textContent}\n\n${diagnosis}${noticeDetailEl.textContent}`
       try {
-        // 卡片模式下诊断块是隐藏的，但副本仍要带上纯文本诊断
-        const diagnosis = lastDiagnosisReport ? `${diagnosisText(lastDiagnosisReport)}\n\n` : ''
-        await navigator.clipboard.writeText(`${noticeTextEl.textContent}\n\n${diagnosis}${noticeDetailEl.textContent}`)
+        await navigator.clipboard.writeText(payload)
       } catch {
-        // 剪贴板接口不给用时退回「选中再复制」
-        const range = document.createRange()
-        range.selectNodeContents(noticeDetailEl)
-        const selection = getSelection()
-        selection.removeAllRanges()
-        selection.addRange(range)
-        document.execCommand('copy')
+        // 剪贴板接口不给用（权限被拒、页面失焦）时用临时文本框兜底：
+        // 内容与上面完全一致，不再只选那个可能被隐藏的原始输出块
+        const area = document.createElement('textarea')
+        area.value = payload
+        area.style.position = 'fixed'
+        area.style.opacity = '0'
+        document.body.append(area)
+        area.select()
+        try { document.execCommand('copy') } finally { area.remove() }
       }
       noticeCopyEl.textContent = t('已复制')
     }

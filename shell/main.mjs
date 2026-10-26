@@ -541,6 +541,12 @@ function installPermissionHandlers() {
   const ses = session.defaultSession
   ses.setPermissionRequestHandler((contents, permission, callback, details) => {
     const origin = details.requestingUrl || contents.getURL()
+    // 复制按钮（诊断信息等）走异步剪贴板 API，Chromium 会请求这个权限；
+    // 一律拒绝的话 writeText 直接失败，页面只能退回「选中再复制」那条死路
+    if (permission === 'clipboard-sanitized-write' && isLoopbackUrl(origin)) {
+      callback(true)
+      return
+    }
     if (permission !== MEDIA_PERMISSION || !isLoopbackUrl(origin)) {
       callback(false)
       return
