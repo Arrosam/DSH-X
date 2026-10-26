@@ -770,6 +770,15 @@
     </div>
   </div>
   <script src="/log-view.js"></script>
+  <div class="boot-overlay" id="bootOverlay" hidden>
+    <div class="boot-card" role="status" aria-live="polite">
+      <div class="boot-spinner" aria-hidden="true"></div>
+      <p class="boot-title" id="bootTitle"></p>
+      <p class="boot-phase" id="bootPhase"></p>
+      <div class="boot-bar" aria-hidden="true"><span></span></div>
+      <p class="boot-hint" data-i18n="启动完成后会自动打开">启动完成后会自动打开</p>
+    </div>
+  </div>
   <script>
     // ---- 界面双语：字典按中文原文做 key，没翻到的原样显示中文（不会漏、不会崩） ----
     const LANG = '__APP_LANG__'
@@ -7763,15 +7772,6 @@
     applyLang()
     loadSettings()
   </script>
-  <div class="boot-overlay" id="bootOverlay" hidden>
-    <div class="boot-card" role="status" aria-live="polite">
-      <div class="boot-spinner" aria-hidden="true"></div>
-      <p class="boot-title" id="bootTitle"></p>
-      <p class="boot-phase" id="bootPhase"></p>
-      <div class="boot-bar" aria-hidden="true"><span></span></div>
-      <p class="boot-hint" data-i18n="启动完成后会自动打开">启动完成后会自动打开</p>
-    </div>
-  </div>
   <script src="/idle.js" defer></script>
   <script src="/mascot.js" defer></script>
   <script src="/water.js" defer></script>
