@@ -111,6 +111,7 @@ async function start() {
   if (IS_MAC) Menu.setApplicationMenu(appMenu())
   else Menu.setApplicationMenu(null)
   installPermissionHandlers()
+  installDownloadHandler()
   // 系统深浅色在运行中变了（控制中心切换）：停止页跟着重画（#58）
   nativeTheme.on('updated', () => tabs?.systemThemeChanged())
 
@@ -557,6 +558,35 @@ function installPermissionHandlers() {
       message: en ? `${host} wants to use your ${device}.` : `${host} 请求使用${device}。`,
       detail: en ? 'Allow access?' : '是否允许？',
     }).then(({ response }) => callback(response === 0), () => callback(false))
+  })
+}
+
+/**
+ * 页面里的下载（导出日志等）：Electron 不会自己存文件，没人接管 will-download 时下载会被
+ * 静默丢掉（浏览器版没这问题）。这里问一次保存路径再写盘，完成/失败在页面上给个提示。
+ */
+function installDownloadHandler() {
+  session.defaultSession.on('will-download', async (event, item, contents) => {
+    const owner = BrowserWindow.fromWebContents(contents) || mainWindow
+    try {
+      const { canceled, filePath } = await dialog.showSaveDialog(owner, {
+        defaultPath: join(app.getPath('downloads'), item.getFilename() || 'dsh-x-download'),
+      })
+      if (canceled || !filePath) {
+        item.cancel()
+        return
+      }
+      item.setSavePath(filePath)
+      item.once('done', (_event, status) => {
+        if (contents.isDestroyed()) return
+        const en = state.lang === 'en'
+        const message = status === 'completed' ? (en ? `Saved to ${filePath}` : `已保存到 ${filePath}`)
+          : status === 'cancelled' ? '' : (en ? 'Download failed' : '下载失败')
+        if (message) contents.executeJavaScript(`notify(${JSON.stringify(message)})`).catch(() => {})
+      })
+    } catch {
+      item.cancel()
+    }
   })
 }
 
