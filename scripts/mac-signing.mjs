@@ -41,7 +41,9 @@ export function signMacBundle(bundle, env = process.env) {
   // 同一张证书跨版本、跨架构重用，系统才能用签名要求认出更新后的应用。
   run('codesign', ['--force', '--sign', identity, '--identifier', `${MAC_BUNDLE_ID}.node`, ...keychainArgs, node])
   for (const code of nestedCode(bundle)) {
-    run('codesign', ['--force', '--sign', identity, ...keychainArgs, code])
+    // 裁剪 Electron 运行时会改动 framework 内部文件（原有签名随之失效），里面的
+    // Helpers（如 chrome_crashpad_handler）不是独立 bundle，得 --deep 一起重签
+    run('codesign', ['--force', '--deep', '--sign', identity, ...keychainArgs, code])
   }
   run('codesign', ['--force', '--sign', identity, '--identifier', MAC_BUNDLE_ID, ...keychainArgs, bundle])
   run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', bundle])

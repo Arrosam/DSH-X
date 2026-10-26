@@ -28,6 +28,10 @@ jobs:
         with:
           node-version: '22'
 
+      # 外壳换成 Electron 后打包要 devDependencies（@electron/packager + electron）
+      - name: 安装打包依赖
+        run: npm ci
+
       - name: 跑测试
         run: npm test
 
