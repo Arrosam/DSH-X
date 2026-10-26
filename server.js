@@ -2702,6 +2702,64 @@ function removeDirectoryLink(link) {
   return aside
 }
 
+/** 安装器建的两个快捷方式（用户取消勾选时可能不存在）。 */
+function shortcutLinks() {
+  const links = []
+  if (process.env.USERPROFILE) links.push(join(process.env.USERPROFILE, 'Desktop', 'DSH-X.lnk'))
+  if (process.env.APPDATA) links.push(join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'DSH-X.lnk'))
+  return links.filter((path) => existsSync(path))
+}
+
+/** 用 WScript.Shell 把若干 .lnk 的图标指到 iconTarget。没有快捷方式就直接返回。 */
+export async function setShortcutIcon(links, iconTarget) {
+  if (!links.length) return
+  const quote = (value) => `'${String(value).replace(/'/g, "''")}'`
+  const script = links
+    .map((link) => `$p=${quote(link)}; $s=(New-Object -ComObject WScript.Shell).CreateShortcut($p); $s.IconLocation=${quote(`${iconTarget},0`)}; $s.Save()`)
+    .join('; ')
+  await execFileAsync('powershell', ['-NoProfile', '-Command', script], { windowsHide: true, timeout: 15000 })
+}
+
+/**
+ * 版本更新后刷新桌面 / 开始菜单快捷方式的图标。
+ * 图标文件名带版本号（为绕开 Explorer 图标缓存），快捷方式却还指着旧文件；这里把当前版本的图标
+ * 放进安装根目录的 assets/，再把两个 .lnk 指过去。每个版本只做一次（APP_DIR 里记个戳）。
+ * 只在 boot 布局下有意义：旧布局更新走完整安装包，快捷方式由 Inno 重写。
+ */
+export async function refreshShortcuts({ installRoot, appDir = APP_DIR, version = APP_VERSION, links, force = false } = {}) {
+  if (!IS_WINDOWS || (!PACKAGED && !force)) return false
+  const root = installRoot || bootLayout()?.installRoot
+  if (!root) return false
+  const stampFile = join(appDir, 'shortcut-icon')
+  try {
+    if (readFileSync(stampFile, 'utf8').trim() === version) return false
+  } catch { /* 还没有戳 */ }
+  const iconSource = join(ROOT, 'assets', 'dsh.ico')
+  if (!existsSync(iconSource)) return false
+  const iconTarget = join(root, 'assets', `dsh-${version}.ico`)
+  try {
+    mkdirSync(join(root, 'assets'), { recursive: true })
+    if (!existsSync(iconTarget)) copyFileSync(iconSource, iconTarget)
+  } catch (error) {
+    pushLog(`快捷方式图标写入失败：${error?.message || error}`)
+    return false
+  }
+  try {
+    await setShortcutIcon(links || shortcutLinks(), iconTarget)
+  } catch (error) {
+    pushLog(`快捷方式图标刷新失败：${error?.message || error}`)
+    return false
+  }
+  // 旧版本的图标文件已经没人引用了，顺手清掉（清不掉不影响）
+  try {
+    for (const file of readdirSync(join(root, 'assets'))) {
+      if (file !== basename(iconTarget) && /^dsh-[\d.]+\.ico$/i.test(file)) rmSync(join(root, 'assets', file), { force: true })
+    }
+  } catch { /* ignore */ }
+  try { writeFileSync(stampFile, version) } catch { /* 记不上就下次再做 */ }
+  return true
+}
+
 /**
  * 新布局切换 app 版本：搬目录 → 重指 junction → 写 current.json（带 previous 供引导器回滚）。
  * 抽出来是为了能在测试里用临时目录验证 junction 行为。
@@ -6589,6 +6647,8 @@ export async function startServer() {
     pushLog(`DSH 管理器 http://127.0.0.1:${PORT}`)
     // 给应用层增量更新的替换助手留一个「新版本启动成功」的标记
     try { writeFileSync(join(APP_DIR, 'update-ok'), String(Date.now())) } catch { /* 标记写不了不影响启动 */ }
+    // 版本更新后刷新快捷方式图标（图标文件名带版本号，快捷方式还指着旧文件）
+    void refreshShortcuts().catch(() => {})
     pushLog(`版本目录 ${DATA}`)
     pushLog(`DSH_HOME ${homeDir()}`)
     const system = detectSystemDsh()
