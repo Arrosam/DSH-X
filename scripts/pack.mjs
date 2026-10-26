@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { copyFile, cp, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -258,8 +259,14 @@ async function buildParts() {
   rmSync(join(runtimeDir, 'resources', 'default_app.asar'), { force: true })
   await cp(join(OUT, 'resources', 'app'), appDir, { recursive: true })
   const { buildAppAssets } = await import('./app-manifest.mjs')
+  // 引导器自更新：把 boot-<版本>-win.exe 的哈希写进应用清单（随清单一起签名）
+  const bootName = `boot-${PKG.version}-win.exe`
+  const bootFile = join(ROOT, 'release', bootName)
+  const boot = existsSync(bootFile)
+    ? { name: bootName, size: statSync(bootFile).size, sha256: createHash('sha256').update(readFileSync(bootFile)).digest('hex') }
+    : undefined
   const runtimeAssets = await buildAppAssets({ appDir: runtimeDir, version: electronVersion, electronVersion, platform: 'win', prefix: 'runtime' })
-  const appAssets = await buildAppAssets({ appDir, version: PKG.version, electronVersion, platform: 'win', prefix: 'app' })
+  const appAssets = await buildAppAssets({ appDir, version: PKG.version, electronVersion, platform: 'win', prefix: 'app', boot })
   console.log(`runtime 资产: ${basename(runtimeAssets.zipPath)}（${(runtimeAssets.manifest.archive.size / 1048576).toFixed(1)} MB）`)
   console.log(`app 资产: ${basename(appAssets.zipPath)}（${(appAssets.manifest.archive.size / 1048576).toFixed(1)} MB）`)
   return electronVersion
@@ -271,6 +278,8 @@ async function buildBootInstaller() {
   rmSync(BOOT_DIR, { recursive: true, force: true })
   await mkdir(join(BOOT_DIR, 'assets'), { recursive: true })
   await copyFile(join(ROOT, 'launcher', 'target', 'release', 'DSH-Boot.exe'), join(BOOT_DIR, 'DSH.exe'))
+  // 引导器自更新资产：应用更新时下载它，下次启动替换安装根目录的 DSH.exe
+  await copyFile(join(ROOT, 'launcher', 'target', 'release', 'DSH-Boot.exe'), join(ROOT, 'release', `boot-${PKG.version}-win.exe`))
   await copyFile(join(ROOT, 'assets', 'dsh.ico'), join(BOOT_DIR, 'assets', ICON_NAME))
   const iscc = await ensureInno()
   const engineDir = join(VENDOR, 'installer-engine-lite')
@@ -326,6 +335,7 @@ async function buildReleaseArtifacts(electronVersion) {
 await downloadNode()
 await assemble(await buildShell())
 await buildInstaller()
-const electronVersion = await buildParts()
+// 先编引导器：app 清单要带上 boot 资产哈希
 await buildBootInstaller()
+const electronVersion = await buildParts()
 await buildReleaseArtifacts(electronVersion)

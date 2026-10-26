@@ -36,7 +36,7 @@ export function listFiles(dir) {
   return out.sort()
 }
 
-export function buildAppManifest(appDir, { version, electronVersion, platform, archive } = {}) {
+export function buildAppManifest(appDir, { version, electronVersion, platform, archive, boot } = {}) {
   const files = listFiles(appDir).map((path) => {
     const stat = statSync(join(appDir, path))
     return { path, size: stat.size, sha256: hashFile(join(appDir, path)) }
@@ -48,6 +48,7 @@ export function buildAppManifest(appDir, { version, electronVersion, platform, a
     platform: String(platform || ''),
     builtAt: new Date().toISOString(),
     ...(archive ? { archive } : {}),
+    ...(boot ? { boot } : {}),
     files,
   }
 }
@@ -86,11 +87,11 @@ export async function verifyAppArchive({ manifestPath, zipPath, sigPath, publicK
 }
 
 /** 生成资产：zip 先落盘，再把 archive 信息写进清单并签名。 */
-export async function buildAppAssets({ appDir, version, electronVersion, platform = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : process.platform, prefix = 'app', outDir = join(ROOT, 'release'), privateKeyPem = process.env.DSH_RELEASE_KEY } = {}) {
+export async function buildAppAssets({ appDir, version, electronVersion, platform = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : process.platform, prefix = 'app', outDir = join(ROOT, 'release'), privateKeyPem = process.env.DSH_RELEASE_KEY, boot } = {}) {
   const base = `${prefix}-${version}-${platform}`
   const zipPath = join(outDir, `${base}.zip`)
   const archive = await buildAppZip(appDir, zipPath)
-  const manifest = buildAppManifest(appDir, { version, electronVersion, platform, archive: { name: `${base}.zip`, ...archive } })
+  const manifest = buildAppManifest(appDir, { version, electronVersion, platform, archive: { name: `${base}.zip`, ...archive }, boot })
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)
   const manifestPath = join(outDir, `${base}.manifest.json`)
   writeFileSync(manifestPath, bytes)

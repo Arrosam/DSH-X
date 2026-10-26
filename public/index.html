@@ -1229,6 +1229,8 @@
   "正在替换应用文件，启动器会重启…": "Replacing application files; the launcher will restart…",
   "正在重启…": "Restarting…",
   "增量更新没能开始：{message}": "The incremental update could not start: {message}",
+  "正在下载新版引导器…": "Downloading the new bootstrapper…",
+  "本次下载约 {size} MB（应用层增量），并顺带更新引导器（约 {boot} MB）。": "About {size} MB to download (app-layer update), plus the bootstrapper (about {boot} MB).",
   "更新运行时（约 {size} MB）": "Update the runtime (about {size} MB)",
   "这次更新包含 Electron 运行时升级：只下载新的运行时目录，旧版本保留可回滚。": "This update upgrades the Electron runtime: only the new runtime directory is downloaded; the old one stays for rollback.",
   "运行时更新失败：{message}。可以改用完整安装包。": "Runtime update failed: {message}. You can switch to the full installer.",
@@ -5178,6 +5180,11 @@
       paintSelfPill()
       try {
         await post('/api/self/app-download')
+        // 引导器也旧的话顺带下载：下次启动时它自替换，不用单独提示
+        if (selfState.app?.boot) {
+          askNoteEl.textContent = t('正在下载新版引导器…')
+          await post('/api/self/boot-download')
+        }
         selfState.downloading = false
         selfState.appStaged = selfState.latest || t('最新')
         paintSelfPill()

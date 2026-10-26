@@ -125,6 +125,7 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
   - 完整安装包（`DSH-Setup.exe`）：Electron 壳在安装根目录，`resources/app` 是普通目录；更新走替换助手（`apply-update.mjs`，等父进程退出 → 备份旧 app → 换目录 → 重启 → 45 秒内等不到启动标记 `<APP_DIR>/update-ok` 就回滚）。
   - 引导器安装（`DSH-Setup-lite.exe`，约 5 MB）：`DSH.exe` 是 Rust 引导器，布局为 `current.json` + `runtime/<electron版本>/` + `app/<启动器版本>/`，`runtime/<v>/resources/app` 是指向 app 目录的 junction。app 更新 = 换 junction + 写 current.json（`switchBootAppVersion`）；Electron 升级 = 下载新 runtime 目录 + junction 指回当前 app + 写 current.json（`switchBootRuntimeVersion`），旧 runtime 保留供回滚。引导器在 current.json 带 `previous` 时等 45 秒启动标记，等不到自动回滚。
   - 引导器首次运行下载 runtime + app（两套清单都验签、逐文件核对哈希），之后只负责启动当前版本；自启/快捷方式指向安装根目录的引导器（`launcherExecutable()` 会识别 junction 布局）。
+- **引导器自更新**：应用清单里带 `boot: { name, size, sha256 }`（随清单签名）。应用检查更新时比对安装根目录 `DSH.exe` 的哈希，不一致就在 `/api/self/boot-download` 下载到 `boot-update.exe`（客户端会先 app-download 再 boot-download 再 app-apply）。下次启动时引导器把自己改名成 `DSH.exe.old`、换上 `boot-update.exe`、拉起新进程并退出；新进程清理旧文件并把编译时版本（`DSH_BOOT_VERSION`，build.rs 从 package.json 取）写进 `current.json.boot`。
 - 边界：只有「已打包的 Windows 安装版 + 签名清单」才走增量；未签名、mac、源码运行自动回退完整安装包。旧版本客户端不认识这些资产，忽略即可。
 - 所有下载都走 `updateUrlCandidates`：默认「国内加速」是镜像优先（gh-proxy → ghfast → 直连兜底）。
 - 本地调试引导器：`DSH_BOOT_BASE=http://127.0.0.1:端口 DSH_BOOT_VERSION=<版本>` 让它从本地目录取资产（扁平存放），`DSH_BOOT_LOG` 指定日志文件。

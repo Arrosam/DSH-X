@@ -2791,6 +2791,16 @@ async function checkAppUpdate({ force = false } = {}) {
   }
   const diff = localDiff(ROOT, manifest)
   pendingAppUpdate = { version: latest, manifest }
+  // 引导器自更新：比对安装根目录 DSH.exe 的哈希（清单里的 boot 字段随清单签名）
+  let boot = null
+  if (layout && manifest.boot?.sha256) {
+    try {
+      const localHash = createHash('sha256').update(readFileSync(join(layout.installRoot, 'DSH.exe'))).digest('hex')
+      if (localHash !== String(manifest.boot.sha256)) {
+        boot = { version: latest, downloadSize: Number(manifest.boot.size) || 0, name: String(manifest.boot.name || '') }
+      }
+    } catch { /* 读不到本地引导器就跳过 */ }
+  }
   return remember({
     available: true,
     latest,
@@ -2799,6 +2809,7 @@ async function checkAppUpdate({ force = false } = {}) {
     changed: diff.changed,
     changedBytes: diff.changedBytes,
     layout: layout ? 'boot' : 'full',
+    ...(boot ? { boot } : {}),
   })
 }
 
@@ -5498,6 +5509,33 @@ async function handleApi(req, res, url) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       pushLog(`应用增量下载失败：${message}`)
+      send(res, 400, { error: message })
+    }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/self/boot-download') {
+    // 引导器自更新：下载新版引导器到安装根目录的 boot-update.exe；下次启动时它自替换
+    try {
+      const layout = bootLayout()
+      if (!layout) throw new Error('当前不是引导器安装的版本')
+      const data = await checkAppUpdate({ force: true })
+      if (!data.boot) {
+        send(res, 200, { ok: true, skipped: true })
+        return
+      }
+      const manifest = pendingAppUpdate.manifest
+      const target = join(layout.installRoot, 'boot-update.exe')
+      const result = await downloadToFile(releaseUrl(data.latest, manifest.boot.name), target, {
+        sha256: manifest.boot.sha256,
+        limit: 64 * 1024 * 1024,
+        onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'boot', done, total }),
+      })
+      pushLog(`引导器更新已就绪：${data.latest}（${(result.bytes / 1048576).toFixed(1)} MB），下次启动替换`)
+      emit('selfUpdate', { phase: 'boot-ready', latest: data.latest })
+      send(res, 200, { ok: true, version: data.latest })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushLog(`引导器更新下载失败：${message}`)
       send(res, 400, { error: message })
     }
     return

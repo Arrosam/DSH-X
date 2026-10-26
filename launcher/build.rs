@@ -12,6 +12,8 @@ fn app_version() -> String {
 
 fn main() {
     println!("cargo:rerun-if-env-changed=DSH_INSTALL_ENGINE");
+    // 引导器自己的版本：跟着 package.json，写进二进制供自更新比较
+    println!("cargo:rustc-env=DSH_BOOT_VERSION={}", app_version());
     if std::env::var_os("CARGO_FEATURE_INSTALLER").is_some() {
         let payload = match std::env::var("DSH_INSTALL_ENGINE") {
             Ok(path) => {

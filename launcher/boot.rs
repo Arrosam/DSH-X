@@ -43,6 +43,8 @@ mod boot {
     const PUBLIC_KEY_B64: &str = "qIKBGwG4iFvoqTtqIN+rcWgOsTjGRmM0BggjZBDAspU=";
     const PAGE: &str = include_str!("../boot/index.html");
     const NO_WINDOW: u32 = 0x08000000;
+    /// 编译时写入的启动器版本（build.rs 从 package.json 取）。
+    const BOOT_VERSION: &str = env!("DSH_BOOT_VERSION");
 
     #[derive(Clone)]
     struct Progress {
@@ -448,7 +450,7 @@ mod boot {
             )?;
             log("junction 建好");
             log("写入 current.json");
-            let current = json!({ "runtime": electron, "app": version });
+            let current = json!({ "runtime": electron, "app": version, "boot": BOOT_VERSION });
             fs::write(
                 root.join("current.json"),
                 format!("{}\n", serde_json::to_string_pretty(&current).unwrap_or_default()),
@@ -498,6 +500,77 @@ mod boot {
         false
     }
 
+    /// 发现 boot-update.exe（应用下载并校验过的新引导器）就替换自己：
+    /// 运行中的 exe 不能覆盖但可以改名，改名后写入新文件、拉起新进程、自己退出。
+    fn self_replace(root: &Path) -> bool {
+        let update = root.join("boot-update.exe");
+        if !update.is_file() {
+            return false;
+        }
+        let current = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(error) => {
+                log(&format!("自更新：拿不到自身路径 {error}"));
+                return false;
+            }
+        };
+        let old = current.with_extension("exe.old");
+        let _ = fs::remove_file(&old);
+        if let Err(error) = fs::rename(&current, &old) {
+            log(&format!("自更新：改名旧 exe 失败 {error}"));
+            return false;
+        }
+        if let Err(error) = fs::rename(&update, &current) {
+            let _ = fs::rename(&old, &current);
+            log(&format!("自更新：换上新 exe 失败 {error}"));
+            return false;
+        }
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        match Command::new(&current).args(&args).spawn() {
+            Ok(_) => {
+                log("自更新：已换成新引导器，重启");
+                true
+            }
+            Err(error) => {
+                // 新进程起不来：把旧的换回去，继续用旧版本
+                let _ = fs::rename(&current, &update);
+                let _ = fs::rename(&old, &current);
+                log(&format!("自更新：新引导器起不来 {error}"));
+                false
+            }
+        }
+    }
+
+    /// 把当前引导器版本补进 current.json（老安装没有这个字段）。
+    fn stamp_boot(root: &Path) {
+        let mut current = read_current(root).unwrap_or_default();
+        if !current.is_object() {
+            return;
+        }
+        if current.get("boot").and_then(Value::as_str) == Some(BOOT_VERSION) {
+            return;
+        }
+        if let Some(object) = current.as_object_mut() {
+            object.insert("boot".into(), Value::String(BOOT_VERSION.into()));
+        }
+        let _ = fs::write(root.join("current.json"), format!("{}
+", serde_json::to_string_pretty(&current).unwrap_or_default()));
+    }
+
+    /// 新进程启动时清理上一份被改名让位的 exe（旧进程可能还没完全退出，重试几秒）。
+    fn cleanup_old(root: &Path) {
+        let old = root.join("DSH.exe.old");
+        if !old.exists() {
+            return;
+        }
+        for _ in 0..10 {
+            if fs::remove_file(&old).is_ok() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+    }
+
     pub fn run() {
         let wait_pid: u32 = arg_value("--wait-pid").parse().unwrap_or(0);
         if wait_pid > 0 {
@@ -510,8 +583,14 @@ mod boot {
                 return;
             }
         };
+        // 上一轮应用更新下载了新引导器：先换掉自己（换完新进程接着跑，本进程退出）
+        if self_replace(&root) {
+            return;
+        }
+        cleanup_old(&root);
         // 已经装好：不闪窗口，直接起当前版本
         if let Some((runtime, app)) = installed(&root) {
+            stamp_boot(&root);
             let current = read_current(&root).unwrap_or_default();
             // 上一次更新还没被确认（current.json 里有 previous）：等新版本写出启动标记，
             // 等不到就回滚到 previous 并重启旧版本
@@ -538,7 +617,7 @@ mod boot {
                             &runtime_dir(&root, &prev_runtime).join("resources").join("app"),
                             &app_dir(&root, &prev_app),
                         );
-                        let restored = json!({ "runtime": prev_runtime, "app": prev_app });
+                        let restored = json!({ "runtime": prev_runtime, "app": prev_app, "boot": BOOT_VERSION });
                         let _ = fs::write(root.join("current.json"), format!("{}\n", serde_json::to_string_pretty(&restored).unwrap_or_default()));
                         let _ = launch(&root, &prev_runtime);
                         log(&format!("新版本没有启动成功，已回滚到 app {prev_app}"));
