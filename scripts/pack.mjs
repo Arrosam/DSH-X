@@ -131,7 +131,7 @@ async function buildStage() {
 function buildInstaller() {
   if (!existsSync(ELECTRON_BUILDER)) throw new Error('缺少 electron-builder，先 npm install')
   const args = [ELECTRON_BUILDER, '--config', join(ROOT, 'electron-builder.config.mjs'), '--publish', 'never']
-  if (IS_MAC) args.push('--mac')
+  if (IS_MAC) args.push('--mac', process.arch === 'arm64' ? '--arm64' : '--x64')
   else args.push('--win')
   run(process.execPath, args)
   console.log(`安装包输出：${join(ROOT, 'release', 'eb')}`)
