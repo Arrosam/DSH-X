@@ -25,9 +25,7 @@ const PORT = 8899
 const CURRENT = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
 const NEXT = '0.1.21'
 const IS_MAC = process.platform === 'darwin'
-const APP = IS_MAC
-  ? join(RELEASE, 'DSH-X.app', 'Contents', 'Resources', 'app')
-  : join(RELEASE, 'DSH', 'resources', 'app')
+const APP = join(RELEASE, 'app-stage')
 const TEST_APP = IS_MAC ? join(TEST_INSTALL, 'DSH-X.app') : join(TEST_INSTALL, 'DSH.exe')
 const LAUNCH = IS_MAC ? join(TEST_APP, 'Contents', 'MacOS', 'DSH') : TEST_APP
 const electronVersion = JSON.parse(await readFile(join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
@@ -95,11 +93,16 @@ async function prepareInstall() {
   rmSync(TEST_INSTALL, { recursive: true, force: true })
   await mkdir(TEST_INSTALL, { recursive: true })
   if (IS_MAC) {
-    const bundle = join(RELEASE, 'DSH-X.app')
+    const bundle = ['mac-arm64', 'mac', 'mac-x64']
+      .map((name) => join(RELEASE, 'eb', name, 'DSH-X.app'))
+      .find((path) => existsSync(join(path, 'Contents', 'MacOS', 'DSH')))
+    if (!bundle) throw new Error('找不到 electron-builder 产出的 DSH-X.app')
     const result = spawnSync('ditto', [bundle, TEST_APP], { stdio: 'inherit' })
     if (result.status !== 0) throw new Error('ditto 复制 .app 失败')
   } else {
-    await cp(join(RELEASE, 'DSH'), TEST_INSTALL, { recursive: true })
+    const built = join(RELEASE, 'eb', 'win-unpacked')
+    if (!existsSync(join(built, 'DSH.exe'))) throw new Error('找不到 electron-builder 产出的 win-unpacked')
+    await cp(built, TEST_INSTALL, { recursive: true })
   }
   console.log(`测试安装目录：${TEST_INSTALL}`)
 }

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { IS_MAC, IS_WINDOWS, RUNTIME_NODE } from '../platform.js'
 import { APP_DIR } from '../filemanager.js'
 import { BrowserTabs } from './tabs.mjs'
+import { createUpdater } from './updater.mjs'
 import { dataUrl, errorPage, idlePage } from './pages.mjs'
 import {
   LAUNCH_ACTIONS,
@@ -137,12 +138,28 @@ async function start() {
     showStartupError('dsh 服务启动失败', '管理页没能起来。', error?.stack || String(error))
     return
   }
+  const updater = createUpdater({
+    onBeforeInstall: async () => {
+      quitting = true
+      await server.shutdown()
+    },
+  })
   server.setHost({
     onWake: async () => showManager(),
     openTab: (target) => openInternalTab(target),
     openWindow: (url) => openDshWindow(url),
     exit: (code) => exitApp(code),
+    shellUpdate: {
+      state: () => updater.state(),
+      check: () => updater.check(),
+      download: () => updater.download(),
+      install: () => updater.install(),
+    },
+    onShellUpdateState: (listener) => updater.subscribe(listener),
   })
+
+  // 启动时也查一次外壳更新（不阻塞窗口）；页面从 /api/self 的 shell 状态和 SSE 拿结果
+  void updater.check()
 
   createMainWindow()
   createTray()

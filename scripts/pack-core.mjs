@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { versionChannel } from '../version.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const DEFAULT_APP = join(ROOT, 'release', 'DSH', 'resources', 'app')
+const DEFAULT_APP = join(ROOT, 'release', 'app-stage')
 const IS_MAC = process.platform === 'darwin'
 
 function argValue(name, fallback = '') {
