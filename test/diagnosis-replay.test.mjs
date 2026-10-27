@@ -64,7 +64,7 @@ export async function runProfile() {
     env: {
       ...process.env,
       PORT: String(port), APPDATA: appdata, LOCALAPPDATA: join(box, 'local'),
-      HOME: home, USERPROFILE: home, DSH_HOME: home, DSH_CLIENT_VERSION: '',
+      HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), DSH_HOME: home, DSH_CLIENT_VERSION: '',
     },
     stdio: 'ignore',
     windowsHide: true,
