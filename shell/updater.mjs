@@ -9,6 +9,13 @@ import { NPM_MODE } from '../platform.js'
 
 const { autoUpdater } = electronUpdater
 
+/** electron-updater 的报错带一大段 HTTP 头/堆栈；页面只留第一句，缺 latest.yml 时给人话。 */
+function friendlyError(error) {
+  const raw = error?.message || String(error)
+  if (/Cannot find latest.yml/i.test(raw)) return '发布页还没有外壳更新资产（latest.yml）'
+  return String(raw).split('\n')[0]
+}
+
 /**
  * @param {object} options
  * @param {() => Promise<void>} [options.onBeforeInstall] 安装前收尾（停 dsh、关服务）
@@ -56,7 +63,7 @@ export function createUpdater({ onBeforeInstall } = {}) {
     })
     autoUpdater.on('error', (error) => {
       state.status = 'error'
-      state.error = error?.message || String(error)
+      state.error = friendlyError(error)
       emit()
     })
   }

@@ -1324,6 +1324,7 @@
   "外壳更新下载失败：{message}": "Shell update download failed: {message}",
   "外壳更新失败：{message}": "Shell update failed: {message}",
   "发现外壳新版本 {latest}，正在打开更新窗口…": "Shell version {latest} is available. Opening the update dialog…",
+  "核心已是最新；外壳更新检查失败：{message}": "The core is up to date; the shell update check failed: {message}",
   "已切到 profile {name}，dsh 下次启动用它。": "Switched to profile {name}; dsh will use it on the next start.",
   "全部更新": "Update all",
   "全部更新（{n}）": "Update all ({n})",
@@ -5351,6 +5352,9 @@
           } else if (data.update) {
             aboutUpdateHintEl.textContent = t('发现新版本 {latest}，正在打开更新窗口…', { latest: data.latest })
             showAsk({ dsh: null, self: { current: data.current, latest: data.latest, url: data.url } })
+          } else if (shell?.status === 'error') {
+            // 核心已经是最新，但外壳检查失败（常见：发布页还没有 latest.yml）
+            aboutUpdateHintEl.textContent = t('核心已是最新；外壳更新检查失败：{message}', { message: shell.error || '' })
           } else {
             aboutUpdateHintEl.textContent = t('已是最新版本（{version}）。', { version: data.current || '' })
           }
