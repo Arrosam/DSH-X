@@ -13,6 +13,7 @@ test('外壳不依赖核心模块，核心目录在运行时解析', () => {
   assert.match(main, /core', 'current'/, '安装版优先加载用户目录的 core/current')
   assert.match(main, /DSH_CORE = '1'/, '加载核心前标成打包态')
   assert.match(main, /pathToFileURL\(join\(coreDir, 'server\.js'\)\)/, '动态 import 核心的 server.js')
+  assert.match(main, /TRAY_ICON_FILE.*tray\.ico/s, 'Windows 托盘用带圆角的 tray.ico，不用方形 icon.png')
 })
 
 test('核心更新换的是用户目录 core/current，不再碰 resources/app', () => {

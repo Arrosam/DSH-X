@@ -31,16 +31,18 @@ const electron = String(rootPkg.devDependencies?.electron || '').replace(/^[~^]/
 await rm(STAGE, { recursive: true, force: true })
 await mkdir(STAGE, { recursive: true })
 await cp(SOURCE, STAGE, { recursive: true })
-// 外壳：Electron 入口是包根的 shell/main.mjs；托盘图标在 assets/icon.png
+// 外壳：Electron 入口是包根的 shell/main.mjs；托盘图标在 assets/（Windows 用 tray.ico）
 await cp(join(ROOT, 'shell'), join(STAGE, 'shell'), { recursive: true })
 await mkdir(join(STAGE, 'assets'), { recursive: true })
-await cp(join(ROOT, 'assets', 'icon.png'), join(STAGE, 'assets', 'icon.png'))
+for (const icon of ['icon.png', 'tray.ico']) {
+  await cp(join(ROOT, 'assets', icon), join(STAGE, 'assets', icon))
+}
 const pkgPath = join(STAGE, 'package.json')
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
 pkg.version = version
 pkg.main = 'shell/main.mjs'
 pkg.dependencies = { ...pkg.dependencies, electron }
-pkg.files = [...new Set([...(pkg.files || []), 'shell', 'assets/icon.png'])]
+pkg.files = [...new Set([...(pkg.files || []), 'shell', 'assets/icon.png', 'assets/tray.ico'])]
 await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
 await mkdir(OUT, { recursive: true })
 try {

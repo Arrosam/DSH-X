@@ -11,6 +11,7 @@
     "lib",
     "shell",
     "assets/icon.png",
+    "assets/tray.ico",
     "README.md"
   ],
   "engines": {

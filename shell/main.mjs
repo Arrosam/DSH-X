@@ -85,6 +85,11 @@ const TRAY_ACTION_TIMEOUT_MS = 120_000
 /** 菜单栏 / 托盘图标按 18pt（macOS）或 16px（Windows 托盘）显示，给 2 倍图才不糊。 */
 const TRAY_ICON_POINTS = IS_MAC ? 18 : 16
 const ICON_FILE = join(ROOT, 'assets', 'icon.png')
+/**
+ * 托盘图标用 tray.ico（带圆角/透明边），不用 icon.png——后者是不透明的方形母版，
+ * 直接塞进 Windows 托盘会是一个方块。mac 继续用 PNG。
+ */
+const TRAY_ICON_FILE = IS_WINDOWS ? join(ROOT, 'assets', 'tray.ico') : ICON_FILE
 /** 页面进程崩溃时 Chromium 报的原因：这几种是正常结束，不用重装。 */
 const CLEAN_EXITS = new Set(['clean-exit', 'killed'])
 /** dsh 页面能申请的权限：只放行本机地址的麦克风 / 摄像头（询问用户），其余一律拒绝。 */
@@ -554,7 +559,7 @@ function closeWindow(window) {
 }
 
 function createTray() {
-  const image = nativeImage.createFromPath(ICON_FILE).resize({ width: TRAY_ICON_POINTS, height: TRAY_ICON_POINTS, quality: 'best' })
+  const image = nativeImage.createFromPath(TRAY_ICON_FILE).resize({ width: TRAY_ICON_POINTS, height: TRAY_ICON_POINTS, quality: 'best' })
   tray = new Tray(image)
   tray.setToolTip('DSH-X')
   // Windows 托盘点左键叫回管理页（右键才是菜单）；macOS 点菜单栏图标默认弹菜单，不抢。
