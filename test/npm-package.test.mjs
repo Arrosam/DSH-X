@@ -10,7 +10,7 @@ const BIN = new URL('../npm-package/bin/dsh-x.mjs', import.meta.url)
 const PKG = JSON.parse(readFileSync(new URL('../npm-package/package.json', import.meta.url), 'utf8'))
 
 test('npm 包元数据：有 bin、平台限制和 electron 依赖', () => {
-  assert.equal(PKG.name, 'dsh-x')
+  assert.equal(PKG.name, '@yyh001/dsh-x')
   assert.equal(PKG.bin['dsh-x'], 'bin/dsh-x.mjs')
   assert.deepEqual(PKG.os, ['win32', 'darwin'])
   assert.ok(PKG.dependencies.electron, 'electron 是运行时依赖')
