@@ -22,6 +22,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync
 import { cp, mkdir, readFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { buildAppAssets } from './app-manifest.mjs'
+import { testReleaseKeyPem } from './test-release-key.mjs'
 
 const ROOT = join(import.meta.dirname, '..')
 const RELEASE = join(ROOT, 'release')
@@ -51,7 +52,7 @@ async function buildAssets() {
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
   pkg.version = NEXT
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
-  const assets = await buildAppAssets({ appDir: staged, version: NEXT, electronVersion, platform: PLATFORM, outDir: TEST_RELEASE })
+  const assets = await buildAppAssets({ appDir: staged, version: NEXT, electronVersion, platform: PLATFORM, outDir: TEST_RELEASE, privateKeyPem: testReleaseKeyPem() })
   console.log(`假发布资产：${basename(assets.zipPath)}（${(assets.manifest.archive.size / 1048576).toFixed(1)} MB）`)
 }
 

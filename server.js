@@ -126,7 +126,7 @@ import {
 // 带代理的 fetch：Node 的全局 fetch 既不看系统代理也不看 HTTP_PROXY，外网请求都走 netFetch
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
 import { APP_DIR, fileManager } from './filemanager.js'
-import { appAssetName, assertManifestShape, extractVerified, localDiff, releaseAssetUrl, stagingExists, stagingStats, verifyAppManifest } from './app-update.js'
+import { appAssetName, assertManifestShape, extractVerified, localDiff, releaseAssetUrl, stagingExists, stagingStats, TEST_APP_PUBLIC_KEY, verifyAppManifest } from './app-update.js'
 import { IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
 
 const execFileAsync = promisify(execFile)
@@ -2811,7 +2811,9 @@ async function checkAppUpdate({ force = false } = {}) {
   } catch (error) {
     return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
   }
-  if (!verifyAppManifest(got.bytes, got.signature)) return remember({ available: false, reason: 'unsigned', latest })
+  // 本地测试通道用仓库里的测试密钥签名，正式更新只认内置的发布公钥
+  const publicKey = TEST_UPDATE_BASE ? TEST_APP_PUBLIC_KEY : undefined
+  if (!verifyAppManifest(got.bytes, got.signature, publicKey)) return remember({ available: false, reason: 'unsigned', latest })
   const targetElectron = String(manifest.electronVersion || '')
   if (targetElectron !== String(process.versions.electron)) {
     // Electron 升级不能只换 app：两端都走完整安装包自更新

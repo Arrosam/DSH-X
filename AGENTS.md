@@ -128,7 +128,7 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - 边界：只有「已打包的安装版（Windows / macOS）+ 签名清单」才走增量；未签名清单、固定证书签名的 mac 包、源码运行自动回退完整安装包。旧版本客户端不认识这些资产，忽略即可。
 - 版本更新后启动器会刷新桌面/开始菜单快捷方式图标（`refreshShortcuts`）：图标文件名带版本号（`assets/dsh-<版本>.ico`），每个版本只改一次并记戳。
 - 所有下载都走 `updateUrlCandidates`：默认「国内加速」是镜像优先（gh-proxy → ghfast → 直连兜底）。
-- 本地验收：`node scripts/update-flow-demo.mjs` 用 `release/DSH` 造一份 0.1.21 的假资产和测试安装目录，按打印的命令启动后点更新即可走完整替换流程。
+- 本地验收：`node scripts/update-flow-demo.mjs` 用构建产物造一份 0.1.21 的假资产和测试安装目录，按打印的命令启动后点更新即可走完整替换流程。测试清单用 `scripts/test-release-key.mjs` 里的测试私钥签名；客户端只在设置了 `DSH_UPDATE_BASE` 时信任对应的 `TEST_APP_PUBLIC_KEY`，正式更新仍然只认 `APP_PUBLIC_KEY`。mac 可以用 `DSH_DEMO_APP=/Applications/DSH-X.app` 直接拿现成的包当测试副本。
 
 ### 打包与安装布局
 

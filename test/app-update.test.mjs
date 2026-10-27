@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
+import { createHash, createPrivateKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -101,4 +101,15 @@ test('内置公钥必须与 scripts/release-pubkey.pem 一致（换钥匙时两�
   // Windows 检出时 PEM 会被换成 CRLF，比较前统一成 LF
   const repoKey = readFileSync(new URL('../scripts/release-pubkey.pem', import.meta.url), 'utf8').replace(/\r\n/g, '\n').trim()
   assert.equal(APP_PUBLIC_KEY.trim(), repoKey)
+})
+
+test('测试通道公钥：仓库里的测试私钥签的清单能过，正式公钥不认', async () => {
+  const { APP_PUBLIC_KEY, TEST_APP_PUBLIC_KEY } = await import('../app-update.js')
+  const { testReleaseKeyPem } = await import('../scripts/test-release-key.mjs')
+  const privateKey = createPrivateKey(testReleaseKeyPem())
+  const bytes = Buffer.from('{"test":1}')
+  const signature = cryptoSign(null, bytes, privateKey).toString('base64')
+  assert.equal(verifyAppManifest(bytes, signature, TEST_APP_PUBLIC_KEY), true)
+  assert.equal(verifyAppManifest(bytes, signature, APP_PUBLIC_KEY), false)
+  assert.equal(verifyAppManifest(bytes, signature), false, '默认必须走正式公钥')
 })

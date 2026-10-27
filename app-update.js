@@ -22,6 +22,14 @@ export const APP_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAqIKBGwG4iFvoqTtqIN+rcWgOsTjGRmM0BggjZBDAspU=
 -----END PUBLIC KEY-----`
 
+/**
+ * 本地测试通道（DSH_UPDATE_BASE）专用的公钥，私钥是仓库里的 scripts/test-release-key.pem。
+ * 它只在显式设置了测试通道时被信任；正式更新仍然只认 APP_PUBLIC_KEY。
+ */
+export const TEST_APP_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAV3QOyGZSVUEAjY7goTPw259tZt5GmZQx6ruXB0+IDW0=
+-----END PUBLIC KEY-----`
+
 export function hashFile(file) {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
 }
