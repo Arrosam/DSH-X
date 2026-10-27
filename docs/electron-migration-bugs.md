@@ -1,6 +1,6 @@
 # macOS Electron shell: two old bugs to recheck
 
-The macOS shell has moved from Rust + WKWebView (`launcher/`) to Electron (`shell/`), so internal tabs now run in Chromium. The two bugs below were reported against the old shell. Please recheck them on the new shell, then close or keep tracking them.
+这份记录写于「macOS 外壳从 Rust + WKWebView 搬到 Electron」的那次迁移。后来外壳又搬回原生（Rust + WKWebView 只管控制面板窗口），dsh 的内部标签页 / 独立窗口改由按需下载的 Electron 标签窗口承载（见 `no-electron-runtime.md`）。下面两个旧 WKWebView 时代的 bug 仍值得在 Electron 标签窗口里复查，确认是不是 Chromium 也有的问题。
 
 ## 1. Arrow keys in an empty composer insert junk characters
 
@@ -19,5 +19,5 @@ The macOS shell has moved from Rust + WKWebView (`launcher/`) to Electron (`shel
 
 ## Limitations
 
-- All of the above was checked from source (`npm run electron`) and with a locally ad-hoc-signed `.app`, not with a notarised release build.
-- Windows now uses the same Electron shell (`shell/main.mjs`), so the WebView2-only symptoms no longer apply there either; internal tabs are Chromium on both platforms.
+- 上述检查是在旧 Electron 外壳从源码运行时做的（`npm run electron` 已随外壳搬回原生删除）。现在要复现，先编原生外壳（`cd launcher && cargo build --release --bin DSH`），用 `DSH_APP_ROOT=$PWD launcher/target/release/DSH` 从源码起，再在设置页下载 Electron 运行时后选「内部标签页」。
+- 现在 Windows 的控制面板回到 WebView2、macOS 是 WKWebView；但 dsh 的内部标签页两边都是按需下载的 Electron（Chromium），所以 WebView2-only 的症状只可能出现在管理页，不会进 dsh 页面。

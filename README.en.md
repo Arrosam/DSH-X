@@ -24,10 +24,10 @@ DSH-X is a lightweight third-party desktop launcher for DeepSeek Harness: launch
 - **Version management**: a dedicated manager for detecting new releases, manually installing, removing and assigning versions to launch entries.
 - **Plugins and packs**: install, toggle and update plugins by environment and configure default indexes for the official custom plugin market; browse, search and sort the masonry-style community market, or import and export packs.
 - **MCP and skills**: configure MCP servers and import, manage and toggle skills.
-- **Opening modes**: tabs inside DSH-X, a system browser tab, standalone browser window or desktop window.
+- **Opening modes**: the system browser by default, a standalone browser window, or — after downloading the Electron runtime — tabs inside DSH-X or a desktop window.
 - **Appearance**: light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.
 - **Updates and recovery**: self-update, profile recovery and configurable old-version retention; each launch entry's current and previous versions are kept additionally.
-- **Windows / macOS**: a Windows installer and Apple Silicon / Intel dmgs (macOS 13+), tray / menu bar operation and launch at login, with Node / npm / pnpm included.
+- **Windows / macOS**: a Windows installer and Apple Silicon / Intel dmgs (macOS 11+), tray / menu bar operation and launch at login. The installer carries only the native shell and launcher code; the Node runtime is downloaded on first launch.
 
 Feedback: **QQ group [993579665](https://qm.qq.com/q/7AD2g70HqS)**
 
@@ -137,7 +137,9 @@ Windows: install [DSH-Setup.exe](https://github.com/yyh-001/DSH-X/releases/lates
 
 macOS: open `DSH-X-mac-arm64.dmg` (Apple Silicon) or `DSH-X-mac-x64.dmg` (Intel) and drag **DSH-X** into Applications. v0.1.20 uses ad-hoc signing and is not notarized; the first launch may require manual approval through macOS security prompts.
 
-Add or edit a launch entry on the home page, select its environment and version, then start it. Open **Version management** from the launch-entry editor to manually install or remove versions. Settings → General → **How dsh opens** offers internal tabs, a browser or a separate window. Internal tabs require the installed desktop app.
+The installer is about 15 MB (no bundled Electron or Node). The first launch downloads the Node runtime (network required) and does not repeat it afterwards.
+
+Add or edit a launch entry on the home page, select its environment and version, then start it. Open **Version management** from the launch-entry editor to manually install or remove versions. Settings → General → **How dsh opens** defaults to the system browser; choosing internal tabs or the desktop window downloads the Electron runtime first.
 
 The manager defaults to port `3780` and tries the next port if occupied. To reach dsh from another device: Settings → Advanced → **Web binding** → LAN, applied on the next start.
 
@@ -145,7 +147,7 @@ Verifying a download (optional): the releases page lists a sha256 next to every 
 
 ## Development
 
-Needs Node.js 22.18+ locally. The launcher itself has no third-party dependencies: `npm start` runs the manager, `npm run server` the server only, and `npm test` the tests. The shell is Electron, so run `npm install` first for `npm run electron` or an installer build.
+Needs Node.js 22.18+ locally. The launcher itself has no third-party dependencies: `npm start` runs the manager, `npm run server` the server only, and `npm test` the tests. The shell is Rust (`launcher/`); running it from source needs the Rust toolchain (commands in [AGENTS.md](AGENTS.md)), and installer builds need no `npm install` either.
 
 ## Packaging
 
@@ -153,7 +155,7 @@ Needs Node.js 22.18+ locally. The launcher itself has no third-party dependencie
 npm run dist
 ```
 
-On Windows (Rust for the installer engine and Inno Setup 6, after `npm install`) this produces `release/DSH/` and `release/DSH-Setup.exe`; on macOS (Xcode command line tools, after `npm install`) it produces `release/DSH-X.app` and `release/DSH-X-mac-<arch>.dmg` (Intel: `DSH_MAC_ARCH=x64 npm run dist`).
+On Windows (Rust toolchain; Inno Setup 6 is downloaded automatically) this produces `release/DSH/` and `release/DSH-Setup.exe`; on macOS (Rust plus Xcode command line tools) it produces `release/DSH-X.app` and `release/DSH-X-mac-<arch>.dmg` (Intel: `DSH_MAC_ARCH=x64 npm run dist`).
 
 Windows builds also write an SBOM and release manifest for local checking (not uploaded to the release). Check the version and artifacts before publishing:
 

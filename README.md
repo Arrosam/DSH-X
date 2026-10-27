@@ -24,10 +24,10 @@ DSH-X 是 DeepSeek Harness 的第三方轻量桌面启动器：启动项与多�
 - **版本管理**：独立管理已安装版本，支持检测新版本、手动安装、卸载和为启动项指定版本。
 - **插件与整合包**：按环境安装、开关和更新插件，可配置官方自定义插件市场的默认索引源；整合包社区市场支持瀑布流浏览、搜索和排序，也可导入、导出整合包。
 - **MCP 与技能**：配置 MCP 服务器，导入、管理和开关技能。
-- **多种打开方式**：DSH-X 内部标签页、系统浏览器标签页、浏览器独立窗口或桌面窗口。
+- **多种打开方式**：默认用系统浏览器打开，也可选浏览器独立窗口；按需下载 Electron 运行时后还能用内部标签页或独立桌面窗口。
 - **外观**：浅色 / 深色主题、透明度、开场与启动项动效，以及独立的背景和大肥鱼开关。
 - **更新与恢复**：自更新、故障恢复、可设置保留数量的旧版本清理；启动项当前与上一次使用的版本额外保留。
-- **Windows / macOS**：提供 Windows 安装包与 Apple Silicon / Intel 两种 dmg（macOS 13 及以上），支持托盘 / 菜单栏常驻和开机自启，自带 Node / npm / pnpm。
+- **Windows / macOS**：提供 Windows 安装包与 Apple Silicon / Intel 两种 dmg（macOS 11 及以上），支持托盘 / 菜单栏常驻和开机自启。安装包里只有原生外壳与启动器代码，Node 运行时首次启动时自动下载。
 
 交流 / 反馈：**QQ 群 [993579665](https://qm.qq.com/q/7AD2g70HqS)**（[点击加入](https://qm.qq.com/q/7AD2g70HqS)）
 
@@ -137,7 +137,9 @@ Windows：[下载 DSH-Setup.exe](https://github.com/yyh-001/DSH-X/releases/lates
 
 macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`（Intel），把 **DSH-X** 拖进「应用程序」。v0.1.20 使用临时签名，未做公证，首次打开可能需要在系统安全提示中手动允许。
 
-在主页添加或编辑启动项，选择环境与版本后启动；编辑启动项时可打开 **版本管理**，手动安装或卸载版本。设置 → 常规 → **打开 dsh 的方式** 可选择 DSH-X 内部标签页、浏览器或独立窗口。内部标签页需要使用安装后的桌面端。
+安装包约 15 MB（不再内置 Electron / Node）。首次启动会自动下载 Node 运行时（需要联网），之后不再重复下载。
+
+在主页添加或编辑启动项，选择环境与版本后启动；编辑启动项时可打开 **版本管理**，手动安装或卸载版本。设置 → 常规 → **打开 dsh 的方式** 默认是系统浏览器；选内部标签页或独立桌面窗口时会先下载 Electron 运行时。
 
 管理页默认端口为 `3780`，被占用时会顺延。手机或其他电脑访问 dsh：设置 → 高级设置 → **Web 绑定**选「局域网」，下次启动生效。
 
@@ -145,7 +147,7 @@ macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`�
 
 ## 开发
 
-本机需要 Node.js 22.18+。启动器本身没有第三方依赖：`npm start` 启动管理页，只起服务用 `npm run server`，测试用 `npm test`。外壳是 Electron，`npm run electron` 或打安装包前先 `npm install`。
+本机需要 Node.js 22.18+。启动器本身没有第三方依赖：`npm start` 启动管理页，只起服务用 `npm run server`，测试用 `npm test`。外壳是 Rust（`launcher/`），从源码运行需要 Rust 工具链（命令见 [AGENTS.md](AGENTS.md)）；打安装包也不需要 `npm install`。
 
 ## 打包
 
@@ -153,7 +155,7 @@ macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`�
 npm run dist
 ```
 
-Windows（需要 Rust（安装引擎）+ Inno Setup 6，先 `npm install`）产出 `release/DSH/` 便携目录和 `release/DSH-Setup.exe`；macOS（需要 Xcode 命令行工具，先 `npm install`）产出 `release/DSH-X.app` 和 `release/DSH-X-mac-<arch>.dmg`（Intel 版：`DSH_MAC_ARCH=x64 npm run dist`）。
+Windows（需要 Rust 工具链；Inno Setup 6 会自动下载）产出 `release/DSH/` 与 `release/DSH-Setup.exe`；macOS（需要 Rust + Xcode 命令行工具）产出 `release/DSH-X.app` 和 `release/DSH-X-mac-<arch>.dmg`（Intel 版：`DSH_MAC_ARCH=x64 npm run dist`）。
 
 Windows 打包同时生成 SBOM 与发布清单（本地自查，不上传 Release）。发版前检查版本与产物：
 
