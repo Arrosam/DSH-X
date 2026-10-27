@@ -47,6 +47,25 @@ test('每套实现都继承契约，并且自己实现了没有通用答案的�
   }
 })
 
+test('Windows 开机自启指向安装根的原生外壳，而不是 app 层里的 DSH.exe', () => {
+  // 新布局：<安装根>/resources/app 是 app 层，外壳 DSH.exe 在安装根
+  const root = join('C:', 'Users', 'a', 'AppData', 'Local', 'Programs', 'DSH-X', 'resources', 'app')
+  const installRoot = join('C:', 'Users', 'a', 'AppData', 'Local', 'Programs', 'DSH-X')
+  const shell = join(installRoot, 'DSH.exe')
+  const windows = new WindowsFileManager({ root, env: {}, existsSync: (path) => path === shell })
+  assert.equal(windows.launcherExecutable(), shell)
+  assert.deepEqual(windows.launchArgs(), [shell], '自启要直接拉起外壳，不经过 node start.js')
+
+  // 0.1.19 及以前的平铺布局：DSH.exe 和 start.js 并排，仍然认
+  const flat = join('C:', 'Program Files', 'DSH')
+  const legacy = new WindowsFileManager({ root: flat, env: {}, existsSync: (path) => path === join(flat, 'DSH.exe') })
+  assert.equal(legacy.launcherExecutable(), join(flat, 'DSH.exe'))
+
+  // 源码运行（仓库根）没有外壳可指，交给 launchArgs 的 node start.js 兜底
+  const source = new WindowsFileManager({ root: join('C:', 'work', 'DSH-X'), env: {}, existsSync: () => false })
+  assert.equal(source.launcherExecutable(), '')
+})
+
 test('路径语义：Windows 不分大小写、用 junction、按 PATHEXT 找命令；macOS 都反过来', () => {
   const windows = new WindowsFileManager({ env: { PATHEXT: '.EXE;.CMD' }, existsSync: (path) => path.endsWith('pnpm.CMD') })
   assert.ok(windows.samePath('C:\\Users\\A\\DSH', 'c:\\users\\a\\dsh'))

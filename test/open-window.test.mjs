@@ -6,20 +6,20 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { appWindowArgs, chromiumCandidates, findChromiumBrowser, internalTabTarget, openRoute } from '../server.js'
-import { DEFAULTS, OPEN_MODES, safeOpenMode } from '../settings.js'
+import { DEFAULTS, DEFAULT_UPDATE_SOURCE, OPEN_MODES, safeOpenMode, updateUrlCandidates } from '../settings.js'
 
-// 内部标签页默认承载 dsh；没有新版外壳时仍能退回浏览器，已有明确选择不被覆盖。
+// 安装包里不再带 Electron：默认交给系统浏览器；内部标签页 / 独立窗口要外壳支持且运行时已下载。
 
-test('打开方式默认内部标签页，缺失或脏值回默认，已有选择保持不变', () => {
+test('打开方式默认系统浏览器，缺失或脏值回默认，已有选择保持不变', () => {
   assert.deepEqual(OPEN_MODES, ['tab', 'app', 'window', 'internal'])
-  assert.equal(DEFAULTS.openMode, 'internal')
+  assert.equal(DEFAULTS.openMode, 'tab')
   assert.equal(safeOpenMode('app'), 'app')
   assert.equal(safeOpenMode('window'), 'window')
   assert.equal(safeOpenMode('internal'), 'internal')
   assert.equal(safeOpenMode('tab'), 'tab')
-  assert.equal(safeOpenMode('webview'), 'internal', '没实现的形态不能被放行')
-  assert.equal(safeOpenMode(''), 'internal')
-  assert.equal(safeOpenMode(undefined), 'internal')
+  assert.equal(safeOpenMode('webview'), 'tab', '没实现的形态不能被放行')
+  assert.equal(safeOpenMode(''), 'tab')
+  assert.equal(safeOpenMode(undefined), 'tab')
 })
 
 test('应用窗口的参数就是 --app=<url>', () => {
@@ -51,28 +51,54 @@ test('DSH_CHROMIUM 指到真实文件就被采用', () => {
   assert.equal(findChromiumBrowser({ DSH_CHROMIUM: fake }, 'win32'), fake)
 })
 
-test('桌面窗口模式只在原生外壳托管时成立', () => {
-  assert.equal(openRoute('window', true), 'window')
-  assert.equal(openRoute('window', false), 'browser', '源码运行（没有外壳）时退回系统浏览器')
-  // 另外两种模式跟外壳在不在无关
-  assert.equal(openRoute('app', true), 'browser')
-  assert.equal(openRoute('app', false), 'browser')
-  assert.equal(openRoute('tab', true), 'browser')
-  assert.equal(openRoute('tab', false), 'browser')
+test('Electron 窗口/标签要「外壳能托管」且「运行时已下载」同时成立', () => {
+  // 有外壳 + 运行时 → 按选择走 Electron
+  assert.equal(openRoute('window', true, true), 'window')
+  assert.equal(openRoute('internal', true, true), 'internal')
+  // 有外壳但运行时没装：退回系统浏览器（设置页会提示下载）
+  assert.equal(openRoute('window', true, false), 'browser')
+  assert.equal(openRoute('internal', true, false), 'browser')
+  // 源码运行 / 页面开在普通浏览器里：没有外壳，装没装运行时都不成立
+  assert.equal(openRoute('window', false, true), 'browser')
+  assert.equal(openRoute('internal', false, true), 'browser')
+  assert.equal(openRoute('window', false, false), 'browser')
+  assert.equal(openRoute('internal', false, false), 'browser')
+  // 浏览器方式跟外壳与运行时都无关
+  for (const shell of [true, false]) {
+    for (const ready of [true, false]) {
+      assert.equal(openRoute('tab', shell, ready), 'browser')
+      assert.equal(openRoute('app', shell, ready), 'browser')
+    }
+  }
 })
 
-test('设置页在「选了桌面窗口但没有原生外壳」时如实说明会落到标签页', () => {
+test('设置页在运行时没装时不假装可用：提示下载并提供入口', () => {
   const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
-  assert.match(html, /openModeEl\.value === 'window' && data\.openModeWindow === false/, '按服务端给的可用性判断')
-  assert.match(html, /当前预览使用浏览器标签页/, '说明会退回浏览器标签页')
+  // 能力以服务端为准（与 openRoute 同一套判定），页面只负责降级与提示
+  assert.match(html, /runtimeState\.windowReady/)
+  assert.match(html, /runtimeState\.internalReady/)
+  assert.match(html, /需要下载 Electron 运行时后，内部标签页和独立窗口才能使用。/)
+  // 下载入口与进度走服务端的运行时接口
+  assert.match(html, /id="runtimeDownload"/)
+  assert.match(html, /\/api\/runtime\/download/)
+  assert.match(html, /addEventListener\('runtime'/)
   assert.match(html, /打开 dsh 的方式[\s\S]{0,400}?<select id="openMode"><\/select>/, '还是同一个下拉')
 })
 
-test('内部标签页需要新版外壳能力；旧外壳和源码运行仍能打开浏览器', () => {
-  assert.equal(openRoute('internal', true, true), 'internal')
-  assert.equal(openRoute('internal', true, false), 'browser')
-  assert.equal(openRoute('internal', false, true), 'browser')
-  assert.equal(openRoute('internal', false, false), 'browser')
+test('中英文案成对：运行时下载相关的提示两边都有', () => {
+  const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
+  for (const text of [
+    'Electron 运行时',
+    '下载运行时',
+    '取消下载',
+    '需要下载 Electron 运行时后，内部标签页和独立窗口才能使用。',
+    '内部标签页需要 Electron 运行时；当前使用浏览器标签页。',
+    '独立桌面窗口需要 Electron 运行时；当前使用浏览器标签页。',
+  ]) {
+    const line = html.split('\n').find((row) => row.trimStart().startsWith(`"${text}":`))
+    assert.ok(line, `缺中文文案：${text}`)
+    assert.match(line, /":\s*"[^"]+"/, `缺英文对照：${text}`)
+  }
 })
 
 test('内部标签按环境和版本识别，重启更换端口与认证 token 不会增加标签', () => {
@@ -88,4 +114,15 @@ test('内部标签按环境和版本识别，重启更换端口与认证 token �
   assert.equal(internalTabTarget(instance, '工作').title, '工作', '属于启动项的实例用启动项名称做标题')
   assert.equal(internalTabTarget(instance, '工作').id, first.id, '标题不参与标签身份')
   assert.equal(first.title, 'web · 1.0.0', '没有启动项时退回 profile · 版本')
+})
+
+// Electron 运行时下载跟自更新同一套候选：国内加速是镜像优先、直连兜底
+test('运行时镜像候选与下载源一致', () => {
+  assert.deepEqual(updateUrlCandidates('https://github.com/electron/electron/releases/download/x.zip', 'direct'), [
+    'https://github.com/electron/electron/releases/download/x.zip',
+  ])
+  const mirror = updateUrlCandidates('https://github.com/electron/electron/releases/download/x.zip', 'mirror')
+  assert.equal(mirror.length, 3)
+  assert.equal(mirror.at(-1), 'https://github.com/electron/electron/releases/download/x.zip')
+  assert.equal(DEFAULT_UPDATE_SOURCE, 'mirror')
 })

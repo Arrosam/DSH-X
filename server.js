@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { createInterface } from 'node:readline'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { accessSync, chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { accessSync, chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -127,7 +127,8 @@ import {
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
 import { APP_DIR, fileManager } from './filemanager.js'
 import { appAssetName, assertManifestShape, extractVerified, localDiff, releaseAssetUrl, stagingExists, stagingStats, verifyAppManifest } from './app-update.js'
-import { IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
+import { electronRuntime, IN_ELECTRON, installRootOf, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV, shellExecutable } from './platform.js'
+import { installElectronRuntime, isAbortError } from './runtime-download.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -199,11 +200,16 @@ const defaultHome = () => DSH_HOME_DIR || defaultDshHome()
 const profileKey = (profile) => `${homeDir()}\0${profile}`
 // 启动器更新的下载源：direct（默认直连 GitHub）/ mirror（国内加速，直连失败时走前缀镜像）
 let UPDATE_SOURCE = updateSourceForDownload(loadSettingsSync().downloadSource)
-// 打开 dsh 页面的方式：tab（系统浏览器标签页）/ app（Chromium 应用窗口）/
-// window（独立桌面窗口）/ internal（默认，主窗口标签页；需要外壳报告能力，判断见 openRoute）
+// 打开 dsh 页面的方式：tab（默认，系统浏览器标签页）/ app（Chromium 应用窗口）/
+// window（Electron 独立窗口）/ internal（Electron 标签窗口）。后两种要 Electron 运行时，
+// 是否真的能用由能力上报决定（见 openRoute / electronHostReady）。
 let OPEN_MODE = safeOpenMode(loadSettingsSync().openMode)
 // 是否把 dsh 的 shim 目录写进用户 PATH（默认关，改了要新开终端才生效）
 let SYSTEM_PATH = loadSettingsSync().systemPath === true
+/** Electron 运行时下载中的进度（走 SSE 的 runtime 事件），空表示没在下载。 */
+let runtimeProgress = null
+/** 正在下载的 AbortController：页面点「取消」时中止，下载循环会自己清理半成品。 */
+let runtimeDownloadController = null
 
 /** 安装目录里的 lang.txt（安装程序写的），只认 zh / en。 */
 function installLang() {
@@ -224,15 +230,17 @@ let logEventTimer = null
 
 const clients = new Set()
 /**
- * 宿主（拉起本服务的外壳）提供的钩子。默认值对应「子进程 + stdout 标记行」那条老路
- * （旧 Rust 外壳 DSH.exe 读这几行；它只剩安装引擎，不再跑 dsh）；现在的 Electron 外壳
- * 和服务在同一个进程，用 setHost 直接换成函数调用，不走管道。
+ * 宿主（拉起本服务的外壳）提供的钩子。
+ *
+ * 默认值就是主路径：原生外壳（DSH.exe / DSH-X.app）拉这个 node 子进程时读 stdout 上的
+ * 约定标记行（__DSH_SHOW__ / __DSH_OPEN__ / __DSH_TAB__）。过渡期的旧 Electron 外壳
+ * 仍可以用 setHost 直接换成函数调用，不走管道。
  */
 let host = {
   onWake: async () => {},
-  /** 把 dsh 的界面装进外壳主窗口的标签页（openMode=internal）。 */
+  /** 把 dsh 的界面装进 Electron 标签窗口（openMode=internal）。 */
   openTab: (tab) => { process.stdout.write(`__DSH_TAB__ ${JSON.stringify(tab)}\n`) },
-  /** 把地址装进外壳的独立 DSH 窗口（openMode=window）。 */
+  /** 用 Electron 独立窗口打开（openMode=window）。 */
   openWindow: (url) => { process.stdout.write(`${OPEN_SIGNAL} ${url}\n`) },
   /** 收尾之后结束服务。外壳同进程时由它决定怎么退（先关窗口、托盘），默认直接退进程。 */
   exit: (code = 0) => process.exit(code),
@@ -617,6 +625,26 @@ function cleanStaleUpdates() {
   }
 }
 
+/**
+ * 收拾运行时下载中途被杀留下的垃圾：解压到一半的 `.tmp-*` 目录与临时压缩包。
+ * 正常失败会自己清，进程被强杀就只能等下一次启动；这里只动自己的命名前缀。
+ */
+function cleanStaleRuntimeDownloads() {
+  const parent = join(APP_DIR, 'runtime', 'electron')
+  try {
+    for (const name of readdirSync(parent)) {
+      if (!/^\.tmp-/i.test(name)) continue
+      try { rmSync(join(parent, name), { recursive: true, force: true }) } catch { /* 下次再清 */ }
+    }
+  } catch { /* 还没下载过运行时 */ }
+  let entries = []
+  try { entries = readdirSync(tmpdir()) } catch { return }
+  for (const name of entries) {
+    if (!/^DSH-X-electron-.+\.zip$/i.test(name)) continue
+    try { unlinkSync(join(tmpdir(), name)) } catch { /* 还被占着就下次再说 */ }
+  }
+}
+
 /** 安装包小于这个就肯定不对（错误页、被掐断的半截文件）。 */
 const SELF_UPDATE_MIN_BYTES = 5 * 1024 * 1024
 /** UDIF（.dmg）的尾部是一块 512 字节的 koly 块，开头四个字节就是魔数。 */
@@ -853,15 +881,20 @@ open "$3"
  * mac 应用层增量更新的落地助手：等启动器退出 → 备份 Resources/app → 换上新目录 →
  * 重签整个 .app → open 重启 → 等启动标记；没等到就回滚、重签、重开旧版。
  * 参数：$1 父进程 pid，$2 app 目录，$3 暂存目录，$4 .app 包，$5 日志，
- *       $6 启动标记，$7 备份目录，$8 签名身份（- 表示 ad-hoc）。
+ *       $6 启动标记，$7 备份目录，$8 签名身份（- 表示 ad-hoc），$9 外壳 pid（可省）。
  */
 export const MAC_APP_SWAP_SCRIPT = `
-pid=$1; app=$2; staged=$3; bundle=$4; logfile=$5; marker=$6; backup=$7; identity=$8
+pid=$1; app=$2; staged=$3; bundle=$4; logfile=$5; marker=$6; backup=$7; identity=$8; shellpid=$9
 log() { echo "[$(date '+%Y-%m-%dT%H:%M:%S')] $*" >>"$logfile" 2>/dev/null; }
 sign() { codesign --force --deep --sign "$identity" "$bundle" >>"$logfile" 2>&1; }
 n=0
 while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 450 ]; do sleep 0.2; n=$((n + 1)); done
 if kill -0 "$pid" 2>/dev/null; then log "父进程 90 秒内没有退出，放弃更新（暂存目录保留，下次可重试）"; exit 1; fi
+# 原生外壳是服务的父进程，服务退出后它才收摊；不等它就让开，新实例可能被它的单实例逻辑挡回去
+if [ -n "$shellpid" ]; then
+  n=0
+  while kill -0 "$shellpid" 2>/dev/null && [ "$n" -lt 225 ]; do sleep 0.2; n=$((n + 1)); done
+fi
 rm -f "$marker"
 log "替换 $app"
 rm -rf "$backup"
@@ -919,8 +952,8 @@ async function installMacUpdate(staged) {
   }
 
   const logFd = openSync(join(tmpdir(), 'DSH-X-install.log'), 'w')
-  // 外壳（Contents/MacOS/DSH）要等它退出才能换包。Electron 外壳和服务是同一个进程，
-  // 父进程是 launchd，等父进程只会白白耗满超时——直接等自己这个进程退出。
+  // 换包要等 .app 里没有进程在跑。现在是「原生外壳（父进程）+ node 服务（我们）」两层：
+  // 两层都要等；过渡期旧的 Electron 外壳里 shellPid 就是本进程，父进程是 launchd 不能等。
   const shellPid = IN_ELECTRON ? process.pid : process.ppid
   spawn('/bin/sh', ['-c', MAC_SWAP_SCRIPT, 'dsh-x-update', String(shellPid), String(process.pid), bundle, next], {
     detached: true,
@@ -1249,6 +1282,44 @@ async function applyDataDir(dir) {
   pushLog(`版本目录 ${DATA}`)
 }
 
+/** Electron 运行时是否已下载：数据目录 <APP_DIR>/runtime/electron/<版本>/ 里有 .ready。 */
+function electronRuntimeInstalled() {
+  try {
+    return electronRuntime(APP_DIR).installed
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 外壳能不能真的开 Electron 窗口 / 标签。
+ *
+ * 原生外壳（DSH_APP_WINDOW=1）只在运行时装好时才能拉起 Electron；过渡期的旧 Electron
+ * 外壳自己就是 Electron，标签由它直接开（setHost）。运行时不看外壳启动时那个
+ * DSH_INTERNAL_TABS 快照，而是现查 .ready——用户刚在设置页下完，不用重启就能用。
+ */
+function electronHostReady() {
+  return shellWindowHost() && (IN_ELECTRON || electronRuntimeInstalled())
+}
+
+/** 页面要的运行时状态：装没装、下载到哪儿了、Electron 窗口目前能不能用。 */
+function runtimePayload() {
+  const runtime = electronRuntime(APP_DIR)
+  return {
+    electron: {
+      version: runtime.version,
+      installed: runtime.installed,
+      // 当前平台+架构有没有官方压缩包可下（没有就只能在浏览器里用）
+      supported: Boolean(runtime.download),
+    },
+    downloading: runtimeProgress ? { ...runtimeProgress } : null,
+    // 能力和设置页同一套判定：外壳托管 + 运行时已装；下载完再查就会变 true，不用重启
+    host: shellWindowHost(),
+    internalReady: openRoute('internal', shellWindowHost(), electronHostReady()) === 'internal',
+    windowReady: openRoute('window', shellWindowHost(), electronHostReady()) === 'window',
+  }
+}
+
 async function publicSettings() {
   const stored = await loadSettings()
   return {
@@ -1274,9 +1345,12 @@ async function publicSettings() {
       { id: 'official', label: '官方源' },
     ],
     openMode: safeOpenMode(stored.openMode),
-    // 选了独立桌面窗口但当前没有原生外壳（源码运行）时，页面要如实说明会落到标签页
-    openModeWindow: openRoute(OPEN_MODE, shellWindowHost()) === 'window',
-    openModeInternal: internalTabsHost(),
+    // Electron 窗口/标签要同时满足「外壳能托管」与「运行时已下载」；每次现查，下载完不用重启
+    openModeWindow: openRoute('window', shellWindowHost(), electronHostReady()) === 'window',
+    openModeInternal: openRoute('internal', shellWindowHost(), electronHostReady()) === 'internal',
+    // 有外壳托管：设置页据此区分「下载运行时就有用」和「根本不在桌面端里打开」
+    openModeHost: shellWindowHost(),
+    runtime: runtimePayload(),
     openModes: [
       { id: 'tab', label: '浏览器标签页' },
       { id: 'app', label: '浏览器独立窗口' },
@@ -2075,8 +2149,9 @@ export function applySystemPath(enabled) {
 
 export function withBundledRuntime(pathValue, preferredPnpm = '') {
   const bundled = join(ROOT, 'node')
-  // 自带运行时目录（现在只剩 npm/pnpm 和它们的命令行包装；node 本体用 Electron 自带的）。
-  // 源码运行没有这个目录，就把 Electron 本体所在目录当兜底条目，和以前一样。
+  // app 层的 node/ 里只剩 npm / pnpm 的 JS 包和它们的命令行包装（没有 node 本体）：
+  // node 由外壳下载到数据目录并用 DSH_RUNTIME_NODE 传进来，dsh 子进程直接用那个路径。
+  // 源码运行没有这个目录，就把当前 node 所在目录当兜底条目，和以前一样。
   const dir = existsSync(bundled) ? bundled : dirname(RUNTIME_NODE)
   // 原 PATH 已经完整保留，只补固定位置；再筛整条 PATH 会重复探测每个目录的 pnpm 后缀。
   const parts = [...String(pathValue).split(delimiter).filter(Boolean), ...pnpmCandidates('')]
@@ -2687,9 +2762,7 @@ async function checkSelfUpdate({ force = false } = {}) {
 
 /** 应用层增量更新：清单缓存与暂存状态（见 app-update.js 与 apply-update.mjs）。 */
 let stagedApp = null
-let stagedRuntime = null
 let pendingAppUpdate = null
-let pendingRuntimeUpdate = null
 let appUpdateCache = { at: 0, data: null }
 /** 本地测试通道：DSH_UPDATE_BASE 指到本地资产目录、DSH_UPDATE_VERSION 当最新版本。 */
 const TEST_UPDATE_BASE = String(process.env.DSH_UPDATE_BASE || '').trim().replace(/\/+$/, '')
@@ -2723,48 +2796,6 @@ async function fetchSignedManifest(tagVersion, assetName) {
   throw new Error(`拉不到 ${assetName}：${describeFetchError(last, manifestUrl)}`)
 }
 
-/**
- * 新布局（引导器装的）：app 目录在 <安装根>/app/<版本>，runtime 里用 junction 指过来。
- * 注意 ESM 加载会把 ROOT 解析成真实路径（app/<版本>），不能靠「ROOT 是链接」来判断；
- * 用安装根目录的 current.json 对照目录名。旧布局（完整安装包装的）返回 null。
- */
-function bootLayout() {
-  let appRoot
-  try { appRoot = realpathSync.native(ROOT) } catch { return null }
-  const installRoot = dirname(dirname(appRoot))
-  const currentPath = join(installRoot, 'current.json')
-  if (!existsSync(currentPath) || !existsSync(join(installRoot, 'DSH.exe'))) return null
-  let current = {}
-  try { current = JSON.parse(readFileSync(currentPath, 'utf8')) } catch { return null }
-  // 完整安装包的布局也是 <安装根>/resources/app：current.json 里的 app 版本必须对上目录名
-  if (String(current.app) !== basename(appRoot)) return null
-  const runtime = String(current.runtime || '')
-  return {
-    installRoot,
-    appRoot,
-    currentPath,
-    runtime,
-    link: join(installRoot, 'runtime', runtime, 'resources', 'app'),
-  }
-}
-
-/**
- * 换掉一个目录链接。正在运行的进程可能还开着链接下的文件，直接删有时会被拒；
- * 依次尝试 rm / rmdir / unlink，都不行就把链接改名挪开（reparse point 本身可以移动），
- * 保证后面能建新的。返回被挪走的旧链接路径（没有就返回空串）。
- */
-function removeDirectoryLink(link) {
-  for (const attempt of [() => rmSync(link), () => rmdirSync(link), () => unlinkSync(link)]) {
-    try {
-      attempt()
-      return ''
-    } catch { /* 换下一种 */ }
-  }
-  const aside = `${link}.old-${Date.now()}`
-  renameSync(link, aside)
-  return aside
-}
-
 /** 安装器建的两个快捷方式（用户取消勾选时可能不存在）。 */
 function shortcutLinks() {
   const links = []
@@ -2787,11 +2818,11 @@ export async function setShortcutIcon(links, iconTarget) {
  * 版本更新后刷新桌面 / 开始菜单快捷方式的图标。
  * 图标文件名带版本号（为绕开 Explorer 图标缓存），快捷方式却还指着旧文件；这里把当前版本的图标
  * 放进安装根目录的 assets/，再把两个 .lnk 指过去。每个版本只做一次（APP_DIR 里记个戳）。
- * 只在 boot 布局下有意义：旧布局更新走完整安装包，快捷方式由 Inno 重写。
+ * 只有打包布局才有安装根目录；源码运行没有快捷方式可改。
  */
 export async function refreshShortcuts({ installRoot, appDir = APP_DIR, version = APP_VERSION, links, force = false } = {}) {
   if (!IS_WINDOWS || (!PACKAGED && !force)) return false
-  const root = installRoot || bootLayout()?.installRoot
+  const root = installRoot || installRootOf(ROOT)
   if (!root) return false
   const stampFile = join(appDir, 'shortcut-icon')
   try {
@@ -2824,74 +2855,27 @@ export async function refreshShortcuts({ installRoot, appDir = APP_DIR, version 
 }
 
 /**
- * 新布局切换 app 版本：搬目录 → 重指 junction → 写 current.json（带 previous 供引导器回滚）。
- * 抽出来是为了能在测试里用临时目录验证 junction 行为。
- */
-export function switchBootAppVersion({ link, installRoot, currentPath }, version, stagedDir) {
-  const target = join(installRoot, 'app', version)
-  rmSync(target, { recursive: true, force: true })
-  mkdirSync(dirname(target), { recursive: true })
-  renameSync(stagedDir, target)
-  let previous = {}
-  try { previous = JSON.parse(readFileSync(currentPath, 'utf8')) } catch { /* 首次 */ }
-  const aside = removeDirectoryLink(link)
-  symlinkSync(target, link, 'junction')
-  if (aside) {
-    // 旧链接只是被挪开，目标目录不动；这里顺手清掉，清不掉也不影响
-    try { rmSync(aside, { recursive: false, force: true }) } catch { /* ignore */ }
-  }
-  const next = { runtime: previous.runtime, app: version, previous: { runtime: previous.runtime, app: previous.app } }
-  writeFileSync(currentPath, `${JSON.stringify(next, null, 2)}\n`)
-  return next
-}
-
-/** 新布局切换 runtime 版本：搬目录 → 建 junction 指回当前 app → 写 current.json。 */
-export function switchBootRuntimeVersion({ link, installRoot, currentPath, appTarget }, version, stagedDir) {
-  const target = join(installRoot, 'runtime', version)
-  rmSync(target, { recursive: true, force: true })
-  mkdirSync(dirname(target), { recursive: true })
-  renameSync(stagedDir, target)
-  let previous = {}
-  try { previous = JSON.parse(readFileSync(currentPath, 'utf8')) } catch { /* 首次 */ }
-  const nextLink = join(target, 'resources', 'app')
-  mkdirSync(dirname(nextLink), { recursive: true })
-  symlinkSync(appTarget, nextLink, 'junction')
-  const next = { runtime: version, app: previous.app, previous: { runtime: previous.runtime, app: previous.app } }
-  writeFileSync(currentPath, `${JSON.stringify(next, null, 2)}\n`)
-  return next
-}
-
-function readCurrentJson(layout) {
-  try { return JSON.parse(readFileSync(layout.currentPath, 'utf8')) } catch { return {} }
-}
-
-function writeCurrentJson(layout, value) {
-  writeFileSync(layout.currentPath, `${JSON.stringify(value, null, 2)}\n`)
-}
-
-/**
  * 检查能不能走应用层增量：只认「已打包的安装版 + 清单签名有效」。
- * Windows 走 boot 布局（换 app/<版本> + junction）；mac 换 .app 里的 Resources/app 后重签。
- * Electron 版本一致时给 app 增量；不一致时 Windows 额外查运行时清单，mac 只能走完整安装包。
- * 返回的字段给页面用；完整清单留在 pendingAppUpdate / pendingRuntimeUpdate 里。
+ * 更新只换 resources/app（mac 换 .app 里的 Resources/app 后重签），Node / Electron
+ * 运行时在数据目录里，不跟更新一起动——所以清单里不再有 electronVersion，也没有
+ * 「先换运行时」那一步。返回的字段给页面用；完整清单留在 pendingAppUpdate 里。
  */
 async function checkAppUpdate({ force = false } = {}) {
   if (!PACKAGED || (!IS_WINDOWS && !IS_MAC)) return { available: false, reason: PACKAGED ? 'platform' : 'source' }
   if (!force && appUpdateCache.data && Date.now() - appUpdateCache.at < APP_UPDATE_CACHE_MS) return appUpdateCache.data
   const remember = (data) => { appUpdateCache = { at: Date.now(), data }; return data }
-  const layout = bootLayout()
   const platform = IS_MAC ? 'mac' : 'win'
   const self = await checkSelfUpdate()
   const latest = self.latest
-  if (!self.update || !latest) return remember({ available: false, reason: 'current', latest, layout: layout ? 'boot' : 'full' })
+  if (!self.update || !latest) return remember({ available: false, reason: 'current', latest })
   if (IS_MAC) {
     try {
       assertMacUpdatable()
     } catch (error) {
-      return remember({ available: false, reason: 'unwritable', latest, error: error?.message || String(error), layout: 'full' })
+      return remember({ available: false, reason: 'unwritable', latest, error: error?.message || String(error) })
     }
     const ready = macIncrementalReadiness()
-    if (!ready.ok) return remember({ available: false, reason: ready.reason, latest, error: ready.error, layout: 'full' })
+    if (!ready.ok) return remember({ available: false, reason: ready.reason, latest, error: ready.error })
   }
   let got
   let manifest
@@ -2899,41 +2883,16 @@ async function checkAppUpdate({ force = false } = {}) {
     got = await fetchSignedManifest(latest, appAssetName(latest, platform, '.manifest.json'))
     manifest = JSON.parse(got.bytes.toString('utf8'))
   } catch (error) {
-    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error), layout: layout ? 'boot' : 'full' })
+    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
   }
-  if (!verifyAppManifest(got.bytes, got.signature)) return remember({ available: false, reason: 'unsigned', latest, layout: layout ? 'boot' : 'full' })
-  const targetElectron = String(manifest.electronVersion || '')
-  if (targetElectron !== String(process.versions.electron)) {
-    if (IS_MAC) return remember({ available: false, reason: 'electron', latest, electron: targetElectron, layout: 'full' })
-    // Electron 升级：查一下新运行时清单，页面据此提供「只换运行时」
-    let runtime = null
-    try {
-      const runtimeGot = await fetchSignedManifest(latest, `runtime-${targetElectron}-win.manifest.json`)
-      if (verifyAppManifest(runtimeGot.bytes, runtimeGot.signature)) {
-        const runtimeManifest = JSON.parse(runtimeGot.bytes.toString('utf8'))
-        pendingRuntimeUpdate = { version: targetElectron, manifest: runtimeManifest }
-        runtime = { version: targetElectron, downloadSize: Number(runtimeManifest.archive?.size) || 0 }
-      }
-    } catch { /* 没有运行时资产就只给完整安装包 */ }
-    return remember({ available: false, reason: 'electron', latest, electron: targetElectron, runtime, layout: layout ? 'boot' : 'full' })
-  }
+  if (!verifyAppManifest(got.bytes, got.signature)) return remember({ available: false, reason: 'unsigned', latest })
   try {
-    assertManifestShape(manifest, { version: latest, electronVersion: process.versions.electron, platform })
+    assertManifestShape(manifest, { version: latest, platform })
   } catch (error) {
-    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error), layout: layout ? 'boot' : 'full' })
+    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
   }
   const diff = localDiff(ROOT, manifest)
   pendingAppUpdate = { version: latest, manifest }
-  // 引导器自更新：比对安装根目录 DSH.exe 的哈希（清单里的 boot 字段随清单签名）
-  let boot = null
-  if (layout && manifest.boot?.sha256) {
-    try {
-      const localHash = createHash('sha256').update(readFileSync(join(layout.installRoot, 'DSH.exe'))).digest('hex')
-      if (localHash !== String(manifest.boot.sha256)) {
-        boot = { version: latest, downloadSize: Number(manifest.boot.size) || 0, name: String(manifest.boot.name || '') }
-      }
-    } catch { /* 读不到本地引导器就跳过 */ }
-  }
   return remember({
     available: true,
     latest,
@@ -2941,9 +2900,59 @@ async function checkAppUpdate({ force = false } = {}) {
     downloadSize: Number(manifest.archive?.size) || 0,
     changed: diff.changed,
     changedBytes: diff.changedBytes,
-    layout: layout ? 'boot' : 'full',
-    ...(boot ? { boot } : {}),
   })
+}
+
+/**
+ * 按需装 Electron 运行时：下载、sha256 校验、解压都在 runtime-download.js，
+ * 这里只负责进度（走 SSE 的 runtime 事件）与取消。装好不用重启：外壳每次开窗口
+ * 都现扫 <APP_DIR>/runtime/electron/，能力上报也现查 .ready。
+ */
+async function downloadElectronRuntime() {
+  const runtime = electronRuntime(APP_DIR)
+  if (runtime.installed) return { ok: true, version: runtime.version, installed: true, reused: true }
+  if (!runtime.download) throw new Error(`当前平台（${process.platform}-${process.arch}）没有可下载的 Electron 运行时，只能用浏览器打开`)
+  if (runtimeDownloadController) throw new Error('Electron 运行时正在下载，请稍候')
+  const controller = new AbortController()
+  runtimeDownloadController = controller
+  runtimeProgress = { version: runtime.version, done: 0, total: 0 }
+  emit('runtime', { phase: 'download', ...runtimeProgress })
+  try {
+    const result = await installElectronRuntime({
+      appDir: APP_DIR,
+      version: runtime.version,
+      source: UPDATE_SOURCE,
+      signal: controller.signal,
+      onProgress: ({ done, total }) => {
+        runtimeProgress = { version: runtime.version, done, total }
+        emit('runtime', { phase: 'download', ...runtimeProgress })
+      },
+      onLog: (line) => pushLog(line),
+    })
+    pushLog(`Electron 运行时已就绪：${result.version}${result.reused ? '（已存在）' : `（${(result.bytes / 1048576).toFixed(1)} MB）`}`)
+    emit('runtime', { phase: 'ready', version: result.version, installed: true })
+    return { ok: true, version: result.version, installed: true, reused: result.reused === true }
+  } catch (error) {
+    if (isAbortError(error)) {
+      pushLog('已取消下载 Electron 运行时')
+      error.cancelled = true
+      emit('runtime', { phase: 'cancel' })
+    } else {
+      pushLog(`Electron 运行时下载失败：${error?.message || error}`)
+      emit('runtime', { phase: 'error', error: error?.message || String(error) })
+    }
+    throw error
+  } finally {
+    runtimeDownloadController = null
+    runtimeProgress = null
+  }
+}
+
+/** 页面点「取消」：只中止下载，半成品由下载循环自己清掉。 */
+function cancelRuntimeDownload() {
+  if (!runtimeDownloadController) return { ok: false, cancelled: false, error: '当前没有正在下载的 Electron 运行时' }
+  runtimeDownloadController.abort()
+  return { ok: true, cancelled: true }
 }
 
 async function fetchLatestTag() {
@@ -4328,13 +4337,28 @@ function attachProcess(version, profile, child, diagnosticContext) {
     clearTimeout(proc.diagnosticTimer)
     proc.diagnosticTimer = null
     proc.exit = { code, signal }
-    ready()
-    pushLog(`${tag}已退出 code=${code ?? '-'} signal=${signal ?? '-'}`)
-    if (instances.get(key)?.child === child) {
-      instances.delete(key)
-      lastHealth = null
-    }
-    emitState()
+    // 子进程的末行经常没有换行符：readline 要等管道读到尽头才把它交出来，而 exit 会早于
+    // stdio 关闭。先把已经到手的输出收完再叫醒等待者——否则启动失败的 tail 会少最后几行
+    // （并发跑整套用例时能稳定复现，失败信息里恰好缺的就是最关键那句）。
+    // 不能无限等：dsh 的孙进程可能继承着管道不放，卡住的话「启动失败」就永远报不出来
+    const flushed = Promise.race([
+      Promise.all([child.stdout, child.stderr].filter(Boolean).map((stream) => new Promise((resolve) => {
+        if (stream.readableEnded || stream.destroyed) return resolve()
+        stream.once('end', resolve)
+        stream.once('close', resolve)
+        stream.once('error', resolve)
+      }))),
+      new Promise((resolve) => { setTimeout(resolve, 2000).unref?.() }),
+    ])
+    void flushed.then(() => {
+      ready()
+      pushLog(`${tag}已退出 code=${code ?? '-'} signal=${signal ?? '-'}`)
+      if (instances.get(key)?.child === child) {
+        instances.delete(key)
+        lastHealth = null
+      }
+      emitState()
+    })
   })
   return proc
 }
@@ -5109,18 +5133,23 @@ function openInAppWindow(url) {
 /**
  * 内嵌窗口模式：本进程是被 DSH.exe / DSH-X.app 的原生外壳拉起来的（它设了
  * DSH_APP_WINDOW=1），它在 stdout 上收这一行约定标记（和 __DSH_SHOW__ 一个路子），
- * 收到就把地址装进它自己创建的窗口里。不经过浏览器进程——这正是这个模式存在的理由：
+ * 收到就拉起 Electron 独立窗口。不经过浏览器进程——这正是这个模式存在的理由：
  * app 模式借的还是浏览器（只是没有地址栏），window 模式的窗口完全归启动器所有，
  * 关窗口 / 托盘 / 退出都由它说了算。
  */
 const OPEN_SIGNAL = '__DSH_OPEN__'
 
-/** 本进程是不是由原生外壳（DSH.exe / DSH-X.app）托管：只有它能开内嵌窗口。 */
+/** 本进程是不是由原生外壳（DSH.exe / DSH-X.app）托管：只有它能开 Electron 窗口/标签。 */
 function shellWindowHost() {
   return process.env.DSH_APP_WINDOW === '1'
 }
 
-// 旧版外壳只认识独立窗口标记；单独报告标签页能力，避免新版页面选了内部打开却没有反应。
+/**
+ * 外壳能不能托管 Electron 标签窗口（DSH_INTERNAL_TABS=1）。
+ *
+ * 它只表示「外壳本身支持」——运行时有没有装是另一回事：用户可以边用边下载，
+ * 所以能力判定还要现查 .ready（见 electronHostReady）。旧外壳不设这个变量。
+ */
 function internalTabsHost() {
   return shellWindowHost() && process.env.DSH_INTERNAL_TABS === '1'
 }
@@ -5140,17 +5169,28 @@ export function internalTabTarget(instance, name = '') {
 }
 
 /**
- * 按外壳能力选择独立窗口、主窗口标签或系统浏览器；源码运行与旧外壳要能正常降级。
+ * 按外壳能力选择 Electron 窗口、标签或系统浏览器；源码运行、旧外壳、运行时没装都要能正常降级。
+ * `electronReady` = 外壳能托管（DSH_INTERNAL_TABS）且 Electron 运行时已下载，两者缺一不可。
  */
-export function openRoute(mode, shellWindow, internalTabs = false) {
-  if (mode === 'internal' && shellWindow && internalTabs) return 'internal'
-  return mode === 'window' && shellWindow ? 'window' : 'browser'
+export function openRoute(mode, shellWindow, electronReady = false) {
+  if (!shellWindow || !electronReady) return 'browser'
+  return mode === 'internal' || mode === 'window' ? mode : 'browser'
+}
+
+/**
+ * 外壳 / 托盘该按哪种方式打开 dsh：用户选的方式不可用（运行时没装等）时，
+ * 托盘要拿到实际会生效的那个，别让「打开 DSH」按了没反应。
+ */
+function effectiveOpenMode() {
+  const route = openRoute(OPEN_MODE, shellWindowHost(), electronHostReady())
+  if (route === 'internal' || route === 'window') return route
+  return OPEN_MODE === 'app' ? 'app' : 'tab'
 }
 
 /**
  * 交给系统默认程序打开。openMode 为 app 时优先用 Chromium 的应用窗口（更像个 App、
- * 没有地址栏），找不到 Chrome/Edge 就安静退回默认浏览器；为 window 时交给原生外壳
- * 自己的窗口（不经过浏览器进程）。
+ * 没有地址栏），找不到 Chrome/Edge 就安静退回默认浏览器；为 window / internal 时
+ * 在 stdout 上打标记，由原生外壳拉起 Electron 窗口（不经过浏览器进程）。
  *
  * Windows 走 `cmd /c start`，而 cmd 会把这行**再解析一遍**：URL 里的 `&` 是语句
  * 分隔符、`|<>^()%"` 各有含义，于是 `http://127.0.0.1:1/?&calc` 能直接跑起任意命令
@@ -5160,17 +5200,22 @@ export function openRoute(mode, shellWindow, internalTabs = false) {
  */
 function openExternal(target, mode = OPEN_MODE) {
   const url = String(target)
-  if (openRoute(mode, shellWindowHost(), internalTabsHost()) === 'internal') {
+  const route = openRoute(mode, shellWindowHost(), electronHostReady())
+  if (route === 'internal') {
     const instance = instanceList().find((proc) => proc.url && new URL(proc.url).origin === new URL(url).origin)
     const tab = instance ? internalTabTarget(instance, launchNameOf(instance)) : { id: new URL(url).origin, title: 'DSH', url, status: 'running', managed: false }
     // 认证地址只在本机管道或同进程调用中传递；标题和实例身份都不包含 token，也不写入日志或设置。
     host.openTab(tab)
     return
   }
-  // 内嵌窗口：地址交给原生外壳自己的窗口，连浏览器进程都不起（见 OPEN_SIGNAL）
-  if (openRoute(mode, shellWindowHost()) === 'window') {
+  // Electron 独立窗口：地址交给原生外壳，连浏览器进程都不起（见 OPEN_SIGNAL）
+  if (route === 'window') {
     host.openWindow(url)
     return
+  }
+  if (mode === 'internal' || mode === 'window') {
+    // 选了 Electron 方式但用不了：如实退回浏览器，日志里说明原因（设置页也有提示）
+    pushLog(`打开方式「${mode === 'internal' ? '内部标签页' : '独立桌面窗口'}」需要 Electron 运行时，改用系统浏览器；可在设置页下载`)
   }
   if (mode === 'app' && /^https?:/i.test(url)) {
     if (openInAppWindow(url)) return
@@ -5398,7 +5443,12 @@ async function handleApi(req, res, url) {
     const info = await checkSelfUpdate({ force: url.searchParams.get('refresh') === '1' })
     // staged / downloading 让页面重载后也能知道下载进度：下载在服务端跑，和弹窗开不开无关
     const app = await checkAppUpdate().catch((error) => ({ available: false, reason: 'error', error: error?.message || String(error) }))
-    send(res, 200, { ...info, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight, app, appStaged: stagedApp?.version || '', runtimeStaged: stagedRuntime?.version || '' })
+    send(res, 200, { ...info, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight, app, appStaged: stagedApp?.version || '' })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/runtime') {
+    // 设置页要的「Electron 运行时装没装 / 下到哪了」；下载进度另有 runtime 事件，这里是重载后的快照
+    send(res, 200, runtimePayload())
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/pending') {
@@ -5435,8 +5485,9 @@ async function handleApi(req, res, url) {
       `url=${running?.url || ''}`,
       `installed=${trayInstalledVersions().length ? 1 : 0}`,
       `lang=${LANG}`,
-      // 托盘照着它决定「打开 DSH」是叫内嵌窗口还是丢给系统浏览器
-      `openmode=${OPEN_MODE}`,
+      // 托盘照着它决定「打开 DSH」是拉起 Electron 窗口/标签还是丢给系统浏览器。
+      // 给的是实际生效的方式：选了内部标签但运行时还没装时退回 tab，装好后托盘下次轮询就切回来。
+      `openmode=${effectiveOpenMode()}`,
       // 本次是不是由原生外壳托管：外壳缺失时窗口模式不成立，托盘据此退回浏览器
       `shell=${shellWindowHost() ? 1 : 0}`,
       `theme=${THEME}`,
@@ -5542,6 +5593,8 @@ async function handleApi(req, res, url) {
     if (pluginProgress) res.write(`event: progress\ndata: ${JSON.stringify({ ...pluginProgress, kind: 'plugin', name: pluginProgressName, profile: pluginProgressProfile })}\n\n`)
     // 整合包：检查和安装都可能几十秒（下载 + 解包 + pnpm），刷新页面要能接着显示
     if (packProgress) res.write(`event: progress\ndata: ${JSON.stringify({ ...packProgress, kind: 'pack', name: packProgressName })}\n\n`)
+    // 运行时下载也是几十秒到几分钟，页面刷新后要能接着显示进度
+    if (runtimeProgress) res.write(`event: runtime\ndata: ${JSON.stringify({ phase: 'download', ...runtimeProgress })}\n\n`)
     // 同步跑得久，页面中途刷新也要能接着显示进度
     if (syncState) res.write(`event: sync\ndata: ${JSON.stringify(syncState)}\n\n`)
     clients.add(res)
@@ -5614,13 +5667,26 @@ async function handleApi(req, res, url) {
     }
     return
   }
+  if (req.method === 'POST' && url.pathname === '/api/runtime/download') {
+    // 设置页选了「内部标签页 / 独立窗口」但运行时没装：下载 Electron（进度走 runtime 事件）
+    try {
+      send(res, 200, await downloadElectronRuntime())
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      send(res, error?.cancelled ? 400 : 500, { error: message, ...(error?.cancelled ? { cancelled: true } : {}) })
+    }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/runtime/cancel') {
+    // 下载在服务端跑，页面关掉也继续；这里只给页面一个「不要了」的出口
+    send(res, 200, cancelRuntimeDownload())
+    return
+  }
   if (req.method === 'POST' && url.pathname === '/api/self/app-download') {
     // 应用层增量：下载整包 → 逐文件校验 → 解到暂存目录；进度复用 selfUpdate 事件
     try {
       const data = await checkAppUpdate({ force: true })
-      if (!data.available) {
-        throw new Error(data.reason === 'electron' ? 'Electron 版本不同，需要完整安装包' : '当前没有可用的增量更新')
-      }
+      if (!data.available) throw new Error('当前没有可用的增量更新')
       if (stagedApp && stagedApp.version === data.version && stagingExists(stagedApp.dir)) {
         send(res, 200, { ok: true, version: stagedApp.version, reused: true })
         return
@@ -5646,49 +5712,13 @@ async function handleApi(req, res, url) {
     }
     return
   }
-  if (req.method === 'POST' && url.pathname === '/api/self/boot-download') {
-    // 引导器自更新：下载新版引导器到安装根目录的 boot-update.exe；下次启动时它自替换
-    try {
-      const layout = bootLayout()
-      if (!layout) throw new Error('当前不是引导器安装的版本')
-      const data = await checkAppUpdate({ force: true })
-      if (!data.boot) {
-        send(res, 200, { ok: true, skipped: true })
-        return
-      }
-      const manifest = pendingAppUpdate.manifest
-      const target = join(layout.installRoot, 'boot-update.exe')
-      const result = await downloadToFile(releaseUrl(data.latest, manifest.boot.name), target, {
-        sha256: manifest.boot.sha256,
-        limit: 64 * 1024 * 1024,
-        onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'boot', done, total }),
-      })
-      pushLog(`引导器更新已就绪：${data.latest}（${(result.bytes / 1048576).toFixed(1)} MB），下次启动替换`)
-      emit('selfUpdate', { phase: 'boot-ready', latest: data.latest })
-      send(res, 200, { ok: true, version: data.latest })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      pushLog(`引导器更新下载失败：${message}`)
-      send(res, 400, { error: message })
-    }
-    return
-  }
   if (req.method === 'POST' && url.pathname === '/api/self/app-apply') {
-    // 应用层增量：新布局换 junction + current.json；旧布局起替换助手（等退出后换目录）
+    // 应用层增量：Windows 起替换助手（等服务和外壳都退出后换 resources/app，再拉外壳）；
+    // mac 换 .app/Contents/Resources/app 后重签，语义不变
     try {
       if (!stagedApp || !stagingExists(stagedApp.dir)) throw new Error('还没有下载好的应用更新')
       const stats = stagingStats(stagedApp.dir)
       if (stats.files < 100) throw new Error('暂存目录不完整，重新下载一次')
-      const layout = bootLayout()
-      if (layout) {
-        // 新布局：暂存目录搬到 app/<新版本>，把 resources/app 的 junction 指过去，写 current.json
-        switchBootAppVersion({ link: layout.link, installRoot: layout.installRoot, currentPath: layout.currentPath }, stagedApp.version, stagedApp.dir)
-        pushLog(`应用增量更新：切换到 ${stagedApp.version}，重启引导器`)
-        send(res, 200, { ok: true, version: stagedApp.version })
-        spawn(join(layout.installRoot, 'DSH.exe'), ['--wait-pid', String(process.pid)], { cwd: layout.installRoot, detached: true, stdio: 'ignore', windowsHide: true }).unref()
-        setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
-        return
-      }
       if (IS_MAC) {
         // mac：换 .app/Contents/Resources/app，重签后重启；助手用 /bin/sh，不依赖包里的可执行文件
         const bundle = assertMacUpdatable()
@@ -5706,6 +5736,8 @@ async function handleApi(req, res, url) {
           join(APP_DIR, 'update-ok'),
           join(dirname(ROOT), `app.bak-${APP_VERSION}`),
           ready.identity || '-',
+          // 原生外壳是服务的父进程：它会在服务退出后收摊，换目录前要等它也让开
+          String(process.ppid),
         ], { cwd: tmpdir(), detached: true, stdio: 'ignore' })
         child.unref()
         pushLog(`应用增量更新：替换助手已启动（${stagedApp.version}），启动器即将退出`)
@@ -5713,13 +5745,18 @@ async function handleApi(req, res, url) {
         setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
         return
       }
+      // Windows：替换助手退出后拉起的是原生外壳（DSH.exe），不是本进程的 node
+      const shell = shellExecutable(ROOT)
+      if (!shell) throw new Error('找不到启动器外壳，无法重启；请改用完整安装包更新')
       const helper = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.mjs`)
       copyFileSync(join(ROOT, 'apply-update.mjs'), helper)
       const child = spawn(RUNTIME_NODE, [helper,
         '--app', ROOT,
         '--staged', stagedApp.dir,
-        '--exe', process.execPath,
+        '--exe', shell,
         '--pid', String(process.pid),
+        // 外壳要等它退出，否则新拉起的实例会被旧实例的单实例逻辑挡回去
+        '--shell-pid', String(process.ppid),
         '--backup', `${ROOT}.bak-${APP_VERSION}`,
         '--marker', join(APP_DIR, 'update-ok'),
         '--log', join(APP_DIR, 'update.log'),
@@ -5737,61 +5774,6 @@ async function handleApi(req, res, url) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       pushLog(`应用增量更新失败：${message}`)
-      send(res, 400, { error: message })
-    }
-    return
-  }
-  if (req.method === 'POST' && url.pathname === '/api/self/runtime-download') {
-    // Electron 升级：下载新 runtime 到暂存目录（旧 runtime 原样保留，回滚只是改回 current.json）
-    try {
-      const layout = bootLayout()
-      if (!layout) throw new Error('当前不是引导器安装的版本，请用完整安装包')
-      const data = await checkAppUpdate({ force: true })
-      if (!data.runtime || !pendingRuntimeUpdate) throw new Error('没有可用的运行时更新')
-      if (stagedRuntime && stagedRuntime.version === data.runtime.version && stagingExists(stagedRuntime.dir, 'DSH.exe')) {
-        send(res, 200, { ok: true, version: stagedRuntime.version, reused: true })
-        return
-      }
-      const manifest = pendingRuntimeUpdate.manifest
-      const zipPath = join(tmpdir(), `DSH-X-runtime-${data.runtime.version}-${process.pid}.zip`)
-      const result = await downloadToFile(releaseUrl(data.latest, manifest.archive?.name || ''), zipPath, {
-        sha256: manifest.archive?.sha256 || '',
-        limit: 512 * 1024 * 1024,
-        onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'runtime', done, total }),
-      })
-      const staging = join(tmpdir(), `DSH-X-runtime-${data.runtime.version}-${process.pid}`)
-      await extractVerified(zipPath, manifest, staging)
-      rmSync(zipPath, { force: true })
-      stagedRuntime = { version: data.runtime.version, dir: staging }
-      pushLog(`运行时增量已就绪：Electron ${data.runtime.version}（${(result.bytes / 1048576).toFixed(1)} MB）`)
-      emit('selfUpdate', { phase: 'runtime-ready', latest: data.runtime.version })
-      send(res, 200, { ok: true, version: data.runtime.version })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      pushLog(`运行时增量下载失败：${message}`)
-      send(res, 400, { error: message })
-    }
-    return
-  }
-  if (req.method === 'POST' && url.pathname === '/api/self/runtime-apply') {
-    // Electron 升级：换 runtime 目录 + junction + current.json，重启引导器
-    try {
-      const layout = bootLayout()
-      if (!layout) throw new Error('当前不是引导器安装的版本，请用完整安装包')
-      if (!stagedRuntime || !stagingExists(stagedRuntime.dir, 'DSH.exe')) throw new Error('还没有下载好的运行时更新')
-      switchBootRuntimeVersion({
-        link: layout.link,
-        installRoot: layout.installRoot,
-        currentPath: layout.currentPath,
-        appTarget: layout.appRoot,
-      }, stagedRuntime.version, stagedRuntime.dir)
-      pushLog(`运行时更新：切换到 Electron ${stagedRuntime.version}，重启引导器`)
-      send(res, 200, { ok: true, version: stagedRuntime.version })
-      spawn(join(layout.installRoot, 'DSH.exe'), ['--wait-pid', String(process.pid)], { cwd: layout.installRoot, detached: true, stdio: 'ignore', windowsHide: true }).unref()
-      setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      pushLog(`运行时更新失败：${message}`)
       send(res, 400, { error: message })
     }
     return
@@ -6641,6 +6623,7 @@ export async function startServer() {
   CONFIG = join(DATA, 'config.json')
   await mkdir(DATA, { recursive: true })
   cleanStaleUpdates()
+  cleanStaleRuntimeDownloads()
   // 检查过但一直没装的整合包会留在 inbox 里，启动时清一次过期的（DATA 可能刚改过）
   void prunePackInbox()
   // 默认 16KB 的请求头上限会被浏览器里堆积的 cookie 顶爆（HTTP 431），放宽到 128KB

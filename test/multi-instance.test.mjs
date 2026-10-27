@@ -401,6 +401,12 @@ test('托盘自动版本跟随在跑版本，删除入口后仍可管理遗留�
   const write = process.stdout.write
   const signals = []
   try {
+    // 新架构里「独立窗口」要 Electron 运行时已下载（server.js 的 openRoute 判定两条都成立才走 shell 标记）。
+    // 这里放一个 .ready 冒充装好：只有能力检查会看它，内容与可执行文件是外壳那边才用的。
+    const { ELECTRON_VERSION } = await import('../platform.js')
+    const electronDir = join(APP, 'runtime', 'electron', ELECTRON_VERSION)
+    mkdirSync(electronDir, { recursive: true })
+    writeFileSync(join(electronDir, '.ready'), '')
     process.env.DSH_APP_WINDOW = '1'
     await api('/api/settings', { openMode: 'window' })
     process.stdout.write = function (chunk, ...args) {

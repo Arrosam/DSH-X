@@ -69,12 +69,6 @@
       </button>
       <button type="button" class="self-update" id="selfUpdate" hidden data-i18n="更新">更新</button>
     </div>
-    <div class="internal-tabs-area" id="internalTabsArea" hidden>
-      <div class="internal-tab-list" id="internalTabList" role="tablist" aria-label="DSH-X"></div>
-      <button type="button" class="gear-btn internal-tab-reload" id="internalTabReload" title="刷新页面" aria-label="刷新页面">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.7a8 8 0 1 1-1.9-8.3L21 10"/><path d="M21 4v6h-6"/></svg>
-      </button>
-    </div>
     <div class="header-right">
       <a class="star-link" href="https://github.com/yyh-001/DSH-X" target="_blank" rel="noreferrer"
          title="在 GitHub 上给 DSH-X 点个 Star">
@@ -275,6 +269,17 @@
                   </div>
                   <div class="set-control">
                     <select id="openMode"></select>
+                  </div>
+                </div>
+                <!-- Electron 运行时按需下载：选了「内部标签页 / 独立窗口」但还没装时才出现 -->
+                <div class="set-row" id="runtimeRow" hidden>
+                  <div class="set-text">
+                    <span class="set-name" data-i18n="Electron 运行时">Electron 运行时</span>
+                    <p class="hint" id="runtimeHint"></p>
+                  </div>
+                  <div class="set-control">
+                    <button class="ghost" type="button" id="runtimeDownload" hidden data-i18n="下载运行时">下载运行时</button>
+                    <button class="ghost" type="button" id="runtimeCancel" hidden data-i18n="取消下载">取消下载</button>
                   </div>
                 </div>
               </div>
@@ -1025,9 +1030,21 @@
   "返回启动器主页": "Back to launcher home",
   "内部标签页需使用新版 DSH-X 桌面端；当前使用浏览器标签页。": "Internal tabs require the updated DSH-X desktop app; this session uses browser tabs.",
   "用 Chrome/Edge 的独立窗口打开：没有地址栏和标签栏。": "Opens in a standalone Chrome/Edge window: no address bar or tab strip.",
-  "启动器自己开一个窗口承载 dsh 界面，关窗口只是藏起来；没有原生外壳（源码运行）时退回标签页。": "The launcher hosts the dsh UI in its own window; closing it only hides the window. Falls back to a tab when there is no native shell (running from source).",
+  "由下载好的 Electron 打开一个独立窗口承载 dsh 界面；需要先下载 Electron 运行时。": "A downloaded Electron opens a separate window for the dsh UI; requires the Electron runtime.",
   "用系统默认浏览器的标签页打开。": "Opens in a tab of your default browser.",
   "当前预览使用浏览器标签页。": "This preview opens in a browser tab.",
+  "内部标签页需要 Electron 运行时；当前使用浏览器标签页。": "Internal tabs require the Electron runtime; browser tabs are used for now.",
+  "独立桌面窗口需要 Electron 运行时；当前使用浏览器标签页。": "The separate desktop window requires the Electron runtime; browser tabs are used for now.",
+  "当前不在 DSH-X 桌面端里打开，只能使用浏览器。": "This page is not running inside the DSH-X desktop app, so only the browser is available.",
+  "Electron 运行时": "Electron runtime",
+  "下载运行时": "Download runtime",
+  "取消下载": "Cancel download",
+  "需要下载 Electron 运行时后，内部标签页和独立窗口才能使用。": "Download the Electron runtime to use internal tabs or the separate window.",
+  "正在下载 Electron 运行时 {pct}%（{mb} / {size}）": "Downloading the Electron runtime: {pct}% ({mb} / {size})",
+  "Electron 运行时已安装，选中后即可使用，无需重启。": "The Electron runtime is installed. Select the mode and it works without a restart.",
+  "Electron 运行时下载失败：{message}": "Electron runtime download failed: {message}",
+  "当前平台不支持 Electron 运行时，只能用浏览器打开。": "The Electron runtime is not available for this platform; only the browser can be used.",
+  "下载运行时需要联网，约一百多 MB；下载完成后选中即生效。": "Downloading the runtime needs a network connection (about 100+ MB). It takes effect as soon as the download finishes.",
   "已保存。下次打开 dsh 就走新的方式。": "Saved. The next time dsh opens it uses the new way.",
   "更新下载源": "Update download source",
   "网络代理": "Network proxy",
@@ -1223,19 +1240,11 @@
   "下载失败": "Download failed",
   "更新到 {latest}（约 {size} MB）": "Update to {latest} (about {size} MB)",
   "本次只需下载约 {size} MB（应用层增量），Electron 运行时不变。": "Only about {size} MB to download this time (app-layer update); the Electron runtime stays unchanged.",
-  "这次更新包含 Electron 运行时升级，需要完整安装包。": "This update includes an Electron runtime upgrade and needs the full installer.",
   "增量更新失败：{message}。可以改用完整安装包。": "Incremental update failed: {message}. You can switch to the full installer.",
   "改用完整安装包": "Use the full installer",
   "正在替换应用文件，启动器会重启…": "Replacing application files; the launcher will restart…",
   "正在重启…": "Restarting…",
   "增量更新没能开始：{message}": "The incremental update could not start: {message}",
-  "正在下载新版引导器…": "Downloading the new bootstrapper…",
-  "本次下载约 {size} MB（应用层增量），并顺带更新引导器（约 {boot} MB）。": "About {size} MB to download (app-layer update), plus the bootstrapper (about {boot} MB).",
-  "更新运行时（约 {size} MB）": "Update the runtime (about {size} MB)",
-  "这次更新包含 Electron 运行时升级：只下载新的运行时目录，旧版本保留可回滚。": "This update upgrades the Electron runtime: only the new runtime directory is downloaded; the old one stays for rollback.",
-  "运行时更新失败：{message}。可以改用完整安装包。": "Runtime update failed: {message}. You can switch to the full installer.",
-  "正在切换运行时，启动器会重启…": "Switching the runtime; the launcher will restart…",
-  "运行时更新没能开始：{message}": "The runtime update could not start: {message}",
   "更新已就绪": "Update ready",
   "新版本已下载，点这里完成安装": "New version downloaded — click to finish installing",
   "正在后台下载新版本": "Downloading the new version in the background",
@@ -3067,7 +3076,7 @@
       // 按下已经进了系统的拖动循环，第二次的 dblclick 未必还能送达页面。
       document.querySelector('header').addEventListener('mousedown', (event) => {
         if (event.button !== 0) return
-        if (event.target.closest('button, a, input, select, .select, .internal-tab')) return
+        if (event.target.closest('button, a, input, select, .select')) return
         ipc.postMessage(event.detail >= 2 ? 'maximize' : 'drag')
       })
     }
@@ -4990,19 +4999,6 @@
             askSelfButton.disabled = false
             askSelfButton.textContent = t('安装并重启')
           }
-        } else if (data.phase === 'runtime-ready') {
-          // 运行时已就绪：按钮变「安装并重启」，点下去切 runtime
-          wrap.hidden = false
-          wrap.classList.remove('indeterminate')
-          bar.style.width = '100%'
-          selfState.downloading = false
-          selfState.runtimeStaged = data.latest || selfState.latest
-          paintSelfPill()
-          if (askSelfButton && !askEl.hidden) {
-            askSelfButton.disabled = false
-            askSelfButton.textContent = t('安装并重启')
-            askSelfButton.onclick = () => { void startRuntimeUpdate(askSelfButton) }
-          }
         } else if (data.phase === 'app-ready') {
           // 应用层增量已就绪：按钮变成「安装并重启」，点下去走替换助手
           wrap.hidden = false
@@ -5023,6 +5019,24 @@
           selfState.downloading = false
           paintSelfPill()
         }
+      })
+      // Electron 运行时按需下载：设置页开着时直接跟着事件更新，不用轮询
+      events.addEventListener('runtime', (event) => {
+        let data
+        try { data = JSON.parse(event.data) } catch { return }
+        if (data.phase === 'download') {
+          runtimeState.downloading = { done: Number(data.done) || 0, total: Number(data.total) || 0 }
+          runtimeState.error = ''
+          paintRuntime()
+          return
+        }
+        if (data.phase === 'error') {
+          runtimeState.error = t('Electron 运行时下载失败：{message}', { message: data.error || '' })
+        }
+        runtimeState.downloading = null
+        paintRuntime()
+        // ready / cancel / error 都以服务端状态为准：装好后能力立刻可用，取消后按钮回来
+        getJson('/api/runtime').then(applyRuntime).catch(() => {})
       })
       events.addEventListener('bye', () => launcherExited())
       // 页面也可能是自己发现后端没了（推送没赶上、或页面刚打开），用断线兜底
@@ -5069,13 +5083,13 @@
     const selfUpdateEl = document.getElementById('selfUpdate')
     const appVerEl = document.getElementById('appVer')
     /** 启动器自更新的页面状态：下载在服务端跑，弹窗关掉也继续（进度走 selfUpdate 事件）。 */
-    const selfState = { current: '', latest: '', url: '', downloading: false, ready: '', app: null, appStaged: '', runtimeStaged: '', pct: 0 }
+    const selfState = { current: '', latest: '', url: '', downloading: false, ready: '', app: null, appStaged: '', pct: 0 }
     let askSelfButton = null
 
     function paintSelfPill() {
       if (!selfUpdateEl || selfUpdateEl.hidden) return
       const latest = selfState.latest || ''
-      const downloaded = Boolean(selfState.ready || selfState.appStaged || selfState.runtimeStaged)
+      const downloaded = Boolean(selfState.ready || selfState.appStaged)
       selfUpdateEl.textContent = selfState.downloading
         ? `更新 ${latest} · ${selfState.pct}%`
         : downloaded ? `更新 ${latest} · 已下载` : (latest ? `更新 ${latest}` : t('更新'))
@@ -5098,7 +5112,6 @@
       selfState.ready = data.staged || selfState.ready
       selfState.app = data.app || selfState.app
       selfState.appStaged = data.appStaged || selfState.appStaged
-      selfState.runtimeStaged = data.runtimeStaged || selfState.runtimeStaged
       if (!data.update) { selfUpdateEl.hidden = true; return }
       selfUpdateEl.hidden = false
       paintSelfPill()
@@ -5180,11 +5193,6 @@
       paintSelfPill()
       try {
         await post('/api/self/app-download')
-        // 引导器也旧的话顺带下载：下次启动时它自替换，不用单独提示
-        if (selfState.app?.boot) {
-          askNoteEl.textContent = t('正在下载新版引导器…')
-          await post('/api/self/boot-download')
-        }
         selfState.downloading = false
         selfState.appStaged = selfState.latest || t('最新')
         paintSelfPill()
@@ -5211,53 +5219,6 @@
       } catch (error) {
         if (btn) { btn.disabled = false; btn.textContent = t('重试') }
         askNoteEl.textContent = t('增量更新没能开始：{message}', { message: error.message })
-      }
-    }
-
-    /**
-     * Electron 运行时升级（只有引导器安装的布局可用）：下载新 runtime 目录，
-     * 换 junction + current.json，旧 runtime 保留供回滚。
-     */
-    async function startRuntimeUpdate(btn) {
-      if (selfState.downloading) return
-      if (selfState.runtimeStaged) { await applyRuntimeUpdate(btn); return }
-      selfState.downloading = true
-      selfState.pct = 0
-      if (btn) { btn.disabled = true; btn.textContent = t('正在下载…') }
-      askNoteEl.hidden = false
-      askNoteEl.textContent = t('正在下载新版本…')
-      const wrap = document.getElementById('askProgress')
-      const bar = document.getElementById('askProgressBar')
-      if (wrap && bar) { wrap.hidden = false; wrap.classList.remove('indeterminate') }
-      paintSelfPill()
-      try {
-        await post('/api/self/runtime-download')
-        selfState.downloading = false
-        selfState.runtimeStaged = selfState.latest || t('最新')
-        paintSelfPill()
-        await applyRuntimeUpdate(btn)
-      } catch (error) {
-        selfState.downloading = false
-        paintSelfPill()
-        askNoteEl.textContent = t('运行时更新失败：{message}。可以改用完整安装包。', { message: error.message })
-        if (wrap) wrap.hidden = true
-        if (btn) {
-          btn.disabled = false
-          btn.textContent = t('改用完整安装包')
-          btn.onclick = () => { void startSelfUpdate(btn) }
-        }
-      }
-    }
-
-    async function applyRuntimeUpdate(btn) {
-      if (btn) { btn.disabled = true; btn.textContent = t('正在重启…') }
-      askNoteEl.hidden = false
-      askNoteEl.textContent = t('正在切换运行时，启动器会重启…')
-      try {
-        await post('/api/self/runtime-apply')
-      } catch (error) {
-        if (btn) { btn.disabled = false; btn.textContent = t('重试') }
-        askNoteEl.textContent = t('运行时更新没能开始：{message}', { message: error.message })
       }
     }
 
@@ -5375,11 +5336,9 @@
       if (update.self) {
         const app = selfState.app
         const appAvailable = Boolean(app?.available)
-        const runtimeAvailable = app?.reason === 'electron' && Boolean(app.runtime)
-        const ready = Boolean(selfState.ready || selfState.appStaged || selfState.runtimeStaged)
+        const ready = Boolean(selfState.ready || selfState.appStaged)
         const downloading = selfState.downloading && !ready
         const sizeMb = appAvailable && app.downloadSize ? (app.downloadSize / 1048576).toFixed(1) : ''
-        const runtimeMb = runtimeAvailable && app.runtime.downloadSize ? (app.runtime.downloadSize / 1048576).toFixed(1) : ''
         const selfRow = askRow(
           'self',
           t('DSH-X 启动器'),
@@ -5388,11 +5347,9 @@
           ready ? t('安装并重启')
             : downloading ? t('正在下载…')
               : appAvailable ? t('更新到 {latest}（约 {size} MB）', { latest: update.self.latest || '', size: sizeMb })
-                : runtimeAvailable ? t('更新运行时（约 {size} MB）', { size: runtimeMb })
-                  : t('更新启动器'),
+                : t('更新启动器'),
           (event) => {
             if (appAvailable) void startAppUpdate(event.currentTarget)
-            else if (runtimeAvailable) void startRuntimeUpdate(event.currentTarget)
             else void startSelfUpdate(event.currentTarget)
           },
         )
@@ -5409,20 +5366,14 @@
           askNoteEl.hidden = false
           askNoteEl.textContent = t('新版本已下载，安装后启动器会重启。')
         } else if (appAvailable) {
-          // 增量更新：只换应用层，Electron 运行时不动
+          // 增量更新：只换应用层，Node / Electron 运行时在数据目录里不动
           askNoteEl.hidden = false
           askNoteEl.textContent = t('本次只需下载约 {size} MB（应用层增量），Electron 运行时不变。', { size: sizeMb })
-        } else if (runtimeAvailable) {
-          askNoteEl.hidden = false
-          askNoteEl.textContent = t('这次更新包含 Electron 运行时升级：只下载新的运行时目录，旧版本保留可回滚。')
         }
         // 自动更新不管用时的退路：直接给发布页，自己挑对应平台的安装包。
-        // 引导器安装的新布局用 lite 安装包（只装引导器，运行时会自动下载）。
         const manual = document.createElement('a')
         manual.className = 'ghost'
-        manual.href = app?.layout === 'boot'
-          ? 'https://github.com/yyh-001/DSH-X/releases/latest/download/DSH-Setup-lite.exe'
-          : 'https://github.com/yyh-001/DSH-X/releases/latest'
+        manual.href = 'https://github.com/yyh-001/DSH-X/releases/latest'
         manual.target = '_blank'
         manual.rel = 'noreferrer'
         manual.textContent = t('手动下载')
@@ -5684,10 +5635,96 @@
     }
     const openModeEl = document.getElementById('openMode')
     const openModeHint = document.getElementById('openModeHint')
-    let internalTabsAvailable = false
-    const describeOpenMode = (mode) => mode === 'internal' && !internalTabsAvailable
-      ? t('内部标签页需使用新版 DSH-X 桌面端；当前使用浏览器标签页。')
-      : ''
+    // Electron 运行时按需下载：能力和进度都以服务端为准（/api/runtime 与 runtime 事件），
+    // 页面不自己推断平台差异；下载完不用重启，服务端现查 .ready。
+    const runtimeRow = document.getElementById('runtimeRow')
+    const runtimeHint = document.getElementById('runtimeHint')
+    const runtimeDownloadEl = document.getElementById('runtimeDownload')
+    const runtimeCancelEl = document.getElementById('runtimeCancel')
+    const runtimeState = {
+      host: false,
+      installed: false,
+      version: '',
+      supported: true,
+      internalReady: false,
+      windowReady: false,
+      downloading: null,
+      error: '',
+    }
+    const needsElectron = (mode) => mode === 'internal' || mode === 'window'
+    const openModeReady = (mode) => (mode === 'internal' ? runtimeState.internalReady : mode === 'window' ? runtimeState.windowReady : true)
+    const describeOpenMode = (mode) => {
+      if (!needsElectron(mode) || openModeReady(mode)) return ''
+      if (!runtimeState.host) return t('当前不在 DSH-X 桌面端里打开，只能使用浏览器。')
+      return mode === 'internal'
+        ? t('内部标签页需要 Electron 运行时；当前使用浏览器标签页。')
+        : t('独立桌面窗口需要 Electron 运行时；当前使用浏览器标签页。')
+    }
+    const formatMb = (bytes) => (Number(bytes) / 1048576).toFixed(1)
+
+    /** 运行时那一行的显示：需要时才露出来；下载中转进度，装好后只说明已就绪。 */
+    function paintRuntime() {
+      const wanted = needsElectron(openModeEl.value) && !openModeReady(openModeEl.value)
+      const downloading = runtimeState.downloading
+      runtimeRow.hidden = !wanted && !downloading
+      runtimeDownloadEl.hidden = Boolean(downloading) || runtimeState.installed || !runtimeState.supported || !runtimeState.host
+      runtimeDownloadEl.title = t('下载运行时需要联网，约一百多 MB；下载完成后选中即生效。')
+      runtimeCancelEl.hidden = !downloading
+      if (downloading) {
+        const total = Number(downloading.total) || 0
+        const pct = total ? Math.round((downloading.done / total) * 100) : 0
+        runtimeHint.textContent = t('正在下载 Electron 运行时 {pct}%（{mb} / {size}）', {
+          pct,
+          mb: formatMb(downloading.done),
+          size: total ? formatMb(total) : '?',
+        })
+        return
+      }
+      if (runtimeState.error) { runtimeHint.textContent = runtimeState.error; return }
+      if (!runtimeState.host) { runtimeHint.textContent = t('当前不在 DSH-X 桌面端里打开，只能使用浏览器。'); return }
+      if (!runtimeState.supported) { runtimeHint.textContent = t('当前平台不支持 Electron 运行时，只能用浏览器打开。'); return }
+      runtimeHint.textContent = runtimeState.installed
+        ? t('Electron 运行时已安装，选中后即可使用，无需重启。')
+        : t('需要下载 Electron 运行时后，内部标签页和独立窗口才能使用。')
+    }
+
+    function applyRuntime(data) {
+      if (!data) return
+      const electron = data.electron || {}
+      runtimeState.host = data.host === true
+      runtimeState.installed = electron.installed === true
+      runtimeState.supported = electron.supported !== false
+      runtimeState.version = electron.version || ''
+      runtimeState.internalReady = data.internalReady === true
+      runtimeState.windowReady = data.windowReady === true
+      runtimeState.downloading = data.downloading || null
+      if (!runtimeState.downloading) runtimeState.error = ''
+      openModeHint.textContent = describeOpenMode(openModeEl.value)
+      paintRuntime()
+    }
+
+    async function downloadRuntime() {
+      runtimeDownloadEl.disabled = true
+      runtimeState.error = ''
+      runtimeState.downloading = { done: 0, total: 0 }
+      paintRuntime()
+      try {
+        await post('/api/runtime/download')
+      } catch (error) {
+        runtimeState.error = t('Electron 运行时下载失败：{message}', { message: error.message })
+      } finally {
+        runtimeDownloadEl.disabled = false
+        // 以服务端状态为准：装好后 internalReady / windowReady 立刻变 true，选中即生效
+        getJson('/api/runtime').then(applyRuntime).catch(() => {})
+      }
+    }
+    runtimeDownloadEl.onclick = () => { void downloadRuntime() }
+    runtimeCancelEl.onclick = async () => {
+      runtimeCancelEl.disabled = true
+      try { await post('/api/runtime/cancel') } catch { /* 已经停了 */ }
+      runtimeCancelEl.disabled = false
+    }
+    getJson('/api/runtime').then(applyRuntime).catch(() => {})
     const proxyModeEl = document.getElementById('proxyMode')
     const proxyUrlEl = document.getElementById('proxyUrl')
     const proxyHintEl = document.getElementById('proxyHint')
@@ -5785,18 +5822,17 @@
         showSystemPathSettings(data)
       }
       if ('openMode' in data) {
-        internalTabsAvailable = data.openModeInternal === true
         const modes = Array.isArray(data.openModes) && data.openModes.length
           ? data.openModes
           : [{ id: 'tab', label: '浏览器标签页' }, { id: 'app', label: '浏览器独立窗口' }, { id: 'window', label: '独立桌面窗口' }, { id: 'internal', label: 'DSH-X 内部标签页' }]
         openModeEl.innerHTML = modes.map((item) => `<option value="${escapeHtml(item.id)}" data-i18n="${escapeHtml(item.label)}">${escapeHtml(t(item.label))}</option>`).join('')
-        openModeEl.value = String(data.openMode || 'internal')
-        // 选了桌面窗口但当前没有原生外壳（源码运行 / npm start）：如实说明会落到哪里
-        openModeHint.textContent = openModeEl.value === 'internal' && data.openModeInternal === false
-          ? t('内部标签页需使用新版 DSH-X 桌面端；当前使用浏览器标签页。')
-          : openModeEl.value === 'window' && data.openModeWindow === false
-          ? t('当前预览使用浏览器标签页。')
-          : describeOpenMode(openModeEl.value)
+        openModeEl.value = String(data.openMode || 'tab')
+        // 运行时状态（装没装 / 能不能用）由服务端一并给出，页面据此降级并提示下载
+        if (data.runtime) applyRuntime(data.runtime)
+        else {
+          openModeHint.textContent = describeOpenMode(openModeEl.value)
+          paintRuntime()
+        }
       }
       if ('proxyMode' in data || 'proxyUrl' in data) {
         const list = Array.isArray(data.proxyModes) && data.proxyModes.length
@@ -5978,6 +6014,7 @@
     }
     openModeEl.onchange = () => {
       openModeHint.textContent = describeOpenMode(openModeEl.value)
+      paintRuntime()
       queueSetting('openMode', openModeEl.value)
     }
     proxyModeEl.onchange = () => {
@@ -8024,6 +8061,5 @@
   <script src="/idle.js" defer></script>
   <script src="/mascot.js" defer></script>
   <script src="/water.js" defer></script>
-  <script src="/internal-tabs.js" defer></script>
 </body>
 </html>

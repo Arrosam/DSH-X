@@ -1,7 +1,6 @@
-import { lstatSync, realpathSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { FileManager } from './filemanager-base.js'
-import { APP_DIR_NAME, IN_ELECTRON, LAUNCHER_NAME } from './platform.js'
+import { APP_DIR_NAME, IN_ELECTRON, LAUNCHER_NAME, shellExecutable } from './platform.js'
 
 /** 自启写在这条注册表项下：每用户的 Run，不需要管理员。 */
 const RUN_REG = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
@@ -48,26 +47,26 @@ export class WindowsFileManager extends FileManager {
   }
 
   /**
-   * Electron 外壳里 DSH.exe 就是 process.execPath（打包后在安装目录根上，不在 resources/app 里）。
-   * 源码运行（npm run electron）时 defaultApp 为真，execPath 是 node_modules 里的 electron.exe，
-   * 不能让开机自启把它写进注册表。老的 Rust 外壳布局仍然认（装过 0.1.19 及以前的机器）。
-   * 引导器安装的新布局里 resources/app 是 junction：自启要指向安装根目录的引导器，
-   * 它按 current.json 挑当前版本；直接写 execPath 会把自启钉死在这一份 runtime 上。
+   * 开机自启要写进注册表的那个可执行文件。
+   *
+   * 必须是原生外壳，不能是 app 层里的东西：自启指向 start.js 就等于绕过外壳，
+   * 没有托盘、没有单实例，Windows 上还会多一个控制台窗口。
+   * 新布局的外壳在安装根（推导见 platform.js 的 shellExecutable）；0.1.19 及以前是
+   * 平铺布局，DSH.exe 和 start.js 并排，留作兼容。过渡期的 Electron 外壳是 process.execPath
+   * （源码运行时 defaultApp 为真，那是 node_modules 里的 electron.exe，不能写进注册表）。
    */
   launcherExecutable() {
     if (IN_ELECTRON) {
+      // 过渡期的旧 Electron 外壳：它自己就是安装根上的 DSH.exe。
       if (process.defaultApp) return ''
-      try {
-        if (lstatSync(this.root).isSymbolicLink()) {
-          const installRoot = dirname(dirname(realpathSync.native(this.root)))
-          const boot = join(installRoot, `${LAUNCHER_NAME}.exe`)
-          if (this.exists(join(installRoot, 'current.json')) && this.exists(boot)) return boot
-        }
-      } catch { /* 保持旧行为 */ }
       return process.execPath
     }
-    const exe = join(this.root, `${LAUNCHER_NAME}.exe`)
-    return this.exists(exe) ? exe : ''
+    // 新布局：app 层在 <安装根>/resources/app，外壳在安装根上，按 platform.js 的同一套推导找。
+    const shell = shellExecutable(this.root, 'win32', (path) => this.exists(path))
+    if (shell) return shell
+    // 0.1.19 及以前的平铺布局：DSH.exe 和 start.js 并排。升级上来的机器在重装前仍要能写对自启。
+    const legacy = join(this.root, `${LAUNCHER_NAME}.exe`)
+    return this.exists(legacy) ? legacy : ''
   }
 
   async autoStartEnabled() {
