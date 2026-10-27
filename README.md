@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://yyh-001.github.io/DSH-X/">主页</a>
   ·
-  <a href="https://github.com/yyh-001/DSH-X/releases/latest/download/DSH-Setup.exe">下载</a>
+  <a href="https://github.com/yyh-001/DSH-X/releases/latest">下载</a>
   ·
   <a href="https://github.com/yyh-001/DSH-X">Star</a>
   ·
@@ -27,7 +27,7 @@ DSH-X 是 DeepSeek Harness 的第三方轻量桌面启动器：启动项与多�
 - **多种打开方式**：DSH-X 内部标签页、系统浏览器标签页、浏览器独立窗口或桌面窗口。
 - **外观**：浅色 / 深色主题、透明度、开场与启动项动效，以及独立的背景和大肥鱼开关。
 - **更新与恢复**：自更新、故障恢复、可设置保留数量的旧版本清理；启动项当前与上一次使用的版本额外保留。
-- **Windows / macOS**：提供 Windows 安装包与 Apple Silicon / Intel 两种 dmg（macOS 13 及以上），支持托盘 / 菜单栏常驻和开机自启，自带 Node / npm / pnpm。
+- **Windows / macOS / Linux**：Windows 安装包、Apple Silicon / Intel 两种 dmg、Linux AppImage（macOS 13 及以上），支持托盘 / 菜单栏常驻和开机自启，自带 npm / pnpm 包装。
 
 交流 / 反馈：**QQ 群 [993579665](https://qm.qq.com/q/7AD2g70HqS)**（[点击加入](https://qm.qq.com/q/7AD2g70HqS)）
 
@@ -129,19 +129,21 @@ DSH-X 是 DeepSeek Harness 的第三方轻量桌面启动器：启动项与多�
 
 ## 签名与杀软误报
 
-发布清单的签名用于校验文件完整性，与 Windows 发布者签名不同。目前 `DSH-Setup.exe` 尚未进行 Authenticode 签名，可能出现 SmartScreen「未知发布者」提示。杀软误报可向[微软](https://www.microsoft.com/en-us/wdsi/filesubmission)或对应杀软厂商提交安装包申诉。
+发布清单的签名用于校验文件完整性，与 Windows 发布者签名不同。目前 `DSH-Setup-<版本>.exe` 和给 0.1.18 旧更新器用的兼容桥 `DSH-Setup.exe` 都尚未做 Authenticode 签名，可能出现 SmartScreen「未知发布者」提示。杀软误报可向[微软](https://www.microsoft.com/en-us/wdsi/filesubmission)或对应杀软厂商提交安装包申诉。
 
 ## 使用
 
-Windows：[下载 DSH-Setup.exe](https://github.com/yyh-001/DSH-X/releases/latest) 安装，从桌面打开 **DSH-X**。
+Windows：[到发布页下载](https://github.com/yyh-001/DSH-X/releases/latest) `DSH-Setup-<版本>.exe` 安装，从桌面打开 **DSH-X**。
 
-macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`（Intel），把 **DSH-X** 拖进「应用程序」。v0.1.20 使用临时签名，未做公证，首次打开可能需要在系统安全提示中手动允许。
+macOS：打开 `DSH-X-<版本>-arm64.dmg`（Apple Silicon）或 `DSH-X-<版本>-x64.dmg`（Intel），把 **DSH-X** 拖进「应用程序」。目前使用临时签名、未做公证，首次打开可能需要在系统安全提示中手动允许；mac 的外壳自更新暂不提供，核心仍走 npm 更新。
+
+Linux：下载 `DSH-X-<版本>-x86_64.AppImage`，`chmod +x` 后直接运行；如果系统没有 FUSE，可用 `./DSH-X-<版本>-x86_64.AppImage --appimage-extract-and-run`。配置在 `~/.config/DSH`，核心缓存在 `~/.cache/dsh-x`。AppImage 的外壳更新走 electron-updater，核心更新走 npm。
 
 在主页添加或编辑启动项，选择环境与版本后启动；编辑启动项时可打开 **版本管理**，手动安装或卸载版本。设置 → 常规 → **打开 dsh 的方式** 可选择 DSH-X 内部标签页、浏览器或独立窗口。内部标签页需要使用安装后的桌面端。
 
 管理页默认端口为 `3780`，被占用时会顺延。手机或其他电脑访问 dsh：设置 → 高级设置 → **Web 绑定**选「局域网」，下次启动生效。
 
-核对下载到的包（可选）：Release 页面每个文件旁边有 sha256，本地对一下即可 —— Windows `certutil -hashfile DSH-Setup.exe SHA256`，macOS `shasum -a 256 DSH-X-mac-arm64.dmg`。
+核对下载到的包（可选）：Release 页面每个文件旁边有 sha256，本地对一下即可 —— Windows `certutil -hashfile DSH-Setup-<版本>.exe SHA256`，macOS `shasum -a 256 DSH-X-<版本>-arm64.dmg`，Linux `sha256sum DSH-X-<版本>-x86_64.AppImage`。
 
 ## 开发
 
@@ -150,19 +152,20 @@ macOS：打开 `DSH-X-mac-arm64.dmg`（Apple Silicon）或 `DSH-X-mac-x64.dmg`�
 ## 打包
 
 ```sh
+npm install
 npm run dist
 ```
 
-Windows（需要 Rust（安装引擎）+ Inno Setup 6，先 `npm install`）产出 `release/DSH/` 便携目录和 `release/DSH-Setup.exe`；macOS（需要 Xcode 命令行工具，先 `npm install`）产出 `release/DSH-X.app` 和 `release/DSH-X-mac-<arch>.dmg`（Intel 版：`DSH_MAC_ARCH=x64 npm run dist`）。
+Windows 产出 `release/eb/DSH-Setup-<版本>.exe`（NSIS）和给 0.1.18 旧更新器用的兼容桥 `release/eb/DSH-Setup.exe`；macOS 产出 `release/eb/DSH-X-<版本>-<arch>.dmg`；Linux 产出 `release/eb/DSH-X-<版本>-x86_64.AppImage`。安装包由 electron-builder 生成，不再需要 Rust / Inno Setup。
 
-Windows 打包同时生成 SBOM 与发布清单（本地自查，不上传 Release）。发版前检查版本与产物：
+发版前检查版本与产物（发布清单与 SBOM 只在本机自查，不上传 Release）：
 
 ```sh
-node scripts/release-manifest.mjs check-tag v0.1.20
+node scripts/release-manifest.mjs check-tag v0.1.22
 node scripts/release-manifest.mjs verify
 ```
 
-GitHub Actions 的 `build` 工作流可构建三个平台的安装包，全部齐全后再发布。Mac 标签构建要求[固定证书配置](docs/mac-signing.md)，未配置时手动构建使用临时签名。
+GitHub Actions 的 `build` 工作流构建 Windows / macOS / Linux 三个平台的安装包，并在 tag 上发布 npm 核心包与 CLI。macOS 目前只出 dmg（临时签名，外壳自更新暂不提供）；Linux 用 AppImage + `latest-linux.yml`。
 
 发布清单的私钥在 `release/release-key.pem`（已被忽略、不进仓库，**务必备份**）。
 
