@@ -239,26 +239,14 @@ async function buildInstaller() {
   console.log(`已复制到桌面: ${desktop}`)
 }
 
-/**
- * 应用层增量资产：只拆 app（resources/app）。Electron 升级不单独下运行时，
- * 走完整安装包自更新——安装包本来就用 LZMA，比单独压一份 runtime zip 还小。
- */
-async function buildAppUpdateAssets() {
-  const electronVersion = JSON.parse(await readFile(join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
-  const { buildAppAssets } = await import('./app-manifest.mjs')
-  const appAssets = await buildAppAssets({ appDir: APP, version: PKG.version, electronVersion, platform: 'win', prefix: 'app' })
-  console.log(`app 资产: ${basename(appAssets.zipPath)}（${(appAssets.manifest.archive.size / 1048576).toFixed(1)} MB）`)
-}
-
-// 发布资产：先出 SBOM，再出覆盖「安装包 + app 增量 + SBOM」的发布清单（有私钥时顺带签名）。
-// 没配密钥也不该让打包失败，所以这里只提示。
+// 发布资产：先出 SBOM，再出覆盖「安装包 + SBOM」的发布清单（有私钥时顺带签名）。
+// 核心走 npm 单独发版，这里不再产出 app zip/清单。
 async function buildReleaseArtifacts() {
   const releaseDir = join(ROOT, 'release')
   const { path: sbomPath } = writeSbom({ releaseDir, version: PKG.version })
   console.log(`SBOM: ${sbomPath}`)
   const artifacts = collectArtifacts(releaseDir, [
     `${SETUP_NAME}.exe`,
-    `app-${PKG.version}-win.zip`,
     basename(sbomPath),
   ])
   const { manifest, signed } = writeReleaseManifest({
@@ -275,5 +263,4 @@ async function buildReleaseArtifacts() {
 await downloadNode()
 await assemble(await buildShell())
 await buildInstaller()
-await buildAppUpdateAssets()
 await buildReleaseArtifacts()

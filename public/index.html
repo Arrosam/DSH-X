@@ -1241,7 +1241,9 @@
   "安装并重启": "Install and restart",
   "下载失败": "Download failed",
   "更新到 {latest}（约 {size} MB）": "Update to {latest} (about {size} MB)",
+  "更新到 {latest}": "Update to {latest}",
   "本次只需下载约 {size} MB（应用层增量），Electron 运行时不变。": "Only about {size} MB to download this time (app-layer update); the Electron runtime stays unchanged.",
+  "本次只更新应用核心（npm 包），Electron 运行时不变。": "Only the app core (npm package) is updated; the Electron runtime stays unchanged.",
   "增量更新失败：{message}。可以改用完整安装包。": "Incremental update failed: {message}. You can switch to the full installer.",
   "改用完整安装包": "Use the full installer",
   "正在替换应用文件，启动器会重启…": "Replacing application files; the launcher will restart…",
@@ -5364,14 +5366,16 @@
         const ready = Boolean(selfState.ready || selfState.appStaged)
         const downloading = selfState.downloading && !ready
         const sizeMb = appAvailable && app.downloadSize ? (app.downloadSize / 1048576).toFixed(1) : ''
+        // 核心走 npm，版本可能比完整安装包 tag 更新；有核心更新时以核心版本为准
+        const target = appAvailable ? (app.latest || update.self.latest) : update.self.latest
         const selfRow = askRow(
           'self',
           t('DSH-X 启动器'),
           update.self.current,
-          update.self.latest || t('最新'),
+          target || t('最新'),
           ready ? t('安装并重启')
             : downloading ? t('正在下载…')
-              : appAvailable ? t('更新到 {latest}（约 {size} MB）', { latest: update.self.latest || '', size: sizeMb })
+              : appAvailable ? (sizeMb ? t('更新到 {latest}（约 {size} MB）', { latest: target || '', size: sizeMb }) : t('更新到 {latest}', { latest: target || '' }))
                 : t('更新启动器'),
           (event) => {
             if (appAvailable) void startAppUpdate(event.currentTarget)
@@ -5391,9 +5395,11 @@
           askNoteEl.hidden = false
           askNoteEl.textContent = t('新版本已下载，安装后启动器会重启。')
         } else if (appAvailable) {
-          // 增量更新：只换应用层，Electron 运行时不动
+          // 核心更新：只换 resources/app，Electron 运行时不动
           askNoteEl.hidden = false
-          askNoteEl.textContent = t('本次只需下载约 {size} MB（应用层增量），Electron 运行时不变。', { size: sizeMb })
+          askNoteEl.textContent = sizeMb
+            ? t('本次只需下载约 {size} MB（应用层增量），Electron 运行时不变。', { size: sizeMb })
+            : t('本次只更新应用核心（npm 包），Electron 运行时不变。')
         }
         // 自动更新不管用时的退路：直接给发布页，自己挑对应平台的安装包。
         const manual = document.createElement('a')

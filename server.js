@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { cmpVer, currentRegistry, describeNpmFailure, installSpec, listPackage, optimizeDependencies, parsePnpmProgress, parseVer } from './registry.js'
 import pkg from './package.json' with { type: 'json' }
-import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionInChannel } from './version.js'
+import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionChannel, versionInChannel } from './version.js'
 import { createLogWriter } from './log-writer.js'
 import { createStartupDiagnosis } from './startup-diagnosis.js'
 import { bindDiagnosis, checkedRepairPlan, profileFingerprint } from './repair-plan.js'
@@ -126,7 +126,7 @@ import {
 // 带代理的 fetch：Node 的全局 fetch 既不看系统代理也不看 HTTP_PROXY，外网请求都走 netFetch
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
 import { APP_DIR, fileManager } from './filemanager.js'
-import { appAssetName, assertManifestShape, extractVerified, localDiff, releaseAssetUrl, stagingExists, stagingStats, TEST_APP_PUBLIC_KEY, verifyAppManifest } from './app-update.js'
+import { checkCoreUpdate, downloadCoreTarball, extractCoreTarball, stagingExists, stagingStats } from './core-npm.js'
 import { IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
 
 const execFileAsync = promisify(execFile)
@@ -2685,41 +2685,13 @@ async function checkSelfUpdate({ force = false } = {}) {
   }
 }
 
-/** 应用层增量更新：清单缓存与暂存状态（见 app-update.js 与 apply-update.mjs）。 */
+/** 核心（app 层）更新：npm 元数据缓存与暂存状态（见 core-npm.js 与 apply-update.mjs）。 */
 let stagedApp = null
 let pendingAppUpdate = null
 let appUpdateCache = { at: 0, data: null }
-/** 本地测试通道：DSH_UPDATE_BASE 指到本地资产目录、DSH_UPDATE_VERSION 当最新版本。 */
-const TEST_UPDATE_BASE = String(process.env.DSH_UPDATE_BASE || '').trim().replace(/\/+$/, '')
+/** 完整安装包自更新的测试通道：DSH_UPDATE_VERSION 当最新版本。 */
 const TEST_UPDATE_VERSION = String(process.env.DSH_UPDATE_VERSION || '').trim().replace(/^v/i, '')
-
-function releaseUrl(tagVersion, name) {
-  return TEST_UPDATE_BASE ? `${TEST_UPDATE_BASE}/${name}` : releaseAssetUrl(APP_REPO, tagVersion, name)
-}
 const APP_UPDATE_CACHE_MS = 30 * 60 * 1000
-
-/** 拉某个发布资产（清单 + 签名），与安装包共用「镜像优先、直连兜底」的候选列表。 */
-async function fetchSignedManifest(tagVersion, assetName) {
-  const manifestUrl = releaseUrl(tagVersion, assetName)
-  const pairs = updateUrlCandidates(manifestUrl, UPDATE_SOURCE).map((candidate) => ({
-    manifest: candidate,
-    sig: candidate.replace(/\.manifest\.json$/, '.manifest.json.sig'),
-  }))
-  let last = null
-  for (const pair of pairs) {
-    try {
-      const manifestRes = await netFetch(pair.manifest, { redirect: 'follow', signal: AbortSignal.timeout(60_000) })
-      if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status}`)
-      const bytes = Buffer.from(await manifestRes.arrayBuffer())
-      const sigRes = await netFetch(pair.sig, { redirect: 'follow', signal: AbortSignal.timeout(30_000) })
-      if (!sigRes.ok) throw new Error(`HTTP ${sigRes.status}`)
-      return { bytes, signature: await sigRes.text() }
-    } catch (error) {
-      last = error
-    }
-  }
-  throw new Error(`拉不到 ${assetName}：${describeFetchError(last, manifestUrl)}`)
-}
 
 /** 安装器建的两个快捷方式（用户取消勾选时可能不存在）。 */
 function shortcutLinks() {
@@ -2781,19 +2753,16 @@ export async function refreshShortcuts({ installRoot, appDir = APP_DIR, version 
 }
 
 /**
- * 检查能不能走应用层增量：只认「已打包的安装版 + 清单签名有效」。
+ * 检查核心更新：核心是 npm 上的 dsh-x-core-<平台>，按启动器版本所在通道查 dist-tags。
+ * 安装包和 Electron 不在核心更新范围内；Electron 版本不同时只提示用完整安装包。
  * Windows 换 resources/app（替换助手等退出后备份、换目录、重启）；mac 换 .app 里的
- * Resources/app 后重签。Electron 版本不一致时两端都走完整安装包自更新。
- * 返回的字段给页面用；完整清单留在 pendingAppUpdate 里。
+ * Resources/app 后重签。
  */
 async function checkAppUpdate({ force = false } = {}) {
   if (!PACKAGED || (!IS_WINDOWS && !IS_MAC)) return { available: false, reason: PACKAGED ? 'platform' : 'source' }
   if (!force && appUpdateCache.data && Date.now() - appUpdateCache.at < APP_UPDATE_CACHE_MS) return appUpdateCache.data
   const remember = (data) => { appUpdateCache = { at: Date.now(), data }; return data }
-  const platform = IS_MAC ? 'mac' : 'win'
-  const self = await checkSelfUpdate()
-  const latest = self.latest
-  if (!self.update || !latest) return remember({ available: false, reason: 'current', latest })
+  const latest = APP_VERSION
   if (IS_MAC) {
     try {
       assertMacUpdatable()
@@ -2803,36 +2772,29 @@ async function checkAppUpdate({ force = false } = {}) {
     const ready = macIncrementalReadiness()
     if (!ready.ok) return remember({ available: false, reason: ready.reason, latest, error: ready.error })
   }
-  let got
-  let manifest
+  let result
   try {
-    got = await fetchSignedManifest(latest, appAssetName(latest, platform, '.manifest.json'))
-    manifest = JSON.parse(got.bytes.toString('utf8'))
+    result = await checkCoreUpdate({
+      current: APP_VERSION,
+      source: UPDATE_SOURCE,
+      channel: versionChannel(APP_VERSION) || VERSION_CHANNEL.OFFICIAL,
+    })
   } catch (error) {
     return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
   }
-  // 本地测试通道用仓库里的测试密钥签名，正式更新只认内置的发布公钥
-  const publicKey = TEST_UPDATE_BASE ? TEST_APP_PUBLIC_KEY : undefined
-  if (!verifyAppManifest(got.bytes, got.signature, publicKey)) return remember({ available: false, reason: 'unsigned', latest })
-  const targetElectron = String(manifest.electronVersion || '')
-  if (targetElectron !== String(process.versions.electron)) {
-    // Electron 升级不能只换 app：两端都走完整安装包自更新
-    return remember({ available: false, reason: 'electron', latest, electron: targetElectron })
+  if (!result.available) return remember({ available: false, reason: 'current', latest: result.latest || latest })
+  const release = result.release
+  // 核心包声明它按哪个 Electron 版本构建；不一致就走完整安装包
+  if (release.electron && release.electron !== String(process.versions.electron)) {
+    return remember({ available: false, reason: 'electron', latest: result.latest, electron: release.electron })
   }
-  try {
-    assertManifestShape(manifest, { version: latest, electronVersion: process.versions.electron, platform })
-  } catch (error) {
-    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
-  }
-  const diff = localDiff(ROOT, manifest)
-  pendingAppUpdate = { version: latest, manifest }
+  pendingAppUpdate = { version: result.latest, tarball: release.tarball, integrity: release.integrity, shasum: release.shasum }
   return remember({
     available: true,
-    latest,
-    version: latest,
-    downloadSize: Number(manifest.archive?.size) || 0,
-    changed: diff.changed,
-    changedBytes: diff.changedBytes,
+    latest: result.latest,
+    version: result.latest,
+    // tarball 的实际大小要下载时才知道；页面用「核心包」而不是具体 MB
+    downloadSize: 0,
   })
 }
 
@@ -5519,33 +5481,36 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/self/app-download') {
-    // 应用层增量：下载整包 → 逐文件校验 → 解到暂存目录；进度复用 selfUpdate 事件
+    // 核心更新：从 npm 下载 tarball → 校验 sha512 → 解到暂存目录；进度复用 selfUpdate 事件
     try {
       const data = await checkAppUpdate({ force: true })
       if (!data.available) {
-        throw new Error(data.reason === 'electron' ? 'Electron 版本不同，需要完整安装包' : '当前没有可用的增量更新')
+        throw new Error(data.reason === 'electron' ? 'Electron 版本不同，需要完整安装包' : '当前没有可用的核心更新')
       }
       if (stagedApp && stagedApp.version === data.version && stagingExists(stagedApp.dir)) {
         send(res, 200, { ok: true, version: stagedApp.version, reused: true })
         return
       }
-      const zipPath = join(tmpdir(), `DSH-X-app-${data.version}-${process.pid}.zip`)
-      const archive = pendingAppUpdate.manifest.archive || {}
-      const result = await downloadToFile(releaseUrl(data.version, archive.name), zipPath, {
-        sha256: archive.sha256 || '',
-        limit: 512 * 1024 * 1024,
+      const tarball = join(tmpdir(), `DSH-X-core-${data.version}-${process.pid}.tgz`)
+      const result = await downloadCoreTarball(pendingAppUpdate.tarball, tarball, {
+        integrity: pendingAppUpdate.integrity,
+        shasum: pendingAppUpdate.shasum,
         onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'app', done, total }),
       })
-      const staging = join(tmpdir(), `DSH-X-app-${data.version}-${process.pid}`)
-      await extractVerified(zipPath, pendingAppUpdate.manifest, staging)
-      rmSync(zipPath, { force: true })
+      const staging = join(tmpdir(), `DSH-X-core-${data.version}-${process.pid}`)
+      try {
+        const pkg = extractCoreTarball(tarball, staging)
+        if (String(pkg.version) !== String(data.version)) throw new Error(`核心包版本不一致：${pkg.version} != ${data.version}`)
+      } finally {
+        rmSync(tarball, { force: true })
+      }
       stagedApp = { version: data.version, dir: staging }
-      pushLog(`应用增量已就绪：${data.version}（${(result.bytes / 1048576).toFixed(1)} MB），等用户确认后替换`)
+      pushLog(`核心更新已就绪：${data.version}（${(result.bytes / 1048576).toFixed(1)} MB），等用户确认后替换`)
       emit('selfUpdate', { phase: 'app-ready', latest: data.version })
       send(res, 200, { ok: true, version: data.version })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      pushLog(`应用增量下载失败：${message}`)
+      pushLog(`核心更新下载失败：${message}`)
       send(res, 400, { error: message })
     }
     return
