@@ -141,7 +141,6 @@ jobs:
             release/eb/DSH-X-*.dmg
             release/eb/DSH-X-*.zip
             release/eb/latest-mac.yml
-            release/dsh-x-core-*.tgz
           if-no-files-found: error
 
       - name: 挂到同 tag 的 Release 上
