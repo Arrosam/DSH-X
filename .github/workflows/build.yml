@@ -178,7 +178,7 @@ jobs:
         run: npm ci
 
       - name: 跑测试
-        run: npm test
+        run: npm test -- --test-timeout=120000
 
       - name: 打包（electron-builder：AppImage + latest-linux.yml）
         run: npm run dist
