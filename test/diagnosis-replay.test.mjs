@@ -55,6 +55,8 @@ export async function runProfile() {
   const settings = JSON.stringify({ dataDir: data, dshHome: home, seedMarket: false, autoDisablePlugins: false, downloadSource: 'official', proxyMode: 'off' })
   write(join(appdata, 'DSH/settings.json'), settings)
   write(join(home, 'Library/Application Support/DSH/settings.json'), settings)
+  // Linux 的每用户目录是 $XDG_CONFIG_HOME/DSH，默认 $HOME/.config/DSH
+  write(join(home, '.config/DSH/settings.json'), settings)
   const port = await freePort()
   const origin = `http://127.0.0.1:${port}`
   const manager = spawn(process.execPath, [join(ROOT, 'server.js')], {
@@ -62,7 +64,7 @@ export async function runProfile() {
     env: {
       ...process.env,
       PORT: String(port), APPDATA: appdata, LOCALAPPDATA: join(box, 'local'),
-      HOME: home, USERPROFILE: home, DSH_HOME: home, DSH_CLIENT_VERSION: '',
+      HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), DSH_HOME: home, DSH_CLIENT_VERSION: '',
     },
     stdio: 'ignore',
     windowsHide: true,

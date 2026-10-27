@@ -49,12 +49,14 @@ const IS_WINDOWS = process.platform === 'win32'
 /** 拉 dsh 子进程用的 node：Electron 本体（源码运行可用 DSH_RUNTIME_NODE 覆盖）。 */
 const RUNTIME_NODE = process.env.DSH_RUNTIME_NODE || process.execPath
 /**
- * 每用户目录：和核心的 filemanager 同一套约定（%APPDATA%\DSH / ~/Library/Application Support/DSH）。
- * 外壳不 import 核心的 filemanager，拆包后核心目录可以整个换掉。
+ * 每用户目录：和核心的 filemanager 同一套约定（%APPDATA%\DSH / ~/Library/Application Support/DSH /
+ * $XDG_CONFIG_HOME/DSH）。外壳不 import 核心的 filemanager，拆包后核心目录可以整个换掉。
  */
 const APP_DATA = IS_MAC
   ? join(homedir(), 'Library', 'Application Support')
-  : (process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'))
+  : IS_WINDOWS
+    ? (process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'))
+    : (process.env.XDG_CONFIG_HOME || join(homedir(), '.config'))
 const APP_DIR = join(APP_DATA, 'DSH')
 /** 用户目录里的活动核心（npm 核心更新换的就是这个目录）。 */
 const ACTIVE_CORE = join(APP_DIR, 'core', 'current')
@@ -86,10 +88,10 @@ const TRAY_ACTION_TIMEOUT_MS = 120_000
 const TRAY_ICON_POINTS = IS_MAC ? 18 : 16
 const ICON_FILE = join(ROOT, 'assets', 'icon.png')
 /**
- * 托盘图标用 tray.ico（带圆角/透明边），不用 icon.png——后者是不透明的方形母版，
- * 直接塞进 Windows 托盘会是一个方块。mac 继续用 PNG。
+ * 托盘图标用带圆角/透明边的版本，不用 icon.png——后者是不透明的方形母版，
+ * 直接塞进 Windows 托盘会是一个方块。Windows 用 tray.ico，mac/Linux 用 tray.png。
  */
-const TRAY_ICON_FILE = IS_WINDOWS ? join(ROOT, 'assets', 'tray.ico') : ICON_FILE
+const TRAY_ICON_FILE = IS_WINDOWS ? join(ROOT, 'assets', 'tray.ico') : join(ROOT, 'assets', 'tray.png')
 /** 页面进程崩溃时 Chromium 报的原因：这几种是正常结束，不用重装。 */
 const CLEAN_EXITS = new Set(['clean-exit', 'killed'])
 /** dsh 页面能申请的权限：只放行本机地址的麦克风 / 摄像头（询问用户），其余一律拒绝。 */
@@ -149,9 +151,15 @@ function recoverBaseline(coreDir, { pendingOnly = false } = {}) {
   try { rmSync(ACTIVE_CORE, { recursive: true, force: true }) } catch { /* ignore */ }
   try { rmSync(pending, { force: true }) } catch { /* ignore */ }
   console.log('核心启动失败，回退到安装包内置版本')
-  app.relaunch()
-  app.exit(0)
+  relaunchApp()
   return true
+}
+
+/** 重启外壳：AppImage 要重启 APPIMAGE 本身，process.execPath 是挂载目录里的临时二进制。 */
+function relaunchApp() {
+  if (process.env.APPIMAGE) app.relaunch({ execPath: process.env.APPIMAGE })
+  else app.relaunch()
+  app.exit(0)
 }
 
 // 浏览器数据（cookie、站点权限、缓存）放在每用户目录下，和 Rust 外壳的 DSH/webview 并排；
@@ -238,8 +246,8 @@ async function start() {
     openTab: (target) => openInternalTab(target),
     openWindow: (url) => openDshWindow(url),
     exit: (code) => exitApp(code),
-    // 核心更新后重启：app.relaunch() 等当前进程退出后才拉起新进程，单实例锁已经释放
-    relaunch: () => { app.relaunch(); app.exit(0) },
+    // 核心更新后重启：AppImage 重启 APPIMAGE 本身，其他平台用 app.relaunch()
+    relaunch: relaunchApp,
     shellUpdate: {
       state: () => updater.state(),
       check: () => updater.check(),

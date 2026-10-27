@@ -12,7 +12,7 @@ const PKG = JSON.parse(readFileSync(new URL('../npm-package/package.json', impor
 test('npm 包元数据：有 bin、平台限制和 electron 依赖', () => {
   assert.equal(PKG.name, '@yyh001/dsh-x')
   assert.equal(PKG.bin['dsh-x'], 'bin/dsh-x.mjs')
-  assert.deepEqual(PKG.os, ['win32', 'darwin'])
+  assert.deepEqual(PKG.os, ['win32', 'darwin', 'linux'])
   assert.ok(PKG.dependencies.electron, 'electron 是运行时依赖')
   assert.ok(PKG.dependencies['electron-updater'], '外壳 updater 的依赖也要带上')
   assert.ok(PKG.files.includes('bin') && PKG.files.includes('lib'))

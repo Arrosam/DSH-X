@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://yyh-001.github.io/DSH-X/">Website</a>
   ·
-  <a href="https://github.com/yyh-001/DSH-X/releases/latest/download/DSH-Setup.exe">Download</a>
+  <a href="https://github.com/yyh-001/DSH-X/releases/latest">Download</a>
   ·
   <a href="https://github.com/yyh-001/DSH-X">Star</a>
   ·
@@ -27,7 +27,7 @@ DSH-X is a lightweight third-party desktop launcher for DeepSeek Harness: launch
 - **Opening modes**: tabs inside DSH-X, a system browser tab, standalone browser window or desktop window.
 - **Appearance**: light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.
 - **Updates and recovery**: self-update, profile recovery and configurable old-version retention; each launch entry's current and previous versions are kept additionally.
-- **Windows / macOS**: a Windows installer and Apple Silicon / Intel dmgs (macOS 13+), tray / menu bar operation and launch at login, with Node / npm / pnpm included.
+- **Windows / macOS / Linux**: a Windows installer, Apple Silicon / Intel dmgs and a Linux AppImage (macOS 13+), with tray / menu bar operation and launch at login, plus bundled npm / pnpm wrappers.
 
 Feedback: **QQ group [993579665](https://qm.qq.com/q/7AD2g70HqS)**
 
@@ -129,19 +129,21 @@ A companion Wallpaper Engine wallpaper — [DSH-X · 大肥鱼桌面终端](http
 
 ## Signing and antivirus false positives
 
-The release-manifest signature verifies file integrity and is separate from Windows publisher signing. `DSH-Setup.exe` currently has no Authenticode signature, so SmartScreen may show an "unknown publisher" prompt. Report antivirus false positives by submitting the installer to [Microsoft](https://www.microsoft.com/en-us/wdsi/filesubmission) or the relevant antivirus vendor.
+The release-manifest signature verifies file integrity and is separate from Windows publisher signing. `DSH-Setup-<version>.exe` and the legacy `DSH-Setup.exe` bridge for the 0.1.18 updater currently have no Authenticode signature, so SmartScreen may show an "unknown publisher" prompt. Report antivirus false positives by submitting the installer to [Microsoft](https://www.microsoft.com/en-us/wdsi/filesubmission) or the relevant antivirus vendor.
 
 ## Usage
 
-Windows: install [DSH-Setup.exe](https://github.com/yyh-001/DSH-X/releases/latest), then open **DSH-X** from the desktop.
+Windows: download `DSH-Setup-<version>.exe` from the [releases page](https://github.com/yyh-001/DSH-X/releases/latest) and install it, then open **DSH-X** from the desktop.
 
-macOS: open `DSH-X-mac-arm64.dmg` (Apple Silicon) or `DSH-X-mac-x64.dmg` (Intel) and drag **DSH-X** into Applications. v0.1.20 uses ad-hoc signing and is not notarized; the first launch may require manual approval through macOS security prompts.
+macOS: open `DSH-X-<version>-arm64.dmg` (Apple Silicon) or `DSH-X-<version>-x64.dmg` (Intel) and drag **DSH-X** into Applications. The package is ad-hoc signed and not notarized, so the first launch may require manual approval through macOS security prompts; shell auto-update is currently unavailable, while core updates still come from npm.
+
+Linux: download `DSH-X-<version>-x86_64.AppImage`, `chmod +x` it and run it. If FUSE is unavailable, use `./DSH-X-<version>-x86_64.AppImage --appimage-extract-and-run`. Settings live in `~/.config/DSH` and the core cache in `~/.cache/dsh-x`. AppImage shell updates use electron-updater; core updates use npm.
 
 Add or edit a launch entry on the home page, select its environment and version, then start it. Open **Version management** from the launch-entry editor to manually install or remove versions. Settings → General → **How dsh opens** offers internal tabs, a browser or a separate window. Internal tabs require the installed desktop app.
 
 The manager defaults to port `3780` and tries the next port if occupied. To reach dsh from another device: Settings → Advanced → **Web binding** → LAN, applied on the next start.
 
-Verifying a download (optional): the releases page lists a sha256 next to every file — compare it locally with `certutil -hashfile DSH-Setup.exe SHA256` (Windows) or `shasum -a 256 DSH-X-mac-arm64.dmg` (macOS).
+Verifying a download (optional): the releases page lists a sha256 next to every file — compare it locally with `certutil -hashfile DSH-Setup-<version>.exe SHA256` (Windows), `shasum -a 256 DSH-X-<version>-arm64.dmg` (macOS) or `sha256sum DSH-X-<version>-x86_64.AppImage` (Linux).
 
 ## Development
 
@@ -150,18 +152,19 @@ Needs Node.js 22.18+ locally. The launcher itself has no third-party dependencie
 ## Packaging
 
 ```sh
+npm install
 npm run dist
 ```
 
-On Windows (Rust for the installer engine and Inno Setup 6, after `npm install`) this produces `release/DSH/` and `release/DSH-Setup.exe`; on macOS (Xcode command line tools, after `npm install`) it produces `release/DSH-X.app` and `release/DSH-X-mac-<arch>.dmg` (Intel: `DSH_MAC_ARCH=x64 npm run dist`).
+Windows produces `release/eb/DSH-Setup-<version>.exe` (NSIS) plus the legacy `release/eb/DSH-Setup.exe` bridge for the 0.1.18 updater; macOS produces `release/eb/DSH-X-<version>-<arch>.dmg`; Linux produces `release/eb/DSH-X-<version>-x86_64.AppImage`. Installers are built with electron-builder; Rust / Inno Setup are no longer required.
 
-Windows builds also write an SBOM and release manifest for local checking (not uploaded to the release). Check the version and artifacts before publishing:
+Builds also write an SBOM and release manifest for local checking (not uploaded to the release). Check the version and artifacts before publishing:
 
 ```sh
-node scripts/release-manifest.mjs check-tag v0.1.20
+node scripts/release-manifest.mjs check-tag v0.1.22
 node scripts/release-manifest.mjs verify
 ```
 
-The GitHub Actions `build` workflow builds installers for all three platforms; publish once all are ready. Mac tag builds require [a persistent signing certificate](docs/mac-signing.md); manual builds use ad-hoc signing when no certificate is configured.
+The GitHub Actions `build` workflow builds Windows / macOS / Linux installers and publishes the npm core package and CLI on tags. macOS currently ships dmg only (ad-hoc signing; shell auto-update is disabled); Linux uses AppImage + `latest-linux.yml`.
 
 The release-manifest private key lives in `release/release-key.pem` (git-ignored, **back it up**).

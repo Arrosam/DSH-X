@@ -123,8 +123,8 @@ test('dsh 起不来时，接口的报错和状态里都带着它退出前的输�
     'process.exit(3)',
   ].join('\n'))
   const home = join(box, 'home')
-  // 每用户目录按平台不同（见 platform.js 的 userAppDir）：两处都放一份设置
-  for (const dir of [join(box, 'appdata', 'DSH'), join(home, 'Library', 'Application Support', 'DSH')]) {
+  // 每用户目录按平台不同（见 platform.js 的 userAppDir）：三处都放一份设置
+  for (const dir of [join(box, 'appdata', 'DSH'), join(home, 'Library', 'Application Support', 'DSH'), join(home, '.config', 'DSH')]) {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'settings.json'), JSON.stringify({ dataDir: data, seedMarket: false, autoDisablePlugins: false }))
   }
@@ -134,7 +134,7 @@ test('dsh 起不来时，接口的报错和状态里都带着它退出前的输�
   const manager = spawn(process.execPath, [join(ROOT, 'server.js')], {
     cwd: ROOT,
     // 设置、日志、dsh 家目录全部指进临时目录，别碰这台机器上真正的那份
-    env: { ...process.env, PORT: String(port), APPDATA: join(box, 'appdata'), HOME: home, USERPROFILE: home },
+    env: { ...process.env, PORT: String(port), APPDATA: join(box, 'appdata'), HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config') },
     stdio: 'ignore',
   })
   try {

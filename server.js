@@ -127,7 +127,7 @@ import {
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
 import { APP_DIR, fileManager } from './filemanager.js'
 import { checkCoreUpdate, downloadCoreTarball, extractCoreTarball, stagingExists, stagingStats } from './core-npm.js'
-import { IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, NPM_MODE, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
+import { IN_ELECTRON, IS_LINUX, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, NPM_MODE, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -2765,7 +2765,7 @@ export async function refreshShortcuts({ installRoot, appDir = APP_DIR, version 
  */
 async function checkAppUpdate({ force = false } = {}) {
   if (NPM_MODE) return { available: false, reason: 'npm' }
-  if (!PACKAGED || (!IS_WINDOWS && !IS_MAC)) return { available: false, reason: PACKAGED ? 'platform' : 'source' }
+  if (!PACKAGED || (!IS_WINDOWS && !IS_MAC && !IS_LINUX)) return { available: false, reason: PACKAGED ? 'platform' : 'source' }
   if (!force && appUpdateCache.data && Date.now() - appUpdateCache.at < APP_UPDATE_CACHE_MS) return appUpdateCache.data
   const remember = (data) => { appUpdateCache = { at: Date.now(), data }; return data }
   const latest = APP_VERSION
@@ -5557,7 +5557,8 @@ async function handleApi(req, res, url) {
         const child = spawn(RUNTIME_NODE, [helper,
           '--app', ROOT,
           '--staged', stagedApp.dir,
-          '--exe', process.execPath,
+          // AppImage 的 process.execPath 是挂载目录里的临时二进制，重启要用 APPIMAGE 本身
+          '--exe', process.env.APPIMAGE || process.execPath,
           '--pid', String(process.pid),
           '--backup', `${ROOT}.bak-${APP_VERSION}`,
           '--marker', join(APP_DIR, 'update-ok'),

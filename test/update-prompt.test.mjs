@@ -58,3 +58,12 @@ test('外壳自更新走 electron-updater，核心仍走 npm', () => {
   // 主进程里的 updater 通过 host 暴露，SSE 事件名是 shellUpdate
   assert.match(html, /addEventListener\('shellUpdate'/)
 })
+
+test('升级正在运行的实例后要收掉「正在安装」', () => {
+  // wasLive 分支启动完直接 return：漏掉 action 清理，首页会一直停在安装态、按钮全锁死
+  assert.match(
+    html,
+    /if \(wasLive\) \{[\s\S]{0,400}?await startVersion\(latest[\s\S]{0,300}?action = ''\r?\n\s*render\(\)\r?\n\s*return/,
+    '启动完返回前要先清掉 action 并重绘',
+  )
+})

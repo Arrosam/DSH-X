@@ -185,6 +185,8 @@ def main():
 
     base = Image.open(MASTER).convert("RGBA")
     fit(256, base).save(os.path.join(ASSETS, "dsh-preview.png"))
+    # 托盘用的 PNG（带圆角/透明边）：Windows 用 tray.ico，mac/Linux 用这张
+    fit(64, base).save(os.path.join(ASSETS, "tray.png"))
     # 管理页背景虚影用的大图（浏览器缩放要够清晰，favicon 的 64px 不够）
     base.save(os.path.join(ROOT, "public", "icon.png"))
     write_ico(os.path.join(ASSETS, "dsh.ico"), ICO_SIZES, base, png_size=256)

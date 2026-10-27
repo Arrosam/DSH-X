@@ -34,6 +34,7 @@ test('构建把外壳和核心分成两个 stage，安装包用 extraResources �
   const builder = read('electron-builder.config.mjs')
   assert.match(builder, /app: 'release\/shell-stage'/)
   assert.match(builder, /from: 'release\/core-stage', to: 'core'/)
+  assert.match(builder, /target: 'AppImage'/, 'Linux 出 AppImage')
   const core = read('scripts/pack-core.mjs')
   assert.match(core, /release', 'core-stage'/)
   assert.match(core, /main: 'server\.js'/)
@@ -41,6 +42,7 @@ test('构建把外壳和核心分成两个 stage，安装包用 extraResources �
   const common = read('scripts/pack-common.mjs')
   assert.match(common, /filemanager-windows\.js/)
   assert.match(common, /filemanager-mac\.js/)
+  assert.match(common, /filemanager-linux\.js/)
 })
 
 test('外壳版本和核心版本分开：shell/package.json + 关于页显示两行', () => {
