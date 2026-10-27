@@ -40,5 +40,19 @@ test('dsh 升级确认里写明了风险', () => {
 })
 
 test('启动器自更新仍然点按钮才弹', () => {
-  assert.match(html, /selfUpdateEl\.onclick = \(\) => \{[\s\S]{0,300}?showAsk\(\{ dsh: null, self:/)
+  assert.match(html, /selfUpdateEl\.onclick = \(\) => \{[\s\S]{0,500}?showAsk\(\{[\s\S]{0,300}?dsh: null,[\s\S]{0,300}?shell:/)
+})
+
+test('外壳自更新走 electron-updater，核心仍走 npm', () => {
+  // 外壳：检查/下载/安装三个接口 + 弹窗里单独一行
+  assert.match(html, /post\('\/api\/shell-update\/check'\)/, '关于页检查外壳更新')
+  assert.match(html, /async function startShellUpdate\(btn\)/, '外壳更新有独立的下载/安装流程')
+  assert.match(html, /post\('\/api\/shell-update\/download'\)/)
+  assert.match(html, /post\('\/api\/shell-update\/install'\)/)
+  assert.match(html, /t\('DSH-X 外壳'\)/, '弹窗里外壳和核心分开显示')
+  // 核心：npm 的 app-download/app-apply 还在
+  assert.match(html, /post\('\/api\/self\/app-download'\)/)
+  assert.match(html, /post\('\/api\/self\/app-apply'\)/)
+  // 主进程里的 updater 通过 host 暴露，SSE 事件名是 shellUpdate
+  assert.match(html, /addEventListener\('shellUpdate'/)
 })

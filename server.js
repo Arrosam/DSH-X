@@ -4626,6 +4626,10 @@ export async function restartInstalled() {
 
 export function setHost(next) {
   host = { ...host, ...next }
+  // 外壳自更新的进度/状态变化直接推给页面；服务在 Electron 主进程里，和 updater 同进程。
+  if (typeof next.onShellUpdateState === 'function') {
+    next.onShellUpdateState((state) => emit('shellUpdate', state))
+  }
 }
 
 /**
@@ -5267,7 +5271,33 @@ async function handleApi(req, res, url) {
     const info = await checkSelfUpdate({ force: refresh })
     // staged / downloading 让页面重载后也能知道下载进度：下载在服务端跑，和弹窗开不开无关
     const app = await checkAppUpdate({ force: refresh }).catch((error) => ({ available: false, reason: 'error', error: error?.message || String(error) }))
-    send(res, 200, { ...info, npm: NPM_MODE, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight, app, appStaged: stagedApp?.version || '' })
+    send(res, 200, { ...info, npm: NPM_MODE, shell: host.shellUpdate?.state() || null, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight, app, appStaged: stagedApp?.version || '' })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/shell-update') {
+    send(res, 200, host.shellUpdate?.state() || { status: 'disabled', current: APP_VERSION, latest: '', error: '' })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/shell-update/check') {
+    try {
+      send(res, 200, host.shellUpdate ? await host.shellUpdate.check() : { status: 'disabled', current: APP_VERSION, latest: '', error: '' })
+    } catch (error) {
+      send(res, 400, { error: error instanceof Error ? error.message : String(error) })
+    }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/shell-update/download') {
+    try {
+      send(res, 200, host.shellUpdate ? await host.shellUpdate.download() : { status: 'disabled', current: APP_VERSION, latest: '', error: '' })
+    } catch (error) {
+      send(res, 400, { error: error instanceof Error ? error.message : String(error) })
+    }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/shell-update/install') {
+    // 先响应，再停 dsh、退出，交给 electron-updater 静默安装
+    send(res, 200, { ok: true })
+    void host.shellUpdate?.install().catch((error) => pushLog(`外壳更新安装失败：${error?.message || error}`))
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/pending') {

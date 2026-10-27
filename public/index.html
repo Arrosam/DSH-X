@@ -1313,6 +1313,17 @@
   "检查更新失败：{message}": "Update check failed: {message}",
   "连不上发布页，请检查网络或下载源后重试。": "Could not reach the release page. Check your network or download source and try again.",
   "npm 安装的版本请用 npm update -g dsh-x 更新。": "This npm-installed copy updates with npm update -g dsh-x.",
+  "DSH-X 外壳": "DSH-X shell",
+  "更新外壳到 {latest}": "Update the shell to {latest}",
+  "外壳更新会替换整个安装包（Electron 和启动器代码），安装完成后会自动打开。": "The shell update replaces the whole installer (Electron and launcher code) and reopens automatically.",
+  "正在下载外壳更新…": "Downloading the shell update…",
+  "正在下载外壳更新 {pct}%": "Downloading the shell update: {pct}%",
+  "外壳更新已下载，安装后启动器会重启。": "The shell update is downloaded; the launcher restarts after installing.",
+  "正在安装外壳更新，启动器会关闭…": "Installing the shell update; the launcher will close…",
+  "外壳更新安装失败：{message}": "Shell update install failed: {message}",
+  "外壳更新下载失败：{message}": "Shell update download failed: {message}",
+  "外壳更新失败：{message}": "Shell update failed: {message}",
+  "发现外壳新版本 {latest}，正在打开更新窗口…": "Shell version {latest} is available. Opening the update dialog…",
   "已切到 profile {name}，dsh 下次启动用它。": "Switched to profile {name}; dsh will use it on the next start.",
   "全部更新": "Update all",
   "全部更新（{n}）": "Update all ({n})",
@@ -5034,6 +5045,41 @@
           paintSelfPill()
         }
       })
+      // 外壳（electron-updater）的检查/下载/安装状态：和核心的 selfUpdate 分开
+      events.addEventListener('shellUpdate', (event) => {
+        let state
+        try { state = JSON.parse(event.data) } catch { return }
+        selfState.shell = state
+        const wrap = document.getElementById('askProgress')
+        const bar = document.getElementById('askProgressBar')
+        if (state.status === 'downloading' && wrap && bar) {
+          wrap.hidden = false
+          wrap.classList.remove('indeterminate')
+          const pct = Math.round(state.progress?.percent || 0)
+          bar.style.width = `${pct}%`
+          askNoteEl.hidden = false
+          askNoteEl.textContent = t('正在下载外壳更新 {pct}%', { pct })
+        }
+        if (state.status === 'ready' && wrap && bar) {
+          wrap.hidden = false
+          bar.style.width = '100%'
+          askNoteEl.hidden = false
+          askNoteEl.textContent = t('外壳更新已下载，安装后启动器会重启。')
+        }
+        if (state.status === 'error') {
+          askNoteEl.hidden = false
+          askNoteEl.textContent = t('外壳更新失败：{message}', { message: state.error || '' })
+        }
+        paintSelfPill()
+        if (askShellButton && !askEl.hidden) {
+          askShellButton.disabled = state.status === 'downloading'
+          askShellButton.textContent = state.status === 'ready'
+            ? t('安装并重启')
+            : state.status === 'downloading'
+              ? t('正在下载…')
+              : t('更新外壳到 {latest}', { latest: state.latest || '' })
+        }
+      })
       events.addEventListener('bye', () => launcherExited())
       // 页面也可能是自己发现后端没了（推送没赶上、或页面刚打开），用断线兜底
       events.onerror = async () => {
@@ -5079,11 +5125,26 @@
     const selfUpdateEl = document.getElementById('selfUpdate')
     const appVerEl = document.getElementById('appVer')
     /** 启动器自更新的页面状态：下载在服务端跑，弹窗关掉也继续（进度走 selfUpdate 事件）。 */
-    const selfState = { current: '', latest: '', url: '', downloading: false, ready: '', app: null, appStaged: '', pct: 0 }
+    const selfState = { current: '', latest: '', url: '', downloading: false, ready: '', app: null, appStaged: '', pct: 0, shell: null }
     let askSelfButton = null
+    let askShellButton = null
+
+    const shellActive = () => Boolean(selfState.shell && ['available', 'downloading', 'ready'].includes(selfState.shell.status))
 
     function paintSelfPill() {
       if (!selfUpdateEl || selfUpdateEl.hidden) return
+      if (shellActive()) {
+        const shell = selfState.shell
+        const latest = shell.latest || ''
+        const pct = Math.round(shell.progress?.percent || 0)
+        selfUpdateEl.textContent = shell.status === 'downloading'
+          ? `外壳更新 ${latest} · ${pct}%`
+          : shell.status === 'ready' ? `外壳更新 ${latest} · 已下载` : `外壳更新 ${latest}`
+        selfUpdateEl.title = shell.status === 'ready' ? t('新版本已下载，点这里完成安装')
+          : shell.status === 'downloading' ? t('正在后台下载新版本')
+            : `更新外壳到 ${latest}`
+        return
+      }
       const latest = selfState.latest || ''
       const downloaded = Boolean(selfState.ready || selfState.appStaged)
       selfUpdateEl.textContent = selfState.downloading
@@ -5110,13 +5171,18 @@
       selfState.ready = data.staged || selfState.ready
       selfState.app = data.app || selfState.app
       selfState.appStaged = data.appStaged || selfState.appStaged
-      if (!data.update) { selfUpdateEl.hidden = true; return }
+      if (data.shell !== undefined) selfState.shell = data.shell
+      if (!data.update && !shellActive()) { selfUpdateEl.hidden = true; return }
       selfUpdateEl.hidden = false
       paintSelfPill()
       selfUpdateEl.onclick = () => {
         // 先问一句再把新版本摆出来（弹窗里会拉这个版本的更新内容），
         // 而不是直接下载安装包——那会立刻弹出安装程序，用户连看都没看清
-        showAsk({ dsh: null, self: { current: selfState.current, latest: selfState.latest, url: selfState.url } })
+        showAsk({
+          dsh: null,
+          self: data.update ? { current: selfState.current, latest: selfState.latest, url: selfState.url } : null,
+          shell: shellActive() ? selfState.shell : null,
+        })
       }
     }
 
@@ -5173,6 +5239,41 @@
         }
       }
     }
+    /**
+     * 外壳/Electron 更新：electron-updater 下载安装包，静默安装后自动打开新版。
+     * 核心（resources/app）的 npm 更新仍走 startAppUpdate。
+     */
+    async function startShellUpdate(btn) {
+      const shell = selfState.shell
+      if (!shell) return
+      if (shell.status === 'ready') {
+        if (btn) { btn.disabled = true; btn.textContent = t('正在安装…') }
+        askNoteEl.hidden = false
+        askNoteEl.textContent = t('正在安装外壳更新，启动器会关闭…')
+        try {
+          await post('/api/shell-update/install')
+        } catch (error) {
+          if (btn) { btn.disabled = false; btn.textContent = t('重试') }
+          askNoteEl.textContent = t('外壳更新安装失败：{message}', { message: error.message })
+        }
+        return
+      }
+      if (shell.status === 'downloading') return
+      if (btn) { btn.disabled = true; btn.textContent = t('正在下载…') }
+      askNoteEl.hidden = false
+      askNoteEl.textContent = t('正在下载外壳更新…')
+      const wrap = document.getElementById('askProgress')
+      const bar = document.getElementById('askProgressBar')
+      if (wrap && bar) { wrap.hidden = false; wrap.classList.remove('indeterminate') }
+      try {
+        await post('/api/shell-update/download')
+      } catch (error) {
+        if (btn) { btn.disabled = false; btn.textContent = t('重试') }
+        askNoteEl.textContent = t('外壳更新下载失败：{message}', { message: error.message })
+        if (wrap) wrap.hidden = true
+      }
+    }
+
     /**
      * 应用层增量更新：只下载并替换 resources/app，Electron 运行时不动。
      * 下载完成 → 起替换助手 → 启动器退出重启；失败时按钮换成完整安装包那条路。
@@ -5232,11 +5333,20 @@
         aboutUpdateHintEl.textContent = ''
         try {
           const data = await getJson('/api/self?refresh=1')
-          applySelfUpdate(data)
-          if (data.npm) {
+          const shell = await post('/api/shell-update/check').catch(() => null)
+          applySelfUpdate({ ...data, shell: shell || data.shell })
+          const shellReady = shell && ['available', 'downloading', 'ready'].includes(shell.status)
+          const coreReady = Boolean(data.app?.available)
+          if (shellReady) {
+            aboutUpdateHintEl.textContent = t('发现外壳新版本 {latest}，正在打开更新窗口…', { latest: shell.latest || '' })
+            showAsk({ dsh: null, shell, self: data.update || coreReady ? { current: data.current, latest: data.latest || data.app?.latest, url: data.url } : null })
+          } else if (data.npm) {
             aboutUpdateHintEl.textContent = t('npm 安装的版本请用 npm update -g dsh-x 更新。')
-          } else if (!data.latest) {
+          } else if (!data.latest && !coreReady) {
             aboutUpdateHintEl.textContent = t('连不上发布页，请检查网络或下载源后重试。')
+          } else if (coreReady) {
+            aboutUpdateHintEl.textContent = t('发现新版本 {latest}，正在打开更新窗口…', { latest: data.app?.latest || data.latest })
+            showAsk({ dsh: null, self: { current: data.current, latest: data.latest || data.app?.latest, url: data.url } })
           } else if (data.update) {
             aboutUpdateHintEl.textContent = t('发现新版本 {latest}，正在打开更新窗口…', { latest: data.latest })
             showAsk({ dsh: null, self: { current: data.current, latest: data.latest, url: data.url } })
@@ -5362,6 +5472,23 @@
           },
           t('升级会先停掉正在运行的 dsh，再下载安装新版本。插件由第三方维护、通常滞后于 dsh，新版本可能让插件失效或页面打不开（插件市场就出过这种情况）。已装的其他版本会保留，随时可以切回。'),
         ))
+      }
+      const shell = update.shell || (shellActive() ? selfState.shell : null)
+      if (shell) {
+        const ready = shell.status === 'ready'
+        const downloading = shell.status === 'downloading'
+        const shellRow = askRow(
+          'self',
+          t('DSH-X 外壳'),
+          shell.current,
+          shell.latest || t('最新'),
+          ready ? t('安装并重启') : downloading ? t('正在下载…') : t('更新外壳到 {latest}', { latest: shell.latest || '' }),
+          (event) => { void startShellUpdate(event.currentTarget) },
+          t('外壳更新会替换整个安装包（Electron 和启动器代码），安装完成后会自动打开。'),
+        )
+        askShellButton = shellRow.action
+        askShellButton.disabled = downloading
+        rows.push(shellRow)
       }
       if (update.self) {
         const app = selfState.app
