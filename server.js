@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { cmpVer, currentRegistry, describeNpmFailure, installSpec, listPackage, optimizeDependencies, parsePnpmProgress, parseVer } from './registry.js'
 import pkg from './package.json' with { type: 'json' }
-import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionInChannel } from './version.js'
+import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionChannel, versionInChannel } from './version.js'
 import { createLogWriter } from './log-writer.js'
 import { createStartupDiagnosis } from './startup-diagnosis.js'
 import { bindDiagnosis, checkedRepairPlan, profileFingerprint } from './repair-plan.js'
@@ -126,7 +126,7 @@ import {
 // 带代理的 fetch：Node 的全局 fetch 既不看系统代理也不看 HTTP_PROXY，外网请求都走 netFetch
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
 import { APP_DIR, fileManager } from './filemanager.js'
-import { appAssetUrl, assertManifestShape, extractVerified, localDiff, stagingExists, stagingStats, verifyAppManifest } from './app-update.js'
+import { checkCoreUpdate, downloadCoreTarball, extractCoreTarball, stagingExists, stagingStats } from './core-npm.js'
 import { IN_ELECTRON, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
 
 const execFileAsync = promisify(execFile)
@@ -649,6 +649,25 @@ function assertMacUpdatable() {
   return bundle
 }
 
+/**
+ * mac 的增量更新只换 Resources/app，换完必须重签整个 .app。
+ * 只有 ad-hoc / 未签名的包能安全地用 ad-hoc 重签；固定证书签名的包重签会破坏公证，
+ * 直接让用户走完整安装包。返回 { ok, identity } 或 { ok: false, reason, error }。
+ */
+export function macSignatureAllowsIncremental(text) {
+  const output = String(text || '')
+  if (/Signature=adhoc/.test(output)) return { ok: true, identity: '-' }
+  if (/not signed at all/.test(output)) return { ok: true, identity: '-' }
+  return { ok: false, reason: 'signed', error: '当前包使用固定证书签名，增量更新会破坏签名，请用完整安装包' }
+}
+
+function macIncrementalReadiness() {
+  const bundle = fileManager.appBundle()
+  if (!bundle) return { ok: false, reason: 'source' }
+  const result = spawnSync('codesign', ['-dv', '--verbose=4', bundle], { encoding: 'utf8' })
+  return { ...macSignatureAllowsIncremental(`${result.stdout || ''}${result.stderr || ''}`), bundle }
+}
+
 /** URL 的主机名，只用于日志（解析不了就原样返回）。 */
 function safeHost(url) {
   try {
@@ -828,6 +847,50 @@ rm -rf "$3.old"
 mv "$3" "$3.old" || { echo "move old app failed"; open "$3"; exit 1; }
 if mv "$4" "$3"; then rm -rf "$3.old"; else echo "move new app failed"; mv "$3.old" "$3"; fi
 open "$3"
+`
+
+/**
+ * mac 应用层增量更新的落地助手：等启动器退出 → 备份 Resources/app → 换上新目录 →
+ * 重签整个 .app → open 重启 → 等启动标记；没等到就回滚、重签、重开旧版。
+ * 参数：$1 父进程 pid，$2 app 目录，$3 暂存目录，$4 .app 包，$5 日志，
+ *       $6 启动标记，$7 备份目录，$8 签名身份（- 表示 ad-hoc）。
+ */
+export const MAC_APP_SWAP_SCRIPT = `
+pid=$1; app=$2; staged=$3; bundle=$4; logfile=$5; marker=$6; backup=$7; identity=$8
+log() { echo "[$(date '+%Y-%m-%dT%H:%M:%S')] $*" >>"$logfile" 2>/dev/null; }
+sign() { codesign --force --deep --sign "$identity" "$bundle" >>"$logfile" 2>&1; }
+n=0
+while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 450 ]; do sleep 0.2; n=$((n + 1)); done
+if kill -0 "$pid" 2>/dev/null; then log "父进程 90 秒内没有退出，放弃更新（暂存目录保留，下次可重试）"; exit 1; fi
+rm -f "$marker"
+log "替换 $app"
+rm -rf "$backup"
+if ! mv "$app" "$backup" 2>>"$logfile"; then log "备份失败，放弃更新"; exit 1; fi
+if ! mv "$staged" "$app" 2>>"$logfile"; then log "换入失败，回滚"; mv "$backup" "$app"; open "$bundle"; exit 1; fi
+if ! sign; then
+  log "重新签名失败，回滚"
+  rm -rf "$app"
+  mv "$backup" "$app"
+  sign
+  open "$bundle"
+  exit 1
+fi
+# 包内容变了，旧包的隔离属性会让 Gatekeeper 再拦一次；内容已按签名清单逐个校验过
+xattr -dr com.apple.quarantine "$bundle" >/dev/null 2>&1
+open "$bundle"
+n=0
+while [ "$n" -lt 225 ]; do
+  if [ -f "$marker" ]; then log "新版本启动成功，更新完成"; rm -rf "$backup"; exit 0; fi
+  sleep 0.2; n=$((n + 1))
+done
+log "新版本 45 秒内没有启动成功，开始回滚"
+pkill -f "^$bundle/Contents/MacOS/" >/dev/null 2>&1
+sleep 1
+rm -rf "$app"
+mv "$backup" "$app"
+sign
+open "$bundle"
+exit 1
 `
 
 /**
@@ -2622,73 +2685,121 @@ async function checkSelfUpdate({ force = false } = {}) {
   }
 }
 
-/** 应用层增量更新：清单缓存与暂存状态（见 app-update.js 与 apply-update.mjs）。 */
+/** 核心（app 层）更新：npm 元数据缓存与暂存状态（见 core-npm.js 与 apply-update.mjs）。 */
 let stagedApp = null
 let pendingAppUpdate = null
 let appUpdateCache = { at: 0, data: null }
+/** 完整安装包自更新的测试通道：DSH_UPDATE_VERSION 当最新版本。 */
+const TEST_UPDATE_VERSION = String(process.env.DSH_UPDATE_VERSION || '').trim().replace(/^v/i, '')
 const APP_UPDATE_CACHE_MS = 30 * 60 * 1000
 
-/** 拉最新版本的应用清单与签名（与安装包共用「镜像优先、直连兜底」的候选列表）。 */
-async function fetchSignedManifest(version) {
-  const manifestUrl = appAssetUrl(APP_REPO, version, 'win', '.manifest.json')
-  const pairs = updateUrlCandidates(manifestUrl, UPDATE_SOURCE).map((candidate) => ({
-    manifest: candidate,
-    sig: candidate.replace(/\.manifest\.json$/, '.manifest.json.sig'),
-  }))
-  let last = null
-  for (const pair of pairs) {
-    try {
-      const manifestRes = await netFetch(pair.manifest, { redirect: 'follow', signal: AbortSignal.timeout(60_000) })
-      if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status}`)
-      const bytes = Buffer.from(await manifestRes.arrayBuffer())
-      const sigRes = await netFetch(pair.sig, { redirect: 'follow', signal: AbortSignal.timeout(30_000) })
-      if (!sigRes.ok) throw new Error(`HTTP ${sigRes.status}`)
-      return { bytes, signature: await sigRes.text() }
-    } catch (error) {
-      last = error
-    }
-  }
-  throw new Error(`拉不到应用清单：${describeFetchError(last, manifestUrl)}`)
+/** 安装器建的两个快捷方式（用户取消勾选时可能不存在）。 */
+function shortcutLinks() {
+  const links = []
+  if (process.env.USERPROFILE) links.push(join(process.env.USERPROFILE, 'Desktop', 'DSH-X.lnk'))
+  if (process.env.APPDATA) links.push(join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'DSH-X.lnk'))
+  return links.filter((path) => existsSync(path))
+}
+
+/** 用 WScript.Shell 把若干 .lnk 的图标指到 iconTarget。没有快捷方式就直接返回。 */
+export async function setShortcutIcon(links, iconTarget) {
+  if (!links.length) return
+  const quote = (value) => `'${String(value).replace(/'/g, "''")}'`
+  const script = links
+    .map((link) => `$p=${quote(link)}; $s=(New-Object -ComObject WScript.Shell).CreateShortcut($p); $s.IconLocation=${quote(`${iconTarget},0`)}; $s.Save()`)
+    .join('; ')
+  await execFileAsync('powershell', ['-NoProfile', '-Command', script], { windowsHide: true, timeout: 15000 })
 }
 
 /**
- * 检查能不能走应用层增量：只认「已打包的 Windows 安装版 + 清单签名有效 + Electron 版本一致」。
- * 返回的字段给页面用；完整清单留在 pendingAppUpdate 里，下载时再对照。
+ * 版本更新后刷新桌面 / 开始菜单快捷方式的图标。
+ * 图标文件名带版本号（为绕开 Explorer 图标缓存），快捷方式却还指着旧文件；这里把当前版本的图标
+ * 放进安装根目录的 assets/，再把两个 .lnk 指过去。每个版本只做一次（APP_DIR 里记个戳）。
+ * app 增量只换 resources/app，安装根目录的图标还是安装时那份，所以要在这里补。
+ */
+export async function refreshShortcuts({ installRoot, appDir = APP_DIR, version = APP_VERSION, links, force = false } = {}) {
+  if (!IS_WINDOWS || (!PACKAGED && !force)) return false
+  // 打包布局：<安装根>/resources/app
+  const root = installRoot || dirname(dirname(ROOT))
+  if (!root) return false
+  const stampFile = join(appDir, 'shortcut-icon')
+  try {
+    if (readFileSync(stampFile, 'utf8').trim() === version) return false
+  } catch { /* 还没有戳 */ }
+  const iconSource = join(ROOT, 'assets', 'dsh.ico')
+  if (!existsSync(iconSource)) return false
+  const iconTarget = join(root, 'assets', `dsh-${version}.ico`)
+  try {
+    mkdirSync(join(root, 'assets'), { recursive: true })
+    if (!existsSync(iconTarget)) copyFileSync(iconSource, iconTarget)
+  } catch (error) {
+    pushLog(`快捷方式图标写入失败：${error?.message || error}`)
+    return false
+  }
+  try {
+    await setShortcutIcon(links || shortcutLinks(), iconTarget)
+  } catch (error) {
+    pushLog(`快捷方式图标刷新失败：${error?.message || error}`)
+    return false
+  }
+  // 旧版本的图标文件已经没人引用了，顺手清掉（清不掉不影响）
+  try {
+    for (const file of readdirSync(join(root, 'assets'))) {
+      if (file !== basename(iconTarget) && /^dsh-[\d.]+\.ico$/i.test(file)) rmSync(join(root, 'assets', file), { force: true })
+    }
+  } catch { /* ignore */ }
+  try { writeFileSync(stampFile, version) } catch { /* 记不上就下次再做 */ }
+  return true
+}
+
+/**
+ * 检查核心更新：核心是 npm 上的 dsh-x-core-<平台>，按启动器版本所在通道查 dist-tags。
+ * 安装包和 Electron 不在核心更新范围内；Electron 版本不同时只提示用完整安装包。
+ * Windows 换 resources/app（替换助手等退出后备份、换目录、重启）；mac 换 .app 里的
+ * Resources/app 后重签。
  */
 async function checkAppUpdate({ force = false } = {}) {
-  if (!PACKAGED || !IS_WINDOWS) return { available: false, reason: IS_WINDOWS ? 'source' : 'platform' }
+  if (!PACKAGED || (!IS_WINDOWS && !IS_MAC)) return { available: false, reason: PACKAGED ? 'platform' : 'source' }
   if (!force && appUpdateCache.data && Date.now() - appUpdateCache.at < APP_UPDATE_CACHE_MS) return appUpdateCache.data
   const remember = (data) => { appUpdateCache = { at: Date.now(), data }; return data }
-  const self = await checkSelfUpdate()
-  const latest = self.latest
-  if (!self.update || !latest) return remember({ available: false, reason: 'current', latest })
-  let got
-  let manifest
+  const latest = APP_VERSION
+  if (IS_MAC) {
+    try {
+      assertMacUpdatable()
+    } catch (error) {
+      return remember({ available: false, reason: 'unwritable', latest, error: error?.message || String(error) })
+    }
+    const ready = macIncrementalReadiness()
+    if (!ready.ok) return remember({ available: false, reason: ready.reason, latest, error: ready.error })
+  }
+  let result
   try {
-    got = await fetchSignedManifest(latest)
-    manifest = JSON.parse(got.bytes.toString('utf8'))
+    result = await checkCoreUpdate({
+      current: APP_VERSION,
+      source: UPDATE_SOURCE,
+      channel: versionChannel(APP_VERSION) || VERSION_CHANNEL.OFFICIAL,
+    })
   } catch (error) {
     return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
   }
-  if (!verifyAppManifest(got.bytes, got.signature)) return remember({ available: false, reason: 'unsigned', latest })
-  try {
-    assertManifestShape(manifest, { version: latest, electronVersion: process.versions.electron, platform: 'win' })
-  } catch (error) {
-    return remember({ available: false, reason: error?.code === 'electron_mismatch' ? 'electron' : 'manifest', latest, error: error?.message || String(error) })
+  if (!result.available) return remember({ available: false, reason: 'current', latest: result.latest || latest })
+  const release = result.release
+  // 核心包声明它按哪个 Electron 版本构建；不一致就走完整安装包
+  if (release.electron && release.electron !== String(process.versions.electron)) {
+    return remember({ available: false, reason: 'electron', latest: result.latest, electron: release.electron })
   }
-  const diff = localDiff(ROOT, manifest)
-  pendingAppUpdate = { version: latest, manifest }
+  pendingAppUpdate = { version: result.latest, tarball: release.tarball, integrity: release.integrity, shasum: release.shasum }
   return remember({
     available: true,
-    latest,
-    version: latest,
-    downloadSize: Number(manifest.archive?.size) || 0,
-    changed: diff.changed,
-    changedBytes: diff.changedBytes,
+    latest: result.latest,
+    version: result.latest,
+    // tarball 的实际大小要下载时才知道；页面用「核心包」而不是具体 MB
+    downloadSize: 0,
   })
 }
 
 async function fetchLatestTag() {
+  if (TEST_UPDATE_VERSION) return TEST_UPDATE_VERSION
   const apiUrl = `https://api.github.com/repos/${APP_REPO}/releases/latest`
   const pageUrl = `https://github.com/${APP_REPO}/releases/latest`
   // 版本检查也走下载源：国内直连 api.github.com 常常超时或撞限流，选了「国内加速」就带镜像前缀
@@ -3583,8 +3694,9 @@ async function testNetwork() {
 /** 下载上限：整合包只装清单与配置，超过这个量级的多半不是包（也免得把内存吃光）。 */
 const PACK_DOWNLOAD_LIMIT = 64 * 1024 * 1024
 
-async function downloadToFile(url, dest, { sha256 = '', log = pushLog, onProgress } = {}) {
-  const candidates = updateUrlCandidates(url, UPDATE_SOURCE)
+async function downloadToFile(url, dest, { sha256 = '', log = pushLog, onProgress, limit = PACK_DOWNLOAD_LIMIT } = {}) {
+  // 只有 GitHub 发布资产才套镜像前缀；本地/其他地址原样请求
+  const candidates = /^https:\/\/github\.com\//i.test(url) ? updateUrlCandidates(url, UPDATE_SOURCE) : [url]
   let last = null
   for (const candidate of candidates) {
     try {
@@ -3592,13 +3704,13 @@ async function downloadToFile(url, dest, { sha256 = '', log = pushLog, onProgres
       const res = await netFetch(candidate, { redirect: 'follow' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const total = Number(res.headers.get('content-length')) || 0
-      if (total > PACK_DOWNLOAD_LIMIT) throw new Error(`文件太大（${Math.round(total / 1048576)} MB，上限 ${PACK_DOWNLOAD_LIMIT / 1048576} MB）`)
+      if (total > limit) throw new Error(`文件太大（${Math.round(total / 1048576)} MB，上限 ${Math.round(limit / 1048576)} MB）`)
       const chunks = []
       let done = 0
       for await (const chunk of res.body) {
         chunks.push(chunk)
         done += chunk.length
-        if (done > PACK_DOWNLOAD_LIMIT) throw new Error(`下载超过上限（${PACK_DOWNLOAD_LIMIT / 1048576} MB），已停下`)
+        if (done > limit) throw new Error(`下载超过上限（${Math.round(limit / 1048576)} MB），已停下`)
         onProgress?.({ phase: 'download', done, total })
       }
       const buffer = Buffer.concat(chunks)
@@ -4063,8 +4175,20 @@ function attachProcess(version, profile, child, diagnosticContext) {
     }
   }
   // 管道的 chunk 没有行/UTF-8 边界；逐块 split 会截断中文、错误码，甚至整个就绪 URL。
-  for (const input of [child.stdout, child.stderr]) createInterface({ input, crlfDelay: Infinity }).on('line', onLine)
-  child.on('exit', (code, signal) => {
+  const readers = [child.stdout, child.stderr].map((input) => createInterface({ input, crlfDelay: Infinity }).on('line', onLine))
+  // 进程退出时管道里可能还有最后几行没读完（失败前的错误行往往就是最后一行）。
+  // 等两条输出流都 close 再收尾，最多等 200ms：既不让诊断尾部丢行，也不被孙进程拖住。
+  let readersClosed = 0
+  const streamsDone = new Promise((resolve) => {
+    for (const reader of readers) {
+      reader.on('close', () => {
+        readersClosed += 1
+        if (readersClosed === readers.length) resolve()
+      })
+    }
+  })
+  child.on('exit', async (code, signal) => {
+    await Promise.race([streamsDone, new Promise((resolve) => setTimeout(resolve, 200))])
     clearTimeout(proc.diagnosticTimer)
     proc.diagnosticTimer = null
     proc.exit = { code, signal }
@@ -5135,9 +5259,11 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/self') {
-    const info = await checkSelfUpdate({ force: url.searchParams.get('refresh') === '1' })
+    // refresh=1 是用户在「关于」里主动点检查更新：绕开两份缓存，重新问发布页
+    const refresh = url.searchParams.get('refresh') === '1'
+    const info = await checkSelfUpdate({ force: refresh })
     // staged / downloading 让页面重载后也能知道下载进度：下载在服务端跑，和弹窗开不开无关
-    const app = await checkAppUpdate().catch((error) => ({ available: false, reason: 'error', error: error?.message || String(error) }))
+    const app = await checkAppUpdate({ force: refresh }).catch((error) => ({ available: false, reason: 'error', error: error?.message || String(error) }))
     send(res, 200, { ...info, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight, app, appStaged: stagedApp?.version || '' })
     return
   }
@@ -5355,42 +5481,70 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/self/app-download') {
-    // 应用层增量：下载整包 → 逐文件校验 → 解到暂存目录；进度复用 selfUpdate 事件
+    // 核心更新：从 npm 下载 tarball → 校验 sha512 → 解到暂存目录；进度复用 selfUpdate 事件
     try {
       const data = await checkAppUpdate({ force: true })
       if (!data.available) {
-        throw new Error(data.reason === 'electron' ? 'Electron 版本不同，需要完整安装包' : '当前没有可用的增量更新')
+        throw new Error(data.reason === 'electron' ? 'Electron 版本不同，需要完整安装包' : '当前没有可用的核心更新')
       }
       if (stagedApp && stagedApp.version === data.version && stagingExists(stagedApp.dir)) {
         send(res, 200, { ok: true, version: stagedApp.version, reused: true })
         return
       }
-      const zipPath = join(tmpdir(), `DSH-X-app-${data.version}-${process.pid}.zip`)
-      const archive = pendingAppUpdate.manifest.archive || {}
-      const result = await downloadToFile(appAssetUrl(APP_REPO, data.version, 'win', '.zip'), zipPath, {
-        sha256: archive.sha256 || '',
+      const tarball = join(tmpdir(), `DSH-X-core-${data.version}-${process.pid}.tgz`)
+      const result = await downloadCoreTarball(pendingAppUpdate.tarball, tarball, {
+        integrity: pendingAppUpdate.integrity,
+        shasum: pendingAppUpdate.shasum,
         onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'app', done, total }),
       })
-      const staging = join(tmpdir(), `DSH-X-app-${data.version}-${process.pid}`)
-      await extractVerified(zipPath, pendingAppUpdate.manifest, staging)
-      rmSync(zipPath, { force: true })
+      const staging = join(tmpdir(), `DSH-X-core-${data.version}-${process.pid}`)
+      try {
+        const pkg = extractCoreTarball(tarball, staging)
+        if (String(pkg.version) !== String(data.version)) throw new Error(`核心包版本不一致：${pkg.version} != ${data.version}`)
+      } finally {
+        rmSync(tarball, { force: true })
+      }
       stagedApp = { version: data.version, dir: staging }
-      pushLog(`应用增量已就绪：${data.version}（${(result.bytes / 1048576).toFixed(1)} MB），等用户确认后替换`)
+      pushLog(`核心更新已就绪：${data.version}（${(result.bytes / 1048576).toFixed(1)} MB），等用户确认后替换`)
       emit('selfUpdate', { phase: 'app-ready', latest: data.version })
       send(res, 200, { ok: true, version: data.version })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      pushLog(`应用增量下载失败：${message}`)
+      pushLog(`核心更新下载失败：${message}`)
       send(res, 400, { error: message })
     }
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/self/app-apply') {
-    // 应用层增量：起替换助手（等本进程退出后换目录），然后收尾退出
+    // 应用层增量：起替换助手（等退出后备份旧 app、换目录、重启；失败回滚）
     try {
       if (!stagedApp || !stagingExists(stagedApp.dir)) throw new Error('还没有下载好的应用更新')
       const stats = stagingStats(stagedApp.dir)
       if (stats.files < 100) throw new Error('暂存目录不完整，重新下载一次')
+      if (IS_MAC) {
+        // mac：换 .app/Contents/Resources/app，重签后重启；助手用 /bin/sh，不依赖包里的可执行文件
+        const bundle = assertMacUpdatable()
+        const ready = macIncrementalReadiness()
+        if (!ready.ok) throw new Error(ready.error || '当前安装不支持增量更新，请用完整安装包')
+        const script = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.sh`)
+        writeFileSync(script, MAC_APP_SWAP_SCRIPT)
+        chmodSync(script, 0o755)
+        const child = spawn('/bin/sh', [script,
+          String(process.pid),
+          ROOT,
+          stagedApp.dir,
+          bundle,
+          join(APP_DIR, 'update.log'),
+          join(APP_DIR, 'update-ok'),
+          join(dirname(ROOT), `app.bak-${APP_VERSION}`),
+          ready.identity || '-',
+        ], { cwd: tmpdir(), detached: true, stdio: 'ignore' })
+        child.unref()
+        pushLog(`应用增量更新：替换助手已启动（${stagedApp.version}），启动器即将退出`)
+        send(res, 200, { ok: true, version: stagedApp.version })
+        setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
+        return
+      }
       const helper = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.mjs`)
       copyFileSync(join(ROOT, 'apply-update.mjs'), helper)
       const child = spawn(RUNTIME_NODE, [helper,
@@ -6369,6 +6523,8 @@ export async function startServer() {
     pushLog(`DSH 管理器 http://127.0.0.1:${PORT}`)
     // 给应用层增量更新的替换助手留一个「新版本启动成功」的标记
     try { writeFileSync(join(APP_DIR, 'update-ok'), String(Date.now())) } catch { /* 标记写不了不影响启动 */ }
+    // 版本更新后刷新快捷方式图标（图标文件名带版本号，快捷方式还指着旧文件）
+    void refreshShortcuts().catch(() => {})
     pushLog(`版本目录 ${DATA}`)
     pushLog(`DSH_HOME ${homeDir()}`)
     const system = detectSystemDsh()

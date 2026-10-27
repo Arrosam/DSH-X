@@ -240,12 +240,15 @@ async function buildInstaller() {
 }
 
 // 发布资产：先出 SBOM，再出覆盖「安装包 + SBOM」的发布清单（有私钥时顺带签名）。
-// 没配密钥也不该让打包失败，所以这里只提示。
+// 核心走 npm 单独发版，这里不再产出 app zip/清单。
 async function buildReleaseArtifacts() {
   const releaseDir = join(ROOT, 'release')
   const { path: sbomPath } = writeSbom({ releaseDir, version: PKG.version })
   console.log(`SBOM: ${sbomPath}`)
-  const artifacts = collectArtifacts(releaseDir, [`${SETUP_NAME}.exe`, basename(sbomPath)])
+  const artifacts = collectArtifacts(releaseDir, [
+    `${SETUP_NAME}.exe`,
+    basename(sbomPath),
+  ])
   const { manifest, signed } = writeReleaseManifest({
     releaseDir,
     version: PKG.version,

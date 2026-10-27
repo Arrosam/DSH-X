@@ -52,7 +52,10 @@ export class WindowsFileManager extends FileManager {
    * 不能让开机自启把它写进注册表。老的 Rust 外壳布局仍然认（装过 0.1.19 及以前的机器）。
    */
   launcherExecutable() {
-    if (IN_ELECTRON) return process.defaultApp ? '' : process.execPath
+    if (IN_ELECTRON) {
+      if (process.defaultApp) return ''
+      return process.execPath
+    }
     const exe = join(this.root, `${LAUNCHER_NAME}.exe`)
     return this.exists(exe) ? exe : ''
   }

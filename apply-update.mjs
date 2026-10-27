@@ -52,7 +52,11 @@ function alive(pid) {
 
 function relaunch() {
   try {
-    const child = spawn(exePath, [], { cwd: dirname(exePath), detached: true, stdio: 'ignore', windowsHide: false })
+    // 助手自己是 ELECTRON_RUN_AS_NODE 跑起来的；这个变量不能带给启动器，
+    // 否则 DSH.exe 会按 Node 跑 shell/main.mjs，Electron API 全没有，起来就退。
+    const env = { ...process.env }
+    delete env.ELECTRON_RUN_AS_NODE
+    const child = spawn(exePath, [], { cwd: dirname(exePath), env, detached: true, stdio: 'ignore', windowsHide: false })
     child.unref()
     return child
   } catch (error) {
@@ -108,6 +112,7 @@ async function main() {
   const booted = child ? await waitFor(() => existsSync(marker), 45_000) : false
   if (booted) {
     log('新版本启动成功，更新完成')
+    try { rmSync(backupDir, { recursive: true, force: true }) } catch (error) { log(`清理旧版本备份失败：${error?.message || error}`) }
     return 0
   }
   log('新版本 45 秒内没有启动成功，开始回滚')

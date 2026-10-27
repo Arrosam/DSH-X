@@ -117,13 +117,17 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - dsh 自己的 Node 开关（系统证书库、请求头上限、两个 ESM 补丁钩子）走**命令行参数**，不塞 NODE_OPTIONS：后者会被 dsh 的所有子进程继承，agent 在 shell 里跑的 node 可能是老版本。
 - 改会话事件词汇表（`SESSION_TYPES`）要**两处同步**：主线程的 `compat/session-events.mjs` 与 worker 的 `compat/worker-events.cjs` 各有一份副本。
 
-### 应用层增量更新（app-update.js / apply-update.mjs）
+### 核心更新（core-npm.js / apply-update.mjs）
 
-- 发布侧：`scripts/app-manifest.mjs build` 给打包后的 `resources/app` 生成文件清单（路径/大小/sha256、启动器版本、Electron 版本、平台）与整包 `app-<版本>-<平台>.zip`；有 `release/release-key.pem`（或 `DSH_RELEASE_KEY`）时用 Ed25519 给清单签名。CI 两个平台各自产出，挂到同 tag 的 Release 上。
-- 客户端：`/api/self` 带 `app` 检查结果（清单签名必须用内置公钥 `APP_PUBLIC_KEY` 校验通过、Electron 版本一致、平台是 win），页面按「约 N MB」展示增量大小；`/api/self/app-download` 下载整包并逐文件核对哈希后解到暂存目录，`/api/self/app-apply` 起替换助手并退出。
-- 替换助手（`apply-update.mjs`）用 `ELECTRON_RUN_AS_NODE` 跑：等父进程退出 → 备份旧 app → 换上新目录 → 重启 → 45 秒内等不到启动标记（`<APP_DIR>/update-ok`）就回滚。只替换 `resources/app`，不碰 `DSH.exe` 和 Electron 运行时，所以不受 Windows 文件锁影响；备份最多留一份（下次更新时清掉）。
-- 边界：只有「已打包的 Windows 安装版 + 签名清单 + Electron 版本相同」才走增量；其他情况（未签名、Electron 升级、mac、源码运行）自动回退完整安装包。旧版本客户端不认识这些资产，忽略即可。
-- 所有下载都走 `updateUrlCandidates`：默认「国内加速」是镜像优先（gh-proxy → ghfast → 直连兜底）。
+- 发布侧：核心（app 层）作为一个 npm 包发版：Windows 是 `dsh-x-core-win`，mac 是 `dsh-x-core-mac`。`scripts/pack-core.mjs` 把 `release/DSH/resources/app`（mac 是 `.app/Contents/Resources/app`）打成 tarball，包里的 `package.json` 带 `dshX.electron`（构建所用的 Electron 版本）；CI 在 tag 上用 `NPM_TOKEN` 按版本通道发到 `latest` / `rc` / `alpha`。安装包仍然由 `pack.mjs` 出，核心包和安装包解耦。
+- 客户端：`/api/self` 的 `app` 来自 npm registry 的 dist-tags（按当前版本所在通道选），`/api/self/app-download` 下载 tarball、校验 npm 的 `dist.integrity`（sha512）、解到暂存目录，`/api/self/app-apply` 负责切换。registry 默认官方/镜像跟着设置里的下载源走，`DSH_CORE_REGISTRY` 可以覆盖（本地演示用）。
+- **统一安装布局**：Windows 完整安装包（`DSH-Setup.exe`）把 Electron 壳装在安装根目录、`resources/app` 是普通目录；mac 是 `DSH-X.app/Contents/Resources/app`。两端都只有这一种布局。
+  - Windows 换 `resources/app`：替换助手（`apply-update.mjs`，等父进程退出 → 备份旧 app → 换目录 → 重启 → 45 秒内等不到启动标记 `<APP_DIR>/update-ok` 就回滚）。
+  - macOS 换 `Resources/app`：`MAC_APP_SWAP_SCRIPT`（等退出 → 备份 → 换目录 → `codesign --force --deep --sign <身份>` 重签整个包 → `open` 重启 → 45 秒启动标记，失败回滚并重签旧包）。只对 ad-hoc / 未签名的包开放（`macSignatureAllowsIncremental`）；固定证书签名的包重签会破坏公证，直接回退完整 dmg。
+- **Electron 升级**：核心包声明 `dshX.electron`，和当前进程不一致时 `checkAppUpdate` 返回 `reason: 'electron'`，页面回退到完整安装包。安装包是 Electron 壳 + 一份内置核心，安装时会覆盖 `resources/app`；核心更新只换 app 层，不动 Electron。
+- 边界：源码运行、mac 固定证书签名、npm 上还没有对应平台包时都不提供核心更新；页面按完整安装包或手动下载兜底。
+- 版本更新后启动器会刷新桌面/开始菜单快捷方式图标（`refreshShortcuts`）：图标文件名带版本号（`assets/dsh-<版本>.ico`），每个版本只改一次并记戳。
+- 本地验收：`node scripts/update-flow-demo.mjs` 用构建产物造一份 0.1.21 的假核心和假 npm registry，按打印的命令（带 `DSH_CORE_REGISTRY`）启动测试安装，点更新即可走完整替换流程；不需要发布私钥。
 
 ### 打包与安装布局
 
