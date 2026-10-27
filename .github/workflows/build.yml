@@ -46,7 +46,10 @@ jobs:
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          & $csc /nologo /target:winexe /out:release/eb/DSH-Setup.exe "/resource:release/eb/DSH-Setup-$version.exe,DSH-Setup-payload.exe" "scripts/legacy-updater-bridge.cs"
+          $source = Join-Path $PWD "scripts\legacy-updater-bridge.cs"
+          $installer = Join-Path $PWD "release\eb\DSH-Setup-$version.exe"
+          $out = Join-Path $PWD "release\eb\DSH-Setup.exe"
+          & $csc /nologo /target:winexe "/out:$out" "/resource:$installer,DSH-Setup-payload.exe" $source
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4

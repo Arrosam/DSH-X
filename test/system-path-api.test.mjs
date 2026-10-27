@@ -111,7 +111,7 @@ else {
 // macOS/Linux 只提供手动指引，保存与重启都不能改写用户的 shell 配置。
 test('macOS/Linux PATH API：重复开关、持久化与进程重启，shell 文件不变', { skip: process.platform === 'win32', timeout: 20000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-path-api-'))
-  const app = process.platform === 'darwin' ? join(root, 'Library', 'Application Support', 'DSH') : join(root, 'DSH')
+  const app = isolateUserHome(root)
   await mkdir(app, { recursive: true })
   const settingsFile = join(app, 'settings.json')
   await writeFile(settingsFile, JSON.stringify({ dataDir: join(root, 'data'), dshHome: join(root, '.dsh'), systemPath: false, seedMarket: false }))

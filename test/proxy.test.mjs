@@ -25,7 +25,6 @@ import { fileURLToPath } from 'node:url'
 // 换成临时 HOME / APPDATA 必须在导入 settings.js / platform.js 之前（它们导入时就读环境变量）
 const APP_DATA = mkdtempSync(join(tmpdir(), 'dsh-proxy-appdata-'))
 const SETTINGS_DIR = isolateUserHome(APP_DATA)
-process.env.XDG_CONFIG_HOME = APP_DATA
 delete process.env.HTTPS_PROXY
 delete process.env.https_proxy
 delete process.env.HTTP_PROXY
