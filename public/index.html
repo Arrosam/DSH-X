@@ -4772,6 +4772,9 @@
         if (wasLive) {
           // 跟点卡片启动一样带上启动项的固定端口：端口随版本挪到新版，不然更新后这次落在随机端口上。
           await startVersion(latest, targetProfile, entry ? entry.port : null, target?.launchId)
+          // 这条分支直接 return，不在这里收尾的话首页会一直停在「正在安装」、按钮全锁死。
+          action = ''
+          render()
           return
         }
         action = ''
