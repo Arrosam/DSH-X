@@ -158,6 +158,9 @@ async function start() {
     onShellUpdateState: (listener) => updater.subscribe(listener),
   })
 
+  // 启动时也查一次外壳更新（不阻塞窗口）；页面从 /api/self 的 shell 状态和 SSE 拿结果
+  void updater.check()
+
   createMainWindow()
   createTray()
   pollTray()
