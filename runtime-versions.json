@@ -1,0 +1,32 @@
+{
+  "node": {
+    "version": "22.19.0",
+    "darwin-arm64": {
+      "file": "node-v22.19.0-darwin-arm64.tar.gz",
+      "sha256": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d"
+    },
+    "darwin-x64": {
+      "file": "node-v22.19.0-darwin-x64.tar.gz",
+      "sha256": "3cfed4795cd97277559763c5f56e711852d2cc2420bda1cea30c8aa9ac77ce0c"
+    },
+    "win32-x64": {
+      "file": "node-v22.19.0-win-x64.zip",
+      "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86"
+    }
+  },
+  "electron": {
+    "version": "44.7.0",
+    "darwin-arm64": {
+      "file": "electron-v44.7.0-darwin-arm64.zip",
+      "sha256": "e04e411b58a0a14375dd21b0ab4a378fd38930a702e4e20e322fee4849404c0b"
+    },
+    "darwin-x64": {
+      "file": "electron-v44.7.0-darwin-x64.zip",
+      "sha256": "4fe494a7159b10a81e2098dab388719582065e99e604c4510bb117e282213566"
+    },
+    "win32-x64": {
+      "file": "electron-v44.7.0-win32-x64.zip",
+      "sha256": "eee30dc8fa1f5ea95490e59f44e46ea68dd24c6e93d22facf70fe5c2d4c2665c"
+    }
+  }
+}

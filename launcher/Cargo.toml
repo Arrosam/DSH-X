@@ -4,14 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
+name = "DSH"
+path = "main.rs"
+
+[[bin]]
 name = "DSH-Setup"
 path = "installer.rs"
 required-features = ["installer"]
-
-# 微型引导器：首次运行下载 runtime + app，之后只负责启动当前版本
-[[bin]]
-name = "DSH-Boot"
-path = "boot.rs"
 
 [features]
 installer = []
@@ -19,16 +18,22 @@ installer = []
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39.1"
+windows-sys = { version = "0.60", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
 [profile.release]
 lto = true
 strip = true
 
 [dependencies]
+# 外壳本身：窗口、托盘、WebView（Windows: WebView2，macOS: WKWebView）
+image = { version = "0.25.10", default-features = false, features = ["ico", "png"] }
 serde_json = "1"
 tao = "0.37.0"
+tray-icon = "0.25.1"
 wry = "0.57.0"
-ureq = { version = "2", features = ["json"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
-ed25519-dalek = "2"
+# 首次启动下载 Node 运行时：HTTP + 校验 + 解压（Windows 的发行包是 zip，macOS 走系统 tar）
+ureq = "2"
 sha2 = "0.10"
-base64 = "0.22"
+zip = { version = "2", default-features = false, features = ["deflate"] }

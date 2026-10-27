@@ -12,8 +12,6 @@ fn app_version() -> String {
 
 fn main() {
     println!("cargo:rerun-if-env-changed=DSH_INSTALL_ENGINE");
-    // 引导器自己的版本：跟着 package.json，写进二进制供自更新比较
-    println!("cargo:rustc-env=DSH_BOOT_VERSION={}", app_version());
     if std::env::var_os("CARGO_FEATURE_INSTALLER").is_some() {
         let payload = match std::env::var("DSH_INSTALL_ENGINE") {
             Ok(path) => {
@@ -36,10 +34,11 @@ fn main() {
             // 这些字段不只是好看：杀软/信誉服务看厂商、版权、原始文件名，
             // 一片空白的未签名 exe 更容易被启发式当成下载器。
             res.set("ProductName", "DSH-X");
-            res.set("FileDescription", "DSH-X 安装程序");
+            // 同一份资源会进 DSH.exe 和 DSH-Setup.exe 两个二进制，描述写通用的那个
+            res.set("FileDescription", "DSH-X");
             res.set("CompanyName", "yyh");
             res.set("LegalCopyright", "Copyright (C) 2026 yyh");
-            res.set("OriginalFilename", "DSH-Setup.exe");
+            res.set("OriginalFilename", "DSH.exe");
             res.set("InternalName", "DSH");
             let version = app_version();
             res.set("FileVersion", &version);
