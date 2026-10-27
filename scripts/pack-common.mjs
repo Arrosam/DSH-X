@@ -105,7 +105,7 @@ const FILE_MANAGERS = ['filemanager-windows.js', 'filemanager-mac.js', 'filemana
 
 /**
  * 核心层的内容与平台无关（除了 node/ 包装脚本，两套都由 pack.mjs 写进去）。
- * 安装包的外壳才按平台分开：Windows 出 NSIS，mac 出 dmg/zip。
+ * 安装包的外壳才按平台分开：Windows 出 NSIS，mac 出 dmg。
  */
 export async function copyAppFiles(out) {
   await mkdir(join(out, 'public'), { recursive: true })

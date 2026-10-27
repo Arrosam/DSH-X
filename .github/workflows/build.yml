@@ -39,12 +39,23 @@ jobs:
       - name: 打包（electron-builder：NSIS + latest.yml/blockmap）
         run: npm run dist
 
+      # 0.1.18 及更早的 Inno 安装版找 releases/latest/download/DSH-Setup.exe，
+      # 并用 /silent /log=... 交接；这里做一个兼容桥，先写日志再静默跑新 NSIS 包。
+      - name: 构建旧版兼容安装包（DSH-Setup.exe）
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:winexe /out:release/eb/DSH-Setup.exe "/resource:release/eb/DSH-Setup-$version.exe,DSH-Setup-payload.exe" "scripts/legacy-updater-bridge.cs"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - uses: actions/upload-artifact@v4
         with:
           name: DSH-Setup-windows
           path: |
             release/eb/DSH-Setup-*.exe
             release/eb/DSH-Setup-*.exe.blockmap
+            release/eb/DSH-Setup.exe
             release/eb/latest.yml
           if-no-files-found: error
 
@@ -61,7 +72,8 @@ jobs:
           fi
           # 安装包放发布页；核心包在 npm 上，SBOM/发布清单留在本机自查
           # electron-updater 要 latest.yml + 安装包 + blockmap；核心包在 npm 上
-          gh release upload "$tag" release/eb/DSH-Setup-*.exe release/eb/DSH-Setup-*.exe.blockmap release/eb/latest.yml --clobber
+          # DSH-Setup.exe 是给 0.1.18 旧更新器的兼容桥
+          gh release upload "$tag" release/eb/DSH-Setup-*.exe release/eb/DSH-Setup-*.exe.blockmap release/eb/DSH-Setup.exe release/eb/latest.yml --clobber
 
   # mac 的打包能力在 PR #25（scripts/pack-mac.mjs）里，合并之后这里才真的会出包；
   # 没合并时这一步只打个招呼就过，不至于把整个 workflow 挂红。
@@ -112,7 +124,7 @@ jobs:
           DSH_MAC_EXPECTED_SHA1: ${{ vars.DSH_MAC_SIGNING_SHA1 }}
         run: bash scripts/setup-mac-signing.sh
 
-      - name: 打包（electron-builder：dmg + zip + latest-mac.yml）
+      - name: 打包（electron-builder：dmg）
         if: steps.probe.outputs.ready == 'yes'
         run: npm run dist
 
@@ -137,10 +149,7 @@ jobs:
         if: steps.probe.outputs.ready == 'yes'
         with:
           name: DSH-X-mac-${{ matrix.arch }}
-          path: |
-            release/eb/DSH-X-*.dmg
-            release/eb/DSH-X-*.zip
-            release/eb/latest-mac.yml
+          path: release/eb/DSH-X-*.dmg
           if-no-files-found: error
 
       - name: 挂到同 tag 的 Release 上
@@ -150,8 +159,8 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            # electron-updater 用 latest-mac.yml + zip；dmg 留给手动安装
-            gh release upload "$tag" release/eb/DSH-X-*.dmg release/eb/DSH-X-*.zip release/eb/latest-mac.yml --clobber
+            # mac 没有签名，外壳自更新装不上，只发 dmg 给人手动安装
+            gh release upload "$tag" release/eb/DSH-X-*.dmg --clobber
           else
             echo "还没有 $tag 的 Release，dmg 先留在 workflow artifacts 里"
           fi

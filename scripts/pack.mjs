@@ -1,4 +1,4 @@
-// Windows/macOS/Linux 打包：electron-builder 出安装包（NSIS / dmg+zip / AppImage），
+// Windows/macOS/Linux 打包：electron-builder 出安装包（NSIS / dmg / AppImage），
 // 外壳自更新交给 electron-updater。
 //
 // 安装包拆成两层：

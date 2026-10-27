@@ -13,7 +13,8 @@ import { join } from 'node:path'
  *
  * asar: false：dsh 子进程和 compat/perf 钩子要按真实路径读文件，asar 里读不到。
  * 签名：Windows 暂不签名（SmartScreen 会警告）；macOS 没有 Developer ID 时 identity 为 null，
- * electron-updater 的 mac 自更新不可用，回退完整 dmg。
+ * electron-updater 的 mac 自更新装不上。所以 mac 只出 dmg，不打包 zip（也就没有 latest-mac.yml）；
+ * 以后拿到 Developer ID，把 zip 目标加回来，并放开 shell/updater.mjs 里的 mac 限制。
  */
 export default {
   appId: 'io.github.yyh-001.dsh-x',
@@ -60,10 +61,7 @@ export default {
     uninstallerIcon: join('assets', 'dsh.ico'),
   },
   mac: {
-    target: [
-      { target: 'dmg', arch: ['arm64', 'x64'] },
-      { target: 'zip', arch: ['arm64', 'x64'] },
-    ],
+    target: [{ target: 'dmg', arch: ['arm64', 'x64'] }],
     icon: join('assets', 'icon.png'),
     category: 'public.app-category.developer-tools',
     executableName: 'DSH',
