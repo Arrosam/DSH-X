@@ -28,7 +28,13 @@ codesign -dv --verbose=4 release/DSH-X.app
 | `DSH_MAC_CERT_PASSWORD` | 导出 `.p12` 时设置的密码 |
 | `DSH_MAC_SIGNING_SHA1` | 固定证书的 40 位 SHA-1 指纹（Repository Variable） |
 
-CI 把 `.p12` 导入临时钥匙串，核对指纹，依次签内置 Node、Electron 的框架与 Helper、外层 `.app`，再严格校验签名。缺少任一配置、指纹不匹配或签名校验失败时，tag 构建中止，不上传 dmg。现有 `DSH_RELEASE_KEY` 是**发布清单**的 Ed25519 私钥，与 macOS 代码签名证书无关。
+CI 把 `.p12` 导入临时钥匙串，核对指纹，用同一张证书签**整个 `.app`**，再严格校验签名。安装包里已经没有任何嵌入式运行时——`Contents/MacOS/DSH` 是唯一的可执行文件，`Contents/Resources/app` 是纯 JS 与资源，所以不需要逐层签 Node / Electron 的框架与 Helper。签名放在所有文件都拷完之后（`pack-mac.mjs` 的 `assemble` 最后一步），改 `Resources` 里的任何东西都会让已有签名失效。缺少任一配置、指纹不匹配或签名校验失败时，tag 构建中止，不上传 dmg。现有 `DSH_RELEASE_KEY` 是**发布清单**的 Ed25519 私钥，与 macOS 代码签名证书无关。
+
+## 应用层增量更新的重签
+
+应用层增量更新只换 `.app/Contents/Resources/app`，换完必须重签整个包，否则 Gatekeeper 会拒绝启动。`server.js` 的 `MAC_APP_SWAP_SCRIPT` 在换目录后执行 `codesign --force --deep --sign <身份>`，再用 `open` 重启，45 秒内没等到启动标记就回滚并重签旧包。
+
+这条路径用 **ad-hoc 身份（`-`）**：只有 `Signature=adhoc` 或未签名的包才允许走增量（`macSignatureAllowsIncremental`）。固定证书签名的包若这样重签会破坏公证，所以直接让用户走完整 dmg——完整包在打包时就已签好，不需要客户端重签。
 
 ## 真机验证 #30
 

@@ -1,10 +1,13 @@
 // 应用层增量更新：给打包后的 resources/app 生成文件清单、整包 zip 与签名。
 //
-//   node scripts/app-manifest.mjs build --app <app目录> --version <启动器版本> --electron <Electron版本> [--out release]
+//   node scripts/app-manifest.mjs build --app <app目录> --version <启动器版本> [--platform win|mac] [--out release]
 //   node scripts/app-manifest.mjs verify --manifest <清单> --zip <zip> [--sig <签名>]
 //
-// 清单只写事实（每个文件的路径/大小/sha256、版本、Electron 版本），由客户端用内置公钥
-// 校验签名后再按哈希对比本地文件，决定要不要下载整包。签名复用 release-manifest.mjs。
+// 清单只写事实（每个文件的路径/大小/sha256、版本、平台），由客户端用内置公钥校验签名后
+// 再按哈希对比本地文件，决定要不要下载整包。签名复用 release-manifest.mjs。
+//
+// 安装包不再内置 Electron，清单里也就没有 electronVersion：Electron 运行时不跟着 app 更新走，
+// 由服务按需下载、单独升级（见 docs/no-electron-runtime.md）。
 
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
@@ -36,7 +39,7 @@ export function listFiles(dir) {
   return out.sort()
 }
 
-export function buildAppManifest(appDir, { version, electronVersion, platform, archive, boot } = {}) {
+export function buildAppManifest(appDir, { version, platform, archive } = {}) {
   const files = listFiles(appDir).map((path) => {
     const stat = statSync(join(appDir, path))
     // mac 的 node/npm/pnpm 包装脚本要靠执行位才能直接跑；zip 不存权限，所以记在签名清单里
@@ -46,11 +49,9 @@ export function buildAppManifest(appDir, { version, electronVersion, platform, a
   return {
     schema: APP_SCHEMA,
     version: String(version || ''),
-    electronVersion: String(electronVersion || ''),
     platform: String(platform || ''),
     builtAt: new Date().toISOString(),
     ...(archive ? { archive } : {}),
-    ...(boot ? { boot } : {}),
     files,
   }
 }
@@ -89,11 +90,11 @@ export async function verifyAppArchive({ manifestPath, zipPath, sigPath, publicK
 }
 
 /** 生成资产：zip 先落盘，再把 archive 信息写进清单并签名。 */
-export async function buildAppAssets({ appDir, version, electronVersion, platform = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : process.platform, prefix = 'app', outDir = join(ROOT, 'release'), privateKeyPem = process.env.DSH_RELEASE_KEY, boot } = {}) {
+export async function buildAppAssets({ appDir, version, platform = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : process.platform, prefix = 'app', outDir = join(ROOT, 'release'), privateKeyPem = process.env.DSH_RELEASE_KEY } = {}) {
   const base = `${prefix}-${version}-${platform}`
   const zipPath = join(outDir, `${base}.zip`)
   const archive = await buildAppZip(appDir, zipPath)
-  const manifest = buildAppManifest(appDir, { version, electronVersion, platform, archive: { name: `${base}.zip`, ...archive }, boot })
+  const manifest = buildAppManifest(appDir, { version, platform, archive: { name: `${base}.zip`, ...archive } })
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)
   const manifestPath = join(outDir, `${base}.manifest.json`)
   writeFileSync(manifestPath, bytes)
@@ -117,25 +118,28 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (command === 'build') {
     const appDir = resolve(argValue(process.argv, '--app', join(ROOT, 'release', 'DSH', 'resources', 'app')))
     const version = argValue(process.argv, '--version')
-    const electronVersion = argValue(process.argv, '--electron')
     const platform = argValue(process.argv, '--platform')
     const prefix = argValue(process.argv, '--prefix', 'app')
     const outDir = resolve(argValue(process.argv, '--out', join(ROOT, 'release')))
     if (!version) throw new Error('缺少 --version')
     if (!existsSync(appDir)) throw new Error(`找不到 app 目录：${appDir}`)
-    const result = await buildAppAssets({ appDir, version, electronVersion, prefix, ...(platform ? { platform } : {}), outDir })
+    const result = await buildAppAssets({ appDir, version, prefix, ...(platform ? { platform } : {}), outDir })
     console.log(`应用清单：${result.manifestPath}（${result.manifest.files.length} 个文件）`)
     console.log(`应用整包：${result.zipPath}（${(result.manifest.archive.size / 1048576).toFixed(1)} MB）`)
     console.log(result.sigPath ? `签名：${result.sigPath}` : '未签名：没有 release/release-key.pem 或 DSH_RELEASE_KEY，本次不提供增量更新')
   } else if (command === 'verify') {
+    // 签名文件不存在就按「这次没签名」处理，只核 zip 与大小/哈希：CI 里没配私钥、
+    // 或从发布页下载了未签名的一套时都不该直接失败（和 release-manifest 的取向一致）。
+    const sigArg = argValue(process.argv, '--sig')
+    const sigPath = sigArg ? resolve(sigArg) : ''
     const manifest = await verifyAppArchive({
       manifestPath: resolve(argValue(process.argv, '--manifest')),
       zipPath: resolve(argValue(process.argv, '--zip')),
-      sigPath: argValue(process.argv, '--sig') ? resolve(argValue(process.argv, '--sig')) : '',
+      sigPath: sigPath && existsSync(sigPath) ? sigPath : '',
     })
-    console.log(`清单与 zip 校验通过：${manifest.version}（${manifest.files.length} 个文件，Electron ${manifest.electronVersion}）`)
+    console.log(`清单与 zip 校验通过：${manifest.version}（${manifest.files.length} 个文件${sigPath && existsSync(sigPath) ? '，签名已校验' : '，未签名'}）`)
   } else {
-    console.log('用法: node scripts/app-manifest.mjs <build|verify> [--app <dir>] [--version <ver>] [--electron <ver>] [--out <dir>] [--manifest <file>] [--zip <file>] [--sig <file>]')
+    console.log('用法: node scripts/app-manifest.mjs <build|verify> [--app <dir>] [--version <ver>] [--platform <win|mac>] [--out <dir>] [--manifest <file>] [--zip <file>] [--sig <file>]')
     process.exitCode = 1
   }
 }

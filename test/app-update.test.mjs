@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { assertManifestShape, extractVerified, localDiff, verifyAppManifest } from '../app-update.js'
-import { buildAppAssets } from '../scripts/app-manifest.mjs'
+import { writeZip } from '../zip.js'
 
 const tempRoot = () => mkdtempSync(join(realpathSync.native(tmpdir()), 'dsh-app-update-'))
 const sha = (text) => createHash('sha256').update(text).digest('hex')
@@ -24,7 +24,6 @@ test('本地对比：只报缺失或哈希不同的文件，清单外的文件�
       schema: 'dsh-x.app/v1',
       version: '9.9.9',
       platform: 'win',
-      electronVersion: '44.7.0',
       files: [
         { path: 'server.js', size: 4, sha256: sha('new\n') },
         { path: 'shell/main.mjs', size: 5, sha256: sha('same\n') },
@@ -47,15 +46,16 @@ test('本地对比：只报缺失或哈希不同的文件，清单外的文件�
   }
 })
 
-test('清单形状：版本/平台/Electron 版本对不上要拒绝，路径穿越也要拒绝', () => {
-  const base = { schema: 'dsh-x.app/v1', version: '1.0.0', platform: 'win', electronVersion: '44.7.0', files: [{ path: 'server.js', size: 1, sha256: sha('x') }] }
-  assert.doesNotThrow(() => assertManifestShape(base, { version: '1.0.0', electronVersion: '44.7.0', platform: 'win' }))
-  assert.throws(() => assertManifestShape({ ...base, version: '1.0.1' }, { version: '1.0.0', electronVersion: '44.7.0', platform: 'win' }), /版本/)
-  assert.throws(() => assertManifestShape({ ...base, platform: 'mac' }, { version: '1.0.0', electronVersion: '44.7.0', platform: 'win' }), /平台/)
-  assert.throws(() => assertManifestShape({ ...base, electronVersion: '43.0.0' }, { version: '1.0.0', electronVersion: '44.7.0', platform: 'win' }), /Electron/)
-  assert.throws(() => assertManifestShape({ ...base, files: [{ path: '../evil.js', size: 1, sha256: sha('x') }] }, { version: '1.0.0', electronVersion: '44.7.0', platform: 'win' }), /非法路径/)
-  assert.throws(() => assertManifestShape({ ...base, files: [{ path: '/abs.js', size: 1, sha256: sha('x') }] }, { version: '1.0.0', electronVersion: '44.7.0', platform: 'win' }), /非法路径/)
-  assert.throws(() => assertManifestShape({ ...base, files: [{ path: 'x.js', size: 1, sha256: sha('x'), mode: 0o1000 }] }, { version: '1.0.0', electronVersion: '44.7.0', platform: 'win' }), /权限/)
+test('清单形状：版本/平台对不上要拒绝，路径穿越也要拒绝', () => {
+  const base = { schema: 'dsh-x.app/v1', version: '1.0.0', platform: 'win', files: [{ path: 'server.js', size: 1, sha256: sha('x') }] }
+  assert.doesNotThrow(() => assertManifestShape(base, { version: '1.0.0', platform: 'win' }))
+  assert.throws(() => assertManifestShape({ ...base, version: '1.0.1' }, { version: '1.0.0', platform: 'win' }), /版本/)
+  assert.throws(() => assertManifestShape({ ...base, platform: 'mac' }, { version: '1.0.0', platform: 'win' }), /平台/)
+  // 旧清单里多了 electronVersion / runtime 之类的字段不该被拒：运行时已不跟 app 更新一起变
+  assert.doesNotThrow(() => assertManifestShape({ ...base, electronVersion: '44.7.0', boot: { name: 'x', size: 1, sha256: sha('x') } }, { version: '1.0.0', platform: 'win' }))
+  assert.throws(() => assertManifestShape({ ...base, files: [{ path: '../evil.js', size: 1, sha256: sha('x') }] }, { version: '1.0.0', platform: 'win' }), /非法路径/)
+  assert.throws(() => assertManifestShape({ ...base, files: [{ path: '/abs.js', size: 1, sha256: sha('x') }] }, { version: '1.0.0', platform: 'win' }), /非法路径/)
+  assert.throws(() => assertManifestShape({ ...base, files: [{ path: 'x.js', size: 1, sha256: sha('x'), mode: 0o1000 }] }, { version: '1.0.0', platform: 'win' }), /权限/)
 })
 
 test('签名校验：同一份清单用对应公钥能过，换钥匙就不过', () => {
@@ -72,25 +72,35 @@ test('签名校验：同一份清单用对应公钥能过，换钥匙就不过',
 test('解包校验：逐个文件核对哈希，zip 与清单不一致就拒绝', async () => {
   const root = tempRoot()
   try {
-    const app = join(root, 'app')
-    mkdirSync(join(app, 'shell'), { recursive: true })
-    mkdirSync(join(app, 'node'), { recursive: true })
-    writeFileSync(join(app, 'server.js'), 'console.log(1)\n')
-    writeFileSync(join(app, 'shell', 'main.mjs'), 'export {}\n')
-    writeFileSync(join(app, 'node', 'node'), '#!/bin/sh\nexec "$0" "$@"\n')
-    if (process.platform !== 'win32') chmodSync(join(app, 'node', 'node'), 0o755)
-    const result = await buildAppAssets({ appDir: app, version: '9.9.9', electronVersion: '44.7.0', platform: 'mac', outDir: root })
+    const files = [
+      { name: 'server.js', data: 'console.log(1)\n' },
+      { name: 'shell/main.mjs', data: 'export {}\n' },
+      { name: 'node/pnpm.cjs', data: '#!/bin/sh\nexec "$0" "$@"\n' },
+    ]
+    const zipPath = join(root, 'app.zip')
+    writeFileSync(zipPath, writeZip(files))
+    const manifest = {
+      schema: 'dsh-x.app/v1',
+      version: '9.9.9',
+      platform: 'mac',
+      files: files.map((file) => ({
+        path: file.name,
+        size: Buffer.byteLength(file.data),
+        sha256: sha(file.data),
+        // zip 不存权限：可执行位要跟着签名清单走，否则 mac 上 npm/pnpm 包装脚本会失效
+        ...(file.name === 'node/pnpm.cjs' && process.platform !== 'win32' ? { mode: 0o755 } : {}),
+      })),
+    }
     const staging = join(root, 'staging')
-    await extractVerified(result.zipPath, result.manifest, staging)
+    await extractVerified(zipPath, manifest, staging)
     assert.equal(readFileSync(join(staging, 'server.js'), 'utf8'), 'console.log(1)\n')
     assert.equal(readFileSync(join(staging, 'shell', 'main.mjs'), 'utf8'), 'export {}\n')
     if (process.platform !== 'win32') {
-      // zip 不存权限：可执行位要跟着签名清单走，否则 mac 上 node/npm/pnpm 包装脚本会失效
-      assert.equal(result.manifest.files.find((file) => file.path === 'node/node').mode, 0o755)
-      assert.ok(statSync(join(staging, 'node', 'node')).mode & 0o100, '解出来的包装脚本要保留执行位')
+      assert.equal(manifest.files.find((file) => file.path === 'node/pnpm.cjs').mode, 0o755)
+      assert.ok(statSync(join(staging, 'node', 'pnpm.cjs')).mode & 0o100, '解出来的包装脚本要保留执行位')
     }
-    const tampered = { ...result.manifest, files: result.manifest.files.map((file) => file.path === 'server.js' ? { ...file, sha256: '0'.repeat(64) } : file) }
-    await assert.rejects(extractVerified(result.zipPath, tampered, join(root, 'staging2')), /哈希与清单不一致/)
+    const tampered = { ...manifest, files: manifest.files.map((file) => file.path === 'server.js' ? { ...file, sha256: '0'.repeat(64) } : file) }
+    await assert.rejects(extractVerified(zipPath, tampered, join(root, 'staging2')), /哈希与清单不一致/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

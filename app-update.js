@@ -1,9 +1,11 @@
 // 应用层增量更新（客户端侧）：拉清单、验签、对比本地文件、下载与暂存。
 //
 // 思路：发布时给 resources/app 生成「路径 + 大小 + sha256（+ 可执行位）」清单并用发布私钥签名；
-// 客户端用内置公钥校验清单，按哈希找出变化的文件，下载整包（app-<版本>-<平台>.zip）解到临时目录
-// 逐个校验，退出后由替换助手换目录。Electron 版本变了就不能用增量，走全量安装包。
-// Windows 换 app/<版本> 目录 + junction；mac 换 .app/Contents/Resources/app 后重签。
+// 客户端用内置公钥校验，按哈希找出变化的文件，下载整包（app-<版本>-<平台>.zip）解到临时目录
+// 逐个校验，退出后由替换助手换目录。
+// Electron / Node 运行时在数据目录里（APP_DIR/runtime/），不跟 app 层更新一起变，
+// 所以清单里不再有 electronVersion，也没有「先换运行时再重启」那一步。
+// Windows 换 resources/app 目录后拉起原生外壳；mac 换 .app/Contents/Resources/app 后重签。
 
 import { createHash, verify as cryptoVerify } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -72,15 +74,10 @@ export function localDiff(appDir, manifest) {
 }
 
 /** 校验清单内容的基本形状；不合法就整份拒绝。 */
-export function assertManifestShape(manifest, { version, electronVersion, platform }) {
+export function assertManifestShape(manifest, { version, platform }) {
   if (!manifest || manifest.schema !== APP_SCHEMA) throw new Error('应用清单格式不认识')
   if (String(manifest.version) !== String(version)) throw new Error('应用清单的版本与发布版本不一致')
   if (String(manifest.platform) !== String(platform)) throw new Error('应用清单的平台不一致')
-  if (String(manifest.electronVersion) !== String(electronVersion)) {
-    const error = new Error('Electron 版本不同，需要完整安装包')
-    error.code = 'electron_mismatch'
-    throw error
-  }
   if (!Array.isArray(manifest.files) || !manifest.files.length) throw new Error('应用清单里没有文件')
   for (const file of manifest.files) {
     if (typeof file.path !== 'string' || !file.path || file.path.startsWith('/') || file.path.split('/').includes('..')) {
@@ -114,7 +111,7 @@ export async function extractVerified(zipPath, manifest, stagingDir, onProgress)
     if (createHash('sha256').update(data).digest('hex') !== file.sha256) throw new Error(`${file.path} 的哈希与清单不一致`)
     const target = join(stagingDir, ...file.path.split('/'))
     mkdirSync(dirname(target), { recursive: true })
-    // Electron 主进程会拦截 .asar 路径的写操作（报 Invalid package），先写临时名再改名
+    // 先写临时名再改名：中途失败或被杀时不会留下一个大小对、内容半截的文件被当成完整文件
     const temp = `${target}.part`
     writeFileSync(temp, data)
     renameSync(temp, target)

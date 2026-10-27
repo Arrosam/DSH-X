@@ -1,5 +1,3 @@
-import { readdirSync } from 'node:fs'
-import { join } from 'node:path'
 import { MAC_BUNDLE_ID } from '../platform.js'
 import { run } from './pack-common.mjs'
 
@@ -16,35 +14,14 @@ export function macSigningIdentity(env = process.env) {
 }
 
 /**
- * Electron 包里要单独签的代码：Frameworks 下的每个 .framework 与 Helper .app。
- * codesign 的 --deep 不保证由内向外的顺序，所以逐个列出来；先框架后 Helper（Helper 链接框架）。
+ * 签整个 .app。安装包里已经没有 Electron 框架和 Helper 子进程了，只有
+ * Contents/MacOS/DSH 一个可执行文件（app 层是纯 JS/资源），所以不需要逐层签子代码。
+ * 同一张证书跨版本、跨架构重用，系统才能用签名要求认出更新后的应用。
  */
-export function nestedCode(bundle) {
-  let names = []
-  const frameworks = join(bundle, 'Contents', 'Frameworks')
-  try {
-    names = readdirSync(frameworks)
-  } catch {
-    return []
-  }
-  return [...names.filter((name) => name.endsWith('.framework')), ...names.filter((name) => name.endsWith('.app'))]
-    .map((name) => join(frameworks, name))
-}
-
 export function signMacBundle(bundle, env = process.env) {
   const identity = macSigningIdentity(env)
   const keychain = (env.DSH_MAC_KEYCHAIN || '').trim()
   const keychainArgs = keychain ? ['--keychain', keychain] : []
-  const node = join(bundle, 'Contents', 'Resources', 'app', 'node', 'node')
-
-  // Node 在 Resources/app 下，--deep 签名不会可靠地发现它；先签子代码，再封装外层 app。
-  // 同一张证书跨版本、跨架构重用，系统才能用签名要求认出更新后的应用。
-  run('codesign', ['--force', '--sign', identity, '--identifier', `${MAC_BUNDLE_ID}.node`, ...keychainArgs, node])
-  for (const code of nestedCode(bundle)) {
-    // 裁剪 Electron 运行时会改动 framework 内部文件（原有签名随之失效），里面的
-    // Helpers（如 chrome_crashpad_handler）不是独立 bundle，得 --deep 一起重签
-    run('codesign', ['--force', '--deep', '--sign', identity, ...keychainArgs, code])
-  }
   run('codesign', ['--force', '--sign', identity, '--identifier', MAC_BUNDLE_ID, ...keychainArgs, bundle])
   run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', bundle])
   console.log(identity === '-' ? 'macOS: ad-hoc 签名（仅供本地测试）' : `macOS: 固定证书签名 ${identity}`)

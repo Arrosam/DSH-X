@@ -1,9 +1,10 @@
-// 应用层增量更新的落地助手：由即将退出的启动器用 ELECTRON_RUN_AS_NODE 拉起。
+// 应用层增量更新的落地助手：由即将退出的管理服务用下载好的 node 拉起。
 //
-// 流程：等父进程退出 → 备份旧 resources/app → 换上新解压好的暂存目录 → 重启启动器 →
-// 等新版本写出启动标记；没等到就回滚到备份再重启。所有结果写进 update.log。
+// 流程：等管理服务（和它的原生外壳）退出 → 备份旧 resources/app → 换上新解压好的暂存目录 →
+// 重新拉起原生外壳 → 等新版本写出启动标记；没等到就回滚到备份再重启。所有结果写进 update.log。
 //
-// 只替换 resources/app，不碰 DSH.exe 和 Electron 运行时（所以不受文件锁影响）。
+// 只替换 resources/app，不碰外壳可执行文件，也不碰数据目录里的 Node / Electron 运行时
+// （那些本来就不在安装目录，见 docs/no-electron-runtime.md）。
 // 参数全部走命令行；这里只依赖 Node 内置模块，脚本可以放在临时目录里跑。
 
 import { appendFileSync, existsSync, renameSync, rmSync } from 'node:fs'
@@ -19,6 +20,9 @@ const appDir = argValue('--app')
 const stagedDir = argValue('--staged')
 const exePath = argValue('--exe')
 const parentPid = Number(argValue('--pid') || 0)
+// 原生外壳是服务进程的父进程：外壳自己会在服务退出后收摊，换目录前要等它也让开
+// （否则新外壳可能被旧实例的单实例逻辑挡回来，看着像「更新后没重启」）。
+const shellPid = Number(argValue('--shell-pid') || 0)
 const backupDir = argValue('--backup')
 const marker = argValue('--marker')
 const logFile = argValue('--log')
@@ -90,10 +94,10 @@ async function main() {
     log('参数不完整，放弃更新')
     return 1
   }
-  log(`等待父进程 ${parentPid} 退出…`)
-  const exited = await waitFor(() => !alive(parentPid), 90_000)
+  log(`等待管理服务 ${parentPid}${shellPid ? ` 与外壳 ${shellPid}` : ''} 退出…`)
+  const exited = await waitFor(() => !alive(parentPid) && !alive(shellPid), 90_000)
   if (!exited) {
-    log('父进程 90 秒内没有退出，放弃更新（暂存目录保留，下次可重试）')
+    log('90 秒内还有进程没退出，放弃更新（暂存目录保留，下次可重试）')
     return 1
   }
   try { rmSync(marker, { force: true }) } catch { /* 没有就算了 */ }
