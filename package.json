@@ -5,14 +5,13 @@
   "private": true,
   "type": "module",
   "description": "DeepSeek Harness 轻量桌面启动器：启动项与多实例，版本、插件、整合包、MCP 和技能管理。",
-  "main": "start.js",
+  "main": "shell/main.mjs",
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
     "start": "node start.js",
     "server": "node server.js",
-    "electron": "electron shell/main.mjs",
     "test": "node --test",
     "dist": "node scripts/pack.mjs",
     "release:manifest": "node scripts/release-manifest.mjs make",
@@ -21,9 +20,5 @@
     "release:check": "node scripts/release-manifest.mjs check-tag"
   },
   "author": "yyh",
-  "license": "MIT",
-  "devDependencies": {
-    "@electron/packager": "20.3.0",
-    "electron": "44.7.0"
-  }
+  "license": "MIT"
 }

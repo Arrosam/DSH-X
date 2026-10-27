@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-CN" data-color-scheme="light">
+<head>
+<meta charset="utf-8">
+<!-- 本页只由标签窗口自己加载：样式与脚本都在本文件里，不放行任何外部资源。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>DSH</title>
+<script>
+  // 页面脚本还没收到主进程状态前的第一帧：先按系统深浅色画（设置里显式指定 light/dark 时，
+  // 下一拍 updateTabStrip 会纠正）。不这么做的话深色系统下会先闪一下浅色底。
+  document.documentElement.dataset.colorScheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+</script>
+<style>
+  /*
+   * 标签窗口的标签条。颜色照抄 public/launcher.css 与 theme.css 的两套 token：
+   * 标签窗口和原生外壳的控制面板挨着出现，同一个启动器里不该有两种蓝、两种黑。
+   */
+  :root {
+    color-scheme: light;
+    --bg: #eef3fd;
+    --card: #fff;
+    --line: #d8e2f7;
+    --text: #16233d;
+    --muted: #6b7d9c;
+    --accent: #3b6fe0;
+    --accent-soft: #eaf1ff;
+    --accent-dim: #e2ebff;
+  }
+  :root[data-color-scheme="dark"] {
+    color-scheme: dark;
+    --bg: #18181b;
+    --card: #27272b;
+    --line: #49494e;
+    --text: #f4f4f5;
+    --muted: #b8b8bc;
+    --accent: #f0f0f2;
+    --accent-soft: #34353a;
+    --accent-dim: #44454b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%; margin: 0; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font: 13px/1.4 "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  /* 高度必须和 shell/main.mjs 的 TAB_STRIP_HEIGHT 一致：内容层（WebContentsView）从这条线下面开始。 */
+  .strip {
+    display: flex; align-items: center; gap: 8px;
+    height: 44px; padding: 0 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .list {
+    position: relative; display: flex; flex: 1; gap: 5px; min-width: 0;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .list::-webkit-scrollbar { display: none; }
+  .tab {
+    display: flex; align-items: center; gap: 4px; flex: 0 1 180px; min-width: 110px; height: 32px;
+    padding: 0 5px 0 11px; border: 1px solid transparent; border-radius: 9px; color: var(--muted);
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  }
+  .tab:hover { background: var(--accent-soft); color: var(--accent); }
+  .tab.active {
+    background: var(--card); border-color: var(--line); color: var(--accent);
+    box-shadow: 0 2px 6px rgba(59, 111, 224, .10);
+  }
+  .tab.stopped .tab-label span { opacity: .6; }
+  .tab.dragging { z-index: 2; background: var(--card); border-color: var(--line); box-shadow: 0 3px 10px rgba(59, 111, 224, .14); }
+  .list.dragging, .list.dragging * { cursor: grabbing !important; }
+  .tab-label {
+    display: flex; align-items: center; flex: 1; min-width: 0; height: 100%;
+    padding: 0; border: 0; background: transparent; color: inherit;
+    font: 600 13px/1 inherit; cursor: grab; touch-action: none;
+  }
+  .tab-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab-close {
+    display: grid; place-items: center; flex-shrink: 0; width: 20px; height: 20px; padding: 3px;
+    border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer;
+    opacity: .55; transition: opacity 140ms ease, background 140ms ease;
+  }
+  .tab:hover .tab-close, .tab.active .tab-close { opacity: .85; }
+  .tab-close:hover { opacity: 1; background: var(--accent-dim); }
+  .tab-close svg { width: 12px; height: 12px; }
+  .reload {
+    display: grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; padding: 7px;
+    border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
+  }
+  .reload:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+  .reload:disabled { opacity: .35; cursor: default; }
+  .reload svg { width: 15px; height: 15px; }
+  .tab button:focus-visible, .reload:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 6px; }
+  @media (prefers-reduced-motion: reduce) {
+    .tab, .tab-close, .reload { transition: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="strip">
+    <div class="list" id="list" role="tablist" aria-label="DSH-X"></div>
+    <button type="button" class="reload" id="reload" title="刷新页面" aria-label="刷新页面" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.7a8 8 0 1 1-1.9-8.3L21 10"/><path d="M21 4v6h-6"/></svg>
+    </button>
+  </div>
+  <script>
+    (() => {
+      const list = document.getElementById('list')
+      const reload = document.getElementById('reload')
+      const root = document.documentElement
+      // 和 preload.cjs 一致：wry 外壳里页面本来就有 window.ipc.postMessage，这里补成同样的接口。
+      const send = (message) => window.ipc?.postMessage(JSON.stringify(message))
+      const closeIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m7 7 10 10M7 17 17 7"/></svg>'
+      const items = new Map()
+      let selected = ''
+      let presentation = 0
+      let submitted = 0
+      let pendingSelection = null
+      let pendingOrder = null
+      let nextRequest = Date.now()
+      let drag = null
+      let suppressedClick = null
+
+      const tabNodes = () => [...list.children]
+      const order = () => tabNodes().map((item) => item.dataset.id)
+
+      // 标签是复用节点移动的：不重建 DOM，键盘焦点和滚动位置都留得住。
+      const arrange = (ids) => {
+        const current = order()
+        const desired = [...ids.filter((id) => items.has(id)), ...current.filter((id) => !ids.includes(id))]
+        if (desired.join('\0') === current.join('\0')) return
+        let previous = null
+        for (const id of desired) {
+          const item = items.get(id)
+          if (!item) continue
+          if (previous) {
+            if (previous.nextElementSibling !== item) previous.after(item)
+          } else if (list.firstElementChild !== item) {
+            list.prepend(item)
+          }
+          previous = item
+        }
+      }
+
+      const selectVisual = (id) => {
+        selected = id
+        for (const [key, item] of items) {
+          const on = key === id
+          item.classList.toggle('active', on)
+          item.querySelector('.tab-label').setAttribute('aria-selected', String(on))
+        }
+        items.get(id)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+        reload.disabled = !items.has(id)
+      }
+
+      // 点击即切换选中态，不等主进程回执；请求编号防止快速连点被旧状态拉回。
+      const selectTab = (id) => {
+        pendingSelection = { id, request: ++nextRequest }
+        selectVisual(id)
+        send({ action: 'select', ...pendingSelection })
+      }
+      const closeTab = (id) => send({ action: 'close-tab', id })
+
+      const finishDrag = (cancel = false) => {
+        if (!drag) return
+        const ended = drag
+        drag = null
+        list.classList.remove('dragging')
+        ended.item.classList.remove('dragging')
+        try { ended.capture.releasePointerCapture(ended.pointer) } catch {}
+        if (!ended.started) return
+        // 拖完马上松手会跟出来一个 click：压掉它，否则会误切到刚拖的标签。
+        suppressedClick = { item: ended.item, until: Date.now() + 400 }
+        if (cancel) {
+          arrange(ended.original)
+          return
+        }
+        if (order().join('\0') === ended.original.join('\0')) return
+        pendingOrder = { ids: order(), request: ++nextRequest }
+        send({ action: 'reorder', ...pendingOrder })
+      }
+
+      const moveDrag = (event) => {
+        const x = event.clientX
+        if (!drag.started && Math.abs(x - drag.start) < 5) return
+        if (!drag.started) {
+          drag.started = true
+          list.classList.add('dragging')
+          drag.item.classList.add('dragging')
+        }
+        // 指针越过某个标签的中线，就把被拖的标签插到它后面；图形不跟手，排序跟手（和旧标签条同一套判定）。
+        const peers = tabNodes().filter((node) => node !== drag.item)
+        const index = peers.filter((node) => {
+          const bounds = node.getBoundingClientRect()
+          return x > bounds.left + bounds.width / 2
+        }).length
+        const ids = peers.map((node) => node.dataset.id)
+        ids.splice(index, 0, drag.item.dataset.id)
+        if (ids.join('\0') !== order().join('\0')) {
+          arrange(ids)
+          // 移动被捕获的节点可能清掉指针捕获，重排后立即重新绑定，避免拖到一半被当作取消。
+          try { drag.capture.setPointerCapture(drag.pointer) } catch {}
+        }
+        event.preventDefault()
+      }
+
+      list.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0 || event.isPrimary === false || drag) return
+        const item = event.target.closest('.tab')
+        if (!item || event.target.closest('.tab-close')) return
+        suppressedClick = null
+        const capture = event.target.closest('.tab-label') || item
+        drag = { item, capture, pointer: event.pointerId, start: event.clientX, original: order(), started: false }
+        // 捕获指针：拖到内容层（原生视图）上或标签条外也能正常松手。
+        try { capture.setPointerCapture(event.pointerId) } catch {}
+      })
+      document.addEventListener('pointermove', (event) => { if (drag && event.pointerId === drag.pointer) moveDrag(event) })
+      document.addEventListener('pointerup', (event) => { if (drag && event.pointerId === drag.pointer) finishDrag() })
+      document.addEventListener('pointercancel', (event) => { if (drag && event.pointerId === drag.pointer) finishDrag(true) })
+      list.addEventListener('lostpointercapture', (event) => { if (drag && event.pointerId === drag.pointer) finishDrag(true) })
+      window.addEventListener('blur', () => finishDrag(true))
+      document.addEventListener('click', (event) => {
+        if (!suppressedClick || Date.now() >= suppressedClick.until) return
+        if (!suppressedClick.item.contains(event.target)) return
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        suppressedClick = null
+      }, true)
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && drag) {
+          event.preventDefault()
+          finishDrag(true)
+          return
+        }
+        const item = event.target.closest?.('.tab-label')?.closest('.tab')
+        if (!item || drag || !event.altKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return
+        const ids = order()
+        const index = ids.indexOf(item.dataset.id)
+        const next = index + (event.key === 'ArrowLeft' ? -1 : 1)
+        if (next < 0 || next >= ids.length) return
+        event.preventDefault()
+        ;[ids[index], ids[next]] = [ids[next], ids[index]]
+        arrange(ids)
+        pendingOrder = { ids, request: ++nextRequest }
+        send({ action: 'reorder', ...pendingOrder })
+      })
+
+      // 主进程每次状态变化都调这里（executeJavaScript）。所有渲染都幂等：复用节点、只改差异。
+      window.updateTabStrip = (state = {}) => {
+        const en = state.lang === 'en'
+        root.lang = en ? 'en' : 'zh-CN'
+        root.dataset.colorScheme = state.dark === true ? 'dark' : 'light'
+        reload.title = en ? 'Reload page' : '刷新页面'
+        reload.setAttribute('aria-label', reload.title)
+        const tabs = Array.isArray(state.tabs) ? state.tabs : []
+        const ids = new Set(tabs.map((tab) => tab.id))
+        if (drag && !ids.has(drag.item.dataset.id)) finishDrag(true)
+        if (pendingOrder && state.orderRequest === pendingOrder.request) pendingOrder = null
+        if (pendingSelection && (state.request === pendingSelection.request || (pendingSelection.id && !ids.has(pendingSelection.id)))) pendingSelection = null
+        for (const [id, item] of items) {
+          if (!ids.has(id)) {
+            item.remove()
+            items.delete(id)
+          }
+        }
+        // 拖动或排序请求还没被主进程确认时，本地顺序说了算，别被回执里迟到的顺序打断。
+        const localOrder = drag || pendingOrder ? order() : null
+        for (const tab of tabs) {
+          let item = items.get(tab.id)
+          if (!item) {
+            item = document.createElement('div')
+            item.className = 'tab'
+            item.dataset.id = tab.id
+            item.innerHTML = '<button type="button" class="tab-label" role="tab"><span></span></button><button type="button" class="tab-close">' + closeIcon + '</button>'
+            item.querySelector('.tab-label').onclick = () => selectTab(tab.id)
+            item.querySelector('.tab-close').onclick = () => closeTab(tab.id)
+            item.onauxclick = (event) => {
+              if (event.button !== 1) return
+              event.preventDefault()
+              closeTab(tab.id)
+            }
+            items.set(tab.id, item)
+          }
+          if (!item.parentNode) list.append(item)
+          item.classList.toggle('stopped', tab.stopped === true)
+          const label = item.querySelector('.tab-label')
+          label.title = [tab.title, tab.pageTitle].filter(Boolean).join(' — ')
+          const text = label.firstElementChild
+          if (text.textContent !== (tab.title || 'DSH')) text.textContent = tab.title || 'DSH'
+          const close = item.querySelector('.tab-close')
+          close.title = en ? 'Close tab' : '关闭标签'
+          close.setAttribute('aria-label', close.title)
+        }
+        arrange(localOrder || tabs.map((tab) => tab.id))
+        selectVisual(pendingSelection?.id ?? (state.active || ''))
+        // 内容层显示在页面之上：先画完选中态再回执，主进程才切换可见的那层。
+        const serial = state.presentation
+        if (pendingSelection || !Number.isSafeInteger(serial) || serial === submitted) return
+        presentation = serial
+        requestAnimationFrame(() => {
+          if (pendingSelection || serial !== presentation || serial === submitted) return
+          submitted = serial
+          send({ action: 'present', serial })
+        })
+      }
+
+      reload.onclick = () => send({ action: 'reload' })
+    })()
+  </script>
+</body>
+</html>

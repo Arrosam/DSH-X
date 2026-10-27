@@ -1,40 +1,39 @@
-import { nativeTheme } from 'electron'
+import { adoptTarget, followTarget } from './host.mjs'
+import { normalizePageTitle, reorderBy, sameOrigin } from './model.mjs'
 import { dataUrl, resolveDark, stoppedPage } from './pages.mjs'
-import { reorderBy, sameOrigin } from './model.mjs'
 
 /**
- * 「DSH-X 内部标签页」：每个 dsh 实例一块独立的 WebContentsView，叠在管理页（窗口自己的 webContents）
- * 之上、菜单栏之下。不用 iframe：避免跨源嵌入限制，切换也不会重载会话、不丢草稿。
+ * 标签窗口里的多标签状态机：每个 dsh 实例一块独立的 WebContentsView，叠在标签条本地页
+ * （shell/strip.html，也就是窗口自己的 webContents）下面。不用 iframe：dsh 的 cookie、
+ * SPA 状态和插件页都不该被套一层，切换也不重载会话、不丢草稿。
  *
- * 状态机逐条照搬已删的 Rust 外壳 launcher/tabs.rs（BrowserTabs，git 历史可查），管理页那一侧（public/internal-tabs.js）
- * 不用改：选中、排序都带请求编号，只有管理页画完、回执 present(serial) 之后才切换原生视图的可见性，
- * 中间始终有完整内容，不露出底层。
+ * 和旧版（标签条画在管理页里）唯一的区别是「谁画标签条」：现在是窗口自己画的本地页。
+ * 状态切换仍走同一套回执协议——标签条页画完选中态后回执 present(serial)，主进程才切换原生
+ * 视图的可见性，中间始终有完整内容，不露出标签条底下的空白。
+ *
+ * 与 Electron 有关的三个依赖都从 hooks 进来（建视图、系统深浅色、标签条高度），所以这个类
+ * 能在 node --test 里用假视图跑（见 test/shell-host.test.mjs）。
  */
-
-/** 管理页还没报告菜单栏高度之前用的默认值（逻辑像素），和旧外壳 tabs.rs 的 HEADER_HEIGHT 一致。 */
-const DEFAULT_HEADER_HEIGHT = 72
-/** 标签页标题的长度上限：标题来自远端页面，不能无限长地塞进菜单栏。 */
-const PAGE_TITLE_MAX = 160
 
 export class BrowserTabs {
   /**
-   * @param {import('electron').BrowserWindow} window 主窗口；manager 就是它的 webContents
-   * @param {object} hooks 外壳提供的行为：
-   *   createView(id) → WebContentsView 的事件接线（标题、链接、导航、崩溃、快捷键）由外壳负责
+   * @param {import('electron').BrowserWindow} window 标签窗口；它的 webContents 就是标签条页
+   * @param {object} hooks
+   *   createView() → WebContentsView（标题、链接、导航、崩溃、快捷键的事件接线由外壳负责）
+   *   systemDark() → boolean 系统当前是不是深色（主题设置是 system 时用）
+   *   stripHeight：标签条占的高度（逻辑像素），内容层从它下面开始
    */
   constructor(window, hooks) {
     this.window = window
-    this.manager = window.webContents
+    this.strip = window.webContents
     this.hooks = hooks
     this.tabs = []
     this.selected = ''
-    this.enabled = false
     this.lang = 'zh'
     this.theme = 'system'
-    // 设置里的主题换算出来的实际深浅色：停止页是外壳自己画的，跟不上管理页的 CSS 变量（#58）
+    // 设置里的主题换算出来的实际深浅色：停止页和标签条都是外壳自己画的，跟不了 dsh 页面的 CSS（#58）
     this.dark = false
     this.rendered = ''
-    this.headerHeight = DEFAULT_HEADER_HEIGHT
     this.geometry = ''
     this.presentation = 0
     this.renderedSelection = ''
@@ -42,44 +41,42 @@ export class BrowserTabs {
     this.orderRequest = null
     // 关闭当前标签时先保留旧画面，替代页面显示后再释放原生视图。
     this.retired = []
-    // 管理页有弹窗开着：原生标签页总叠在管理页之上，弹窗画不过它，只能先把标签页收起来。
-    this.overlay = false
   }
 
-  /** 菜单栏里是不是正显示着标签条（管理页的快捷键只在这时接管 ⌘W / ⌃Tab）。 */
-  get active() {
-    return this.enabled || this.tabs.length > 0
-  }
-
-  preferences(enabled, lang, theme) {
+  /** 轮询每次都会调；只有语言或配色真的变了才重画停止页，免得反复重载。 */
+  preferences(lang, theme) {
     const langChanged = this.lang !== lang
-    this.enabled = enabled
     this.lang = lang
     this.theme = theme
-    // 状态轮询每次都会走到这里；只有配色或语言真的变了才重画停止页，免得反复重载
     this.syncPlaceholder(langChanged)
     this.layout()
     this.render(false)
   }
 
-  /** 系统深浅色在运行中变了：由外壳的 nativeTheme 'updated' 事件调用。 */
+  /** 系统深浅色在运行中变了（控制中心切换）：由外壳的 nativeTheme 'updated' 事件调用。 */
   systemThemeChanged() {
-    this.syncPlaceholder(false)
+    if (this.syncPlaceholder(false)) this.render(false)
   }
 
   /** 只动正显示停止页的标签（loaded 为空）：运行中的实例页面有自己的配色，重载会丢掉内容。 */
   syncPlaceholder(langChanged) {
-    const dark = resolveDark(this.theme, nativeTheme.shouldUseDarkColors)
-    if (dark === this.dark && !langChanged) return
+    const dark = resolveDark(this.theme, this.hooks.systemDark())
+    if (dark === this.dark && !langChanged) return false
     this.dark = dark
     for (const tab of this.tabs) {
-      if (tab.target.managed && !tab.loaded) this.load(tab, dataUrl(stoppedPage(this.lang, this.dark)))
+      if (tab.target.managed !== false && !tab.loaded) this.load(tab, '')
     }
+    return true
+  }
+
+  placeholder() {
+    return dataUrl(stoppedPage(this.lang, this.dark))
   }
 
   tabBounds() {
     const { width, height } = this.window.getContentBounds()
-    return { x: 0, y: this.headerHeight, width, height: Math.max(0, height - this.headerHeight) }
+    const top = this.hooks.stripHeight
+    return { x: 0, y: top, width, height: Math.max(0, height - top) }
   }
 
   layout() {
@@ -90,52 +87,65 @@ export class BrowserTabs {
     for (const tab of [...this.tabs, ...this.retired]) tab.view.setBounds(bounds)
   }
 
+  /** 第二实例路由用：现在开着哪些标签、各自代表哪个地址。 */
+  snapshot() {
+    return this.tabs.map((tab) => ({ id: tab.target.id, url: tab.loaded || tab.target.url }))
+  }
+
   present(serial) {
-    // 快速连点产生的旧绘制回执不能把页面切回去。只响应最新一次选择。
+    // 快速连点产生的旧绘制回执不能把页面切回去，只响应最新一次选择。
     if (serial !== this.presentation) return
-    // 弹窗开着时按「选中管理页」呈现：露出完整弹窗，在任何标签下都能直接关掉；弹窗关了原样放回。
-    const shown = this.overlay ? '' : this.selected
-    const tab = this.tabs.find((item) => item.target.id === shown)
-    // 先显示新页面，后隐藏旧页面；两者之间始终有完整内容，不露出管理页底层。
+    this.reveal()
+  }
+
+  /** 先显示新页面，后隐藏旧页面；两者之间始终有完整内容，不露出标签条下面的空白。 */
+  reveal() {
+    const tab = this.tabs.find((item) => item.target.id === this.selected)
     if (tab && !tab.visible) {
       tab.view.setVisible(true)
       tab.visible = true
     }
     for (const item of [...this.tabs, ...this.retired]) {
-      if (item.visible && item.target.id !== shown) {
+      if (item.visible && item.target.id !== this.selected) {
         item.view.setVisible(false)
         item.visible = false
       }
     }
     for (const item of this.retired) this.destroy(item)
     this.retired = []
-    if (shown) tab?.view.webContents.focus()
-    else this.manager.focus()
+    if (tab) tab.view.webContents.focus()
+    else this.strip.focus()
   }
 
   open(target) {
+    // 先按实例 id 找；id 对不上再按地址认——启动信号里的地址可能比轮询更早到，那时还不知道实例 id。
     let tab = this.tabs.find((item) => item.target.id === target.id)
+      || (target.url ? this.tabs.find((item) => item.loaded && sameOrigin(item.loaded, target.url)) : undefined)
     if (!tab) {
-      const view = this.hooks.createView(target.id)
+      const view = this.hooks.createView()
       view.setVisible(false)
       view.setBounds(this.tabBounds())
       this.window.contentView.addChildView(view)
-      tab = { target, view, loaded: '', pageTitle: '', visible: false }
+      // loaded 用 null 表示「还没装过页面」：空串是「实例停了、显示停止页」，两者不能混。
+      tab = { target, view, loaded: null, pageTitle: '', visible: false }
       this.tabs.push(tab)
     }
-    if (tab.loaded !== target.url) {
-      this.load(tab, target.url)
-      tab.loaded = target.url
-    }
-    this.selected = target.id
+    if (this.selected === tab.target.id) this.selected = target.id
     tab.target = target
+    // 只有正在跑 / 正在启动的实例才把地址装进来；停止的实例显示停止页，别去连旧端口。
+    const page = target.status === 'running' || target.status === 'starting' ? target.url : ''
+    if (tab.loaded !== page) this.load(tab, page)
+    this.selected = target.id
     this.layout()
     this.render(false)
   }
 
   /** 导航失败（ERR_ABORTED 之类）由页面自己显示，这里只防未处理的 Promise。 */
   load(tab, url) {
-    tab.view.webContents.loadURL(url).catch(() => {})
+    // loaded 记的是「这个标签代表哪个实例地址」（空串 = 实例停了、显示停止页），
+    // 不是视图里实际加载的地址——停止页、data: 页都不该被当成实例地址去比对。
+    tab.loaded = url
+    tab.view.webContents.loadURL(url || this.placeholder()).catch(() => {})
   }
 
   action(request) {
@@ -163,21 +173,10 @@ export class BrowserTabs {
       case 'reload': {
         const tab = this.tabs.find((item) => item.target.id === this.selected)
         if (tab) tab.view.webContents.reload()
-        else this.manager.reload()
-        break
-      }
-      case 'layout':
-        this.headerHeight = request.height
-        this.layout()
         return
+      }
       case 'present':
         this.present(request.serial)
-        return
-      case 'overlay':
-        if (this.overlay === request.open) return
-        this.overlay = request.open
-        // 换一个呈现序号，走同一条「管理页画完再回执」的路径切换可见性，不另开一套显示逻辑。
-        this.render(true)
         return
       default:
         return
@@ -199,20 +198,26 @@ export class BrowserTabs {
     tab.view.webContents.close()
   }
 
-  /** 跟上实例列表：重启换了端口 / token 就换地址，停了就换成本地提示页。 */
+  /**
+   * 跟上实例列表：重启换了端口 / token 就换地址，停了就换成停止页。
+   * 未托管的标签先按地址认领到实例（启动后第一次轮询到位时），之后标题、重启跟随才生效。
+   */
   follow(instances) {
     for (const tab of this.tabs) {
-      if (!tab.target.managed) continue
-      const next = instances.find((item) => item.id === tab.target.id)
-      const url = next && (next.status === 'running' || next.status === 'starting') ? next.url : ''
-      if (tab.loaded !== url) {
-        // 不在占用的旧端口上反复刷新，以免重启间隙误加载到另一个实例。
-        this.load(tab, url || dataUrl(stoppedPage(this.lang, this.dark)))
-        tab.loaded = url
+      let target = tab.target
+      if (target.managed === false) {
+        const adopted = adoptTarget(tab.loaded || target.url, instances)
+        if (adopted) {
+          if (this.selected === target.id) this.selected = adopted.id
+          target = { ...adopted, title: adopted.title || target.title }
+        }
+      }
+      const next = followTarget(target, instances)
+      if (tab.loaded !== next.url) {
+        this.load(tab, next.url)
         tab.pageTitle = ''
       }
-      if (next) tab.target = next
-      else tab.target = { ...tab.target, status: 'stopped' }
+      tab.target = next.target
     }
     this.render(false)
   }
@@ -220,26 +225,26 @@ export class BrowserTabs {
   /**
    * 页面进程崩溃后重新装回这个标签：重新导航到带启动 token 的地址，而不是 reload。
    * token 在这个 dsh 进程的生命周期内一直有效，服务端会重发 cookie 并 303 到主页，
-   * 和从管理页「打开」走的是同一条认证路径（原因见旧外壳 tabs.rs 的 recover：WKWebView 崩溃后
+   * 和从启动器「打开」走的是同一条认证路径（原因见旧外壳 tabs.rs 的 recover：WKWebView 崩溃后
    * reload 不带 SameSite=Strict 的认证 cookie；Chromium 下这条路同样稳妥）。
    */
-  recover(id) {
-    const tab = this.tabs.find((item) => item.target.id === id)
+  recoverByView(view) {
+    const tab = this.tabs.find((item) => item.view === view)
     // 实例已停止时 loaded 为空，标签上那张停止提示页由下一次 follow 重画，这里不抢。
     if (!tab?.loaded) return
     this.load(tab, tab.loaded)
   }
 
-  title(id, title) {
-    const tab = this.tabs.find((item) => item.target.id === id)
+  titleByView(view, title) {
+    const tab = this.tabs.find((item) => item.view === view)
     if (!tab) return
-    tab.pageTitle = [...String(title)].filter((char) => char >= ' ' && char !== '\u007f').slice(0, PAGE_TITLE_MAX).join('')
+    tab.pageTitle = normalizePageTitle(title)
     this.render(false)
   }
 
   /** 标签页里点出来的新窗口链接：同一个 dsh 就在本标签里开，其余交给外壳分派。 */
-  link(id, url) {
-    const tab = this.tabs.find((item) => item.target.id === id)
+  linkByView(view, url) {
+    const tab = this.tabs.find((item) => item.view === view)
     if (!tab || !sameOrigin(url, tab.target.url)) return false
     this.load(tab, url)
     return true
@@ -253,15 +258,39 @@ export class BrowserTabs {
     const value = JSON.stringify({
       active: this.selected,
       lang: this.lang,
-      theme: this.theme,
+      dark: this.dark,
       presentation: this.presentation,
       request: this.selectionRequest,
       orderRequest: this.orderRequest,
-      enabled: this.active,
-      tabs: this.tabs.map((tab) => ({ id: tab.target.id, title: tab.target.title, pageTitle: tab.pageTitle, stopped: !tab.loaded })),
+      tabs: this.tabs.map((tab) => ({
+        id: tab.target.id,
+        title: tab.target.title || 'DSH',
+        pageTitle: tab.pageTitle,
+        stopped: !tab.loaded,
+      })),
     })
-    if (!force && value === this.rendered) return
+    // 第一页没有「旧页面」可以闪：直接显示出来，不等标签条页的回执（它还在加载时也能先看到内容）。
+    if (!this.tabs.some((tab) => tab.visible)) {
+      const first = this.tabs.find((tab) => tab.target.id === this.selected)
+      if (first) {
+        first.view.setVisible(true)
+        first.visible = true
+        first.view.webContents.focus()
+      }
+    }
+    if (!force && value === this.rendered) {
+      this.syncTitle()
+      return
+    }
     this.rendered = value
-    this.manager.executeJavaScript(`window.updateInternalTabs?.(${value})`).catch(() => {})
+    this.strip.executeJavaScript(`window.updateTabStrip?.(${value})`).catch(() => {})
+    this.syncTitle()
+  }
+
+  /** 窗口标题跟着选中的标签走：任务栏 / 窗口切换器里能看出这是哪个 dsh。 */
+  syncTitle() {
+    if (this.window.isDestroyed?.()) return
+    const tab = this.tabs.find((item) => item.target.id === this.selected)
+    this.window.setTitle([tab?.target.title, tab?.pageTitle].filter(Boolean).join(' — ') || 'DSH')
   }
 }

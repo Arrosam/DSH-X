@@ -1,26 +1,23 @@
 /**
- * Windows / macOS 的 Electron 外壳（shell/）里与 Electron 无关的规则。期望值取自旧 Rust 外壳的同名用例
- * （launcher/tabs.rs、tray.rs 的 tests）：两个外壳对管理服务说的是同一套协议，规则必须一致。
+ * 标签窗口里与 Electron 无关的规则：地址判定、/api/tray 解析、标签条消息校验、标题清洗、重排。
+ * 期望值取自旧 Rust 外壳的同名用例（launcher/tabs.rs、tray.rs 的 tests）与旧版 Electron 外壳：
+ * 几个外壳对管理服务说的是同一套协议，规则必须一致。
  */
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import {
   isExternalWebUrl,
   isLoopbackUrl,
-  launchActionEnabled,
-  launchActionRequest,
-  launchLabel,
-  parseLaunchEntry,
+  normalizePageTitle,
+  PAGE_TITLE_MAX,
   parseTabAction,
   parseTabTarget,
   parseTrayState,
   reorderBy,
   sameOrigin,
-  internalMode,
-  windowMode,
 } from '../shell/model.mjs'
 import { runtimeNode, runtimeNodeEnv } from '../platform.js'
 import { resolveDark, stoppedPage } from '../shell/pages.mjs'
@@ -61,7 +58,7 @@ test('标签目标保留认证地址，拒收外部地址', () => {
   assert.equal(parseTabTarget({ id: '', url: 'http://127.0.0.1/' }), null)
 })
 
-test('/api/tray 解析：实例与启动项各自校验，坏行不影响其余字段', () => {
+test('/api/tray 解析：实例逐项校验，坏行不影响其余字段', () => {
   const state = parseTrayState([
     'status=running',
     'lang=en',
@@ -71,29 +68,30 @@ test('/api/tray 解析：实例与启动项各自校验，坏行不影响其余�
     `instances=${JSON.stringify([{ id: 'a', url: 'http://127.0.0.1:1/?token=t' }, { id: 'b', url: 'https://example.com/' }])}`,
     'launches=not json',
   ].join('\n'))
+  assert.equal(state.status, 'running')
   assert.equal(state.lang, 'en')
   assert.equal(state.theme, 'dark')
+  assert.equal(state.openmode, 'internal')
+  assert.equal(state.shell, true)
   assert.deepEqual(state.instances.map((item) => item.id), ['a'])
-  assert.deepEqual(state.launches, [])
-  assert.ok(internalMode(state))
-  assert.ok(!windowMode(state))
-  // 源码运行（shell=0）时选了内部 / 窗口也不成立，退回系统浏览器
-  assert.ok(!internalMode(parseTrayState('openmode=internal\nshell=0')))
+  // 标签窗口不再用启动项菜单，launches 行随便什么内容都不该影响实例解析
+  assert.equal(parseTrayState('').instances.length, 0)
 })
 
-test('管理页的标签消息：未知动作与脏字段一律拒绝', () => {
+test('标签条消息：只认标签窗口自己会发的动作，脏字段一律拒绝', () => {
   assert.deepEqual(parseTabAction('{"action":"select","id":""}'), { action: 'select', id: '' })
   assert.equal(parseTabAction('{"action":"launch"}'), null)
   assert.equal(parseTabAction('{"action":"select"}'), null)
-  assert.deepEqual(parseTabAction('{"action":"present","serial":3}'), { action: 'present', serial: 3 })
-  assert.equal(parseTabAction('{"action":"present","serial":-1}'), null)
-  assert.deepEqual(parseTabAction('{"action":"overlay","open":true}'), { action: 'overlay', open: true })
-  assert.equal(parseTabAction('{"action":"overlay"}'), null)
   assert.deepEqual(parseTabAction('{"action":"select","id":"web","request":2}'), { action: 'select', id: 'web', request: 2 })
   assert.equal(parseTabAction('{"action":"select","id":"web","request":-1}'), null)
-  assert.deepEqual(parseTabAction('{"action":"layout","height":72}'), { action: 'layout', height: 72 })
-  assert.equal(parseTabAction('{"action":"layout","height":4000}'), null)
+  assert.deepEqual(parseTabAction('{"action":"close-tab","id":"web"}'), { action: 'close-tab', id: 'web' })
+  assert.deepEqual(parseTabAction('{"action":"reload"}'), { action: 'reload' })
+  assert.deepEqual(parseTabAction('{"action":"present","serial":3}'), { action: 'present', serial: 3 })
+  assert.equal(parseTabAction('{"action":"present","serial":-1}'), null)
+  // 旧管理页那套消息（窗口按钮、布局高度、弹窗遮挡）在标签窗口里不再存在
   assert.equal(parseTabAction('minimize'), null)
+  assert.equal(parseTabAction('{"action":"layout","height":72}'), null)
+  assert.equal(parseTabAction('{"action":"overlay","open":true}'), null)
 })
 
 test('排序消息校验 id，并让新开的标签留在末尾', () => {
@@ -108,24 +106,11 @@ test('排序消息校验 id，并让新开的标签留在末尾', () => {
   assert.deepEqual(ids, ['second', 'first', 'new-a', 'new-b'])
 })
 
-test('托盘启动项：操作可用性跟着各自的状态和地址走', () => {
-  const row = parseLaunchEntry({ id: 'custom', name: '测试 & 工作', status: 'running', installed: true, target: { id: 'instance', url: 'http://127.0.0.1:7890/?token=test' } })
-  assert.ok(launchActionEnabled(row, 'open'))
-  assert.ok(!launchActionEnabled(row, 'start'))
-  assert.ok(launchActionEnabled(row, 'stop'))
-  // macOS 菜单不把 & 当快捷键标记，不转义
-  assert.equal(launchLabel(row, false), '测试 & 工作 · 运行中')
-  assert.deepEqual(launchActionRequest(row, 'stop'), { id: 'custom', instanceId: '', action: 'stop', targetId: 'instance' })
-  assert.equal(launchActionRequest(row, 'start'), null)
-  assert.ok(!launchActionEnabled({ ...row, busy: true }, 'restart'))
-  const stopped = { ...row, status: 'stopped' }
-  assert.ok(launchActionEnabled(stopped, 'start'))
-  assert.ok(!launchActionEnabled(stopped, 'open'))
-  assert.ok(!launchActionEnabled({ ...stopped, installed: false }, 'start'))
-  assert.ok(launchLabel({ ...stopped, installed: false }, true).endsWith('Not installed'))
-  // 外部地址的目标被拒收，「打开」不可用
-  const external = parseLaunchEntry({ id: 'x', name: 'x', status: 'running', target: { id: 'i', url: 'https://example.com/' } })
-  assert.ok(!launchActionEnabled(external, 'open'))
+test('页面标题清洗：控制字符去掉，长度封顶（标题来自远端页面）', () => {
+  assert.equal(normalizePageTitle('  DSH  '), '  DSH  ', '首尾空白由窗口标题那边 trim，这里不动')
+  assert.equal(normalizePageTitle('a\u0000b\u001fc\nd'), 'abcd')
+  assert.equal(normalizePageTitle(undefined), '')
+  assert.equal(normalizePageTitle('x'.repeat(PAGE_TITLE_MAX + 20)).length, PAGE_TITLE_MAX)
 })
 
 test('Electron 外壳里，dsh 子进程用 Electron 自带的 Node（旧包仍认 node/node.exe）', () => {
