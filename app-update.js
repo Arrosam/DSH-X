@@ -2,8 +2,9 @@
 //
 // 思路：发布时给 resources/app 生成「路径 + 大小 + sha256（+ 可执行位）」清单并用发布私钥签名；
 // 客户端用内置公钥校验清单，按哈希找出变化的文件，下载整包（app-<版本>-<平台>.zip）解到临时目录
-// 逐个校验，退出后由替换助手换目录。Electron 版本变了就不能用增量，走全量安装包。
-// Windows 换 app/<版本> 目录 + junction；mac 换 .app/Contents/Resources/app 后重签。
+// 逐个校验，退出后由替换助手换目录。Electron 版本变了就不能用增量，走完整安装包自更新。
+// Windows 换 resources/app（替换助手等退出后备份、换目录、重启）；mac 换 .app 里的
+// Resources/app 后重签。
 
 import { createHash, verify as cryptoVerify } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'

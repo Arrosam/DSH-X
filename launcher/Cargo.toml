@@ -8,11 +8,6 @@ name = "DSH-Setup"
 path = "installer.rs"
 required-features = ["installer"]
 
-# 微型引导器：首次运行下载 runtime + app，之后只负责启动当前版本
-[[bin]]
-name = "DSH-Boot"
-path = "boot.rs"
-
 [features]
 installer = []
 
@@ -27,8 +22,3 @@ strip = true
 serde_json = "1"
 tao = "0.37.0"
 wry = "0.57.0"
-ureq = { version = "2", features = ["json"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
-ed25519-dalek = "2"
-sha2 = "0.10"
-base64 = "0.22"

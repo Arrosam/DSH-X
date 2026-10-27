@@ -119,18 +119,16 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 
 ### 应用层增量更新（app-update.js / apply-update.mjs）
 
-- 发布侧：`scripts/app-manifest.mjs build` 给打包后的目录生成文件清单（路径/大小/sha256、启动器版本、Electron 版本、平台；mac 的可执行包装脚本还带 `mode`，zip 不存权限）与整包 zip；有 `release/release-key.pem`（或 `DSH_RELEASE_KEY`）时用 Ed25519 给清单签名。`pack.mjs` 产出两套：`app-<版本>-win.*`（`resources/app`）与 `runtime-<electron>-win.*`（Electron 壳）。CI 两个平台各自产出 app 资产（mac 是 `app-<版本>-mac.*`），Windows 另外产出 runtime 与 `DSH-Setup-lite.exe`，一起挂到同 tag 的 Release。
-- 客户端：`/api/self` 带 `app` 检查结果（清单签名必须用内置公钥 `APP_PUBLIC_KEY` 校验通过；Electron 版本不一致时 Windows 带 `runtime` 信息），页面按「约 N MB」展示增量大小；`/api/self/app-download` 下载整包并逐文件核对哈希后解到暂存目录，`/api/self/app-apply` 负责切换。
-- **两种安装布局**：
-  - 完整安装包（`DSH-Setup.exe`）：Electron 壳在安装根目录，`resources/app` 是普通目录；更新走替换助手（`apply-update.mjs`，等父进程退出 → 备份旧 app → 换目录 → 重启 → 45 秒内等不到启动标记 `<APP_DIR>/update-ok` 就回滚）。
-  - 引导器安装（`DSH-Setup-lite.exe`，约 5 MB）：`DSH.exe` 是 Rust 引导器，布局为 `current.json` + `runtime/<electron版本>/` + `app/<启动器版本>/`，`runtime/<v>/resources/app` 是指向 app 目录的 junction。app 更新 = 换 junction + 写 current.json（`switchBootAppVersion`）；Electron 升级 = 下载新 runtime 目录 + junction 指回当前 app + 写 current.json（`switchBootRuntimeVersion`），旧 runtime 保留供回滚。引导器在 current.json 带 `previous` 时等 45 秒启动标记，等不到自动回滚。
-  - 引导器首次运行下载 runtime + app（两套清单都验签、逐文件核对哈希），之后只负责启动当前版本；自启/快捷方式指向安装根目录的引导器（`launcherExecutable()` 会识别 junction 布局）。
-- **macOS 增量**：换 `.app/Contents/Resources/app` → `codesign --force --deep --sign <身份>` 重签整个包 → `open` 重启 → 45 秒启动标记，失败回滚并重签旧包（`MAC_APP_SWAP_SCRIPT`）。只对 ad-hoc / 未签名的包开放（`macSignatureAllowsIncremental`）；固定证书签名的包重签会破坏公证，直接回退完整 dmg。Electron 版本变化时 mac 只能走完整安装包（没有 Windows 那种 runtime 目录）。
-- **引导器自更新**：应用清单里带 `boot: { name, size, sha256 }`（随清单签名）。应用检查更新时比对安装根目录 `DSH.exe` 的哈希，不一致就在 `/api/self/boot-download` 下载到 `boot-update.exe`（客户端会先 app-download 再 boot-download 再 app-apply）。下次启动时引导器把自己改名成 `DSH.exe.old`、换上 `boot-update.exe`、拉起新进程并退出；新进程清理旧文件并把编译时版本（`DSH_BOOT_VERSION`，build.rs 从 package.json 取）写进 `current.json.boot`。
+- 发布侧：`scripts/app-manifest.mjs build` 给打包后的目录生成文件清单（路径/大小/sha256、启动器版本、Electron 版本、平台；mac 的可执行包装脚本还带 `mode`，zip 不存权限）与整包 zip；有 `release/release-key.pem`（或 `DSH_RELEASE_KEY`）时用 Ed25519 给清单签名。`pack.mjs` / CI 各平台只产出一套 `app-<版本>-<平台>.*`（Windows 从 `release/DSH/resources/app`，mac 从 `.app/Contents/Resources/app`），一起挂到同 tag 的 Release。
+- 客户端：`/api/self` 带 `app` 检查结果（清单签名必须用内置公钥 `APP_PUBLIC_KEY` 校验通过），页面按「约 N MB」展示增量大小；`/api/self/app-download` 下载整包并逐文件核对哈希后解到暂存目录，`/api/self/app-apply` 负责切换。
+- **统一安装布局**：Windows 完整安装包（`DSH-Setup.exe`）把 Electron 壳装在安装根目录、`resources/app` 是普通目录；mac 是 `DSH-X.app/Contents/Resources/app`。两端都只有这一种布局。
+  - Windows 换 `resources/app`：替换助手（`apply-update.mjs`，等父进程退出 → 备份旧 app → 换目录 → 重启 → 45 秒内等不到启动标记 `<APP_DIR>/update-ok` 就回滚）。
+  - macOS 换 `Resources/app`：`MAC_APP_SWAP_SCRIPT`（等退出 → 备份 → 换目录 → `codesign --force --deep --sign <身份>` 重签整个包 → `open` 重启 → 45 秒启动标记，失败回滚并重签旧包）。只对 ad-hoc / 未签名的包开放（`macSignatureAllowsIncremental`）；固定证书签名的包重签会破坏公证，直接回退完整 dmg。
+- **Electron 升级**：不单独拆 runtime。两端都用完整安装包自更新（Windows 静默安装、mac 挂 dmg 换包）；`checkAppUpdate` 发现清单里的 Electron 版本和当前进程不一致时返回 `reason: 'electron'`，页面回退到「更新启动器」。完整安装包用 LZMA 压缩（约 105 MB），比单独压一份 runtime zip（约 129 MB）还小，所以不再保留 runtime 拆分与引导器。
 - 边界：只有「已打包的安装版（Windows / macOS）+ 签名清单」才走增量；未签名清单、固定证书签名的 mac 包、源码运行自动回退完整安装包。旧版本客户端不认识这些资产，忽略即可。
 - 版本更新后启动器会刷新桌面/开始菜单快捷方式图标（`refreshShortcuts`）：图标文件名带版本号（`assets/dsh-<版本>.ico`），每个版本只改一次并记戳。
 - 所有下载都走 `updateUrlCandidates`：默认「国内加速」是镜像优先（gh-proxy → ghfast → 直连兜底）。
-- 本地调试引导器：`DSH_BOOT_BASE=http://127.0.0.1:端口 DSH_BOOT_VERSION=<版本>` 让它从本地目录取资产（扁平存放），`DSH_BOOT_LOG` 指定日志文件。
+- 本地验收：`node scripts/update-flow-demo.mjs` 用 `release/DSH` 造一份 0.1.21 的假资产和测试安装目录，按打印的命令启动后点更新即可走完整替换流程。
 
 ### 打包与安装布局
 

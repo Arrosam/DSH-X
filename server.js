@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { createInterface } from 'node:readline'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { accessSync, chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { accessSync, chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -2687,9 +2687,7 @@ async function checkSelfUpdate({ force = false } = {}) {
 
 /** 应用层增量更新：清单缓存与暂存状态（见 app-update.js 与 apply-update.mjs）。 */
 let stagedApp = null
-let stagedRuntime = null
 let pendingAppUpdate = null
-let pendingRuntimeUpdate = null
 let appUpdateCache = { at: 0, data: null }
 /** 本地测试通道：DSH_UPDATE_BASE 指到本地资产目录、DSH_UPDATE_VERSION 当最新版本。 */
 const TEST_UPDATE_BASE = String(process.env.DSH_UPDATE_BASE || '').trim().replace(/\/+$/, '')
@@ -2723,48 +2721,6 @@ async function fetchSignedManifest(tagVersion, assetName) {
   throw new Error(`拉不到 ${assetName}：${describeFetchError(last, manifestUrl)}`)
 }
 
-/**
- * 新布局（引导器装的）：app 目录在 <安装根>/app/<版本>，runtime 里用 junction 指过来。
- * 注意 ESM 加载会把 ROOT 解析成真实路径（app/<版本>），不能靠「ROOT 是链接」来判断；
- * 用安装根目录的 current.json 对照目录名。旧布局（完整安装包装的）返回 null。
- */
-function bootLayout() {
-  let appRoot
-  try { appRoot = realpathSync.native(ROOT) } catch { return null }
-  const installRoot = dirname(dirname(appRoot))
-  const currentPath = join(installRoot, 'current.json')
-  if (!existsSync(currentPath) || !existsSync(join(installRoot, 'DSH.exe'))) return null
-  let current = {}
-  try { current = JSON.parse(readFileSync(currentPath, 'utf8')) } catch { return null }
-  // 完整安装包的布局也是 <安装根>/resources/app：current.json 里的 app 版本必须对上目录名
-  if (String(current.app) !== basename(appRoot)) return null
-  const runtime = String(current.runtime || '')
-  return {
-    installRoot,
-    appRoot,
-    currentPath,
-    runtime,
-    link: join(installRoot, 'runtime', runtime, 'resources', 'app'),
-  }
-}
-
-/**
- * 换掉一个目录链接。正在运行的进程可能还开着链接下的文件，直接删有时会被拒；
- * 依次尝试 rm / rmdir / unlink，都不行就把链接改名挪开（reparse point 本身可以移动），
- * 保证后面能建新的。返回被挪走的旧链接路径（没有就返回空串）。
- */
-function removeDirectoryLink(link) {
-  for (const attempt of [() => rmSync(link), () => rmdirSync(link), () => unlinkSync(link)]) {
-    try {
-      attempt()
-      return ''
-    } catch { /* 换下一种 */ }
-  }
-  const aside = `${link}.old-${Date.now()}`
-  renameSync(link, aside)
-  return aside
-}
-
 /** 安装器建的两个快捷方式（用户取消勾选时可能不存在）。 */
 function shortcutLinks() {
   const links = []
@@ -2787,11 +2743,12 @@ export async function setShortcutIcon(links, iconTarget) {
  * 版本更新后刷新桌面 / 开始菜单快捷方式的图标。
  * 图标文件名带版本号（为绕开 Explorer 图标缓存），快捷方式却还指着旧文件；这里把当前版本的图标
  * 放进安装根目录的 assets/，再把两个 .lnk 指过去。每个版本只做一次（APP_DIR 里记个戳）。
- * 只在 boot 布局下有意义：旧布局更新走完整安装包，快捷方式由 Inno 重写。
+ * app 增量只换 resources/app，安装根目录的图标还是安装时那份，所以要在这里补。
  */
 export async function refreshShortcuts({ installRoot, appDir = APP_DIR, version = APP_VERSION, links, force = false } = {}) {
   if (!IS_WINDOWS || (!PACKAGED && !force)) return false
-  const root = installRoot || bootLayout()?.installRoot
+  // 打包布局：<安装根>/resources/app
+  const root = installRoot || dirname(dirname(ROOT))
   if (!root) return false
   const stampFile = join(appDir, 'shortcut-icon')
   try {
@@ -2824,74 +2781,27 @@ export async function refreshShortcuts({ installRoot, appDir = APP_DIR, version 
 }
 
 /**
- * 新布局切换 app 版本：搬目录 → 重指 junction → 写 current.json（带 previous 供引导器回滚）。
- * 抽出来是为了能在测试里用临时目录验证 junction 行为。
- */
-export function switchBootAppVersion({ link, installRoot, currentPath }, version, stagedDir) {
-  const target = join(installRoot, 'app', version)
-  rmSync(target, { recursive: true, force: true })
-  mkdirSync(dirname(target), { recursive: true })
-  renameSync(stagedDir, target)
-  let previous = {}
-  try { previous = JSON.parse(readFileSync(currentPath, 'utf8')) } catch { /* 首次 */ }
-  const aside = removeDirectoryLink(link)
-  symlinkSync(target, link, 'junction')
-  if (aside) {
-    // 旧链接只是被挪开，目标目录不动；这里顺手清掉，清不掉也不影响
-    try { rmSync(aside, { recursive: false, force: true }) } catch { /* ignore */ }
-  }
-  const next = { runtime: previous.runtime, app: version, previous: { runtime: previous.runtime, app: previous.app } }
-  writeFileSync(currentPath, `${JSON.stringify(next, null, 2)}\n`)
-  return next
-}
-
-/** 新布局切换 runtime 版本：搬目录 → 建 junction 指回当前 app → 写 current.json。 */
-export function switchBootRuntimeVersion({ link, installRoot, currentPath, appTarget }, version, stagedDir) {
-  const target = join(installRoot, 'runtime', version)
-  rmSync(target, { recursive: true, force: true })
-  mkdirSync(dirname(target), { recursive: true })
-  renameSync(stagedDir, target)
-  let previous = {}
-  try { previous = JSON.parse(readFileSync(currentPath, 'utf8')) } catch { /* 首次 */ }
-  const nextLink = join(target, 'resources', 'app')
-  mkdirSync(dirname(nextLink), { recursive: true })
-  symlinkSync(appTarget, nextLink, 'junction')
-  const next = { runtime: version, app: previous.app, previous: { runtime: previous.runtime, app: previous.app } }
-  writeFileSync(currentPath, `${JSON.stringify(next, null, 2)}\n`)
-  return next
-}
-
-function readCurrentJson(layout) {
-  try { return JSON.parse(readFileSync(layout.currentPath, 'utf8')) } catch { return {} }
-}
-
-function writeCurrentJson(layout, value) {
-  writeFileSync(layout.currentPath, `${JSON.stringify(value, null, 2)}\n`)
-}
-
-/**
  * 检查能不能走应用层增量：只认「已打包的安装版 + 清单签名有效」。
- * Windows 走 boot 布局（换 app/<版本> + junction）；mac 换 .app 里的 Resources/app 后重签。
- * Electron 版本一致时给 app 增量；不一致时 Windows 额外查运行时清单，mac 只能走完整安装包。
- * 返回的字段给页面用；完整清单留在 pendingAppUpdate / pendingRuntimeUpdate 里。
+ * Windows 换 resources/app（替换助手等退出后备份、换目录、重启）；mac 换 .app 里的
+ * Resources/app 后重签。Electron 版本不一致时两端都走完整安装包自更新。
+ * 返回的字段给页面用；完整清单留在 pendingAppUpdate 里。
  */
 async function checkAppUpdate({ force = false } = {}) {
   if (!PACKAGED || (!IS_WINDOWS && !IS_MAC)) return { available: false, reason: PACKAGED ? 'platform' : 'source' }
   if (!force && appUpdateCache.data && Date.now() - appUpdateCache.at < APP_UPDATE_CACHE_MS) return appUpdateCache.data
   const remember = (data) => { appUpdateCache = { at: Date.now(), data }; return data }
-  const layout = bootLayout()
   const platform = IS_MAC ? 'mac' : 'win'
   const self = await checkSelfUpdate()
   const latest = self.latest
-  if (!self.update || !latest) return remember({ available: false, reason: 'current', latest, layout: layout ? 'boot' : 'full' })
+  if (!self.update || !latest) return remember({ available: false, reason: 'current', latest })
   if (IS_MAC) {
     try {
       assertMacUpdatable()
     } catch (error) {
-      return remember({ available: false, reason: 'unwritable', latest, error: error?.message || String(error), layout: 'full' })
+      return remember({ available: false, reason: 'unwritable', latest, error: error?.message || String(error) })
     }
     const ready = macIncrementalReadiness()
-    if (!ready.ok) return remember({ available: false, reason: ready.reason, latest, error: ready.error, layout: 'full' })
+    if (!ready.ok) return remember({ available: false, reason: ready.reason, latest, error: ready.error })
   }
   let got
   let manifest
@@ -2899,41 +2809,21 @@ async function checkAppUpdate({ force = false } = {}) {
     got = await fetchSignedManifest(latest, appAssetName(latest, platform, '.manifest.json'))
     manifest = JSON.parse(got.bytes.toString('utf8'))
   } catch (error) {
-    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error), layout: layout ? 'boot' : 'full' })
+    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
   }
-  if (!verifyAppManifest(got.bytes, got.signature)) return remember({ available: false, reason: 'unsigned', latest, layout: layout ? 'boot' : 'full' })
+  if (!verifyAppManifest(got.bytes, got.signature)) return remember({ available: false, reason: 'unsigned', latest })
   const targetElectron = String(manifest.electronVersion || '')
   if (targetElectron !== String(process.versions.electron)) {
-    if (IS_MAC) return remember({ available: false, reason: 'electron', latest, electron: targetElectron, layout: 'full' })
-    // Electron 升级：查一下新运行时清单，页面据此提供「只换运行时」
-    let runtime = null
-    try {
-      const runtimeGot = await fetchSignedManifest(latest, `runtime-${targetElectron}-win.manifest.json`)
-      if (verifyAppManifest(runtimeGot.bytes, runtimeGot.signature)) {
-        const runtimeManifest = JSON.parse(runtimeGot.bytes.toString('utf8'))
-        pendingRuntimeUpdate = { version: targetElectron, manifest: runtimeManifest }
-        runtime = { version: targetElectron, downloadSize: Number(runtimeManifest.archive?.size) || 0 }
-      }
-    } catch { /* 没有运行时资产就只给完整安装包 */ }
-    return remember({ available: false, reason: 'electron', latest, electron: targetElectron, runtime, layout: layout ? 'boot' : 'full' })
+    // Electron 升级不能只换 app：两端都走完整安装包自更新
+    return remember({ available: false, reason: 'electron', latest, electron: targetElectron })
   }
   try {
     assertManifestShape(manifest, { version: latest, electronVersion: process.versions.electron, platform })
   } catch (error) {
-    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error), layout: layout ? 'boot' : 'full' })
+    return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
   }
   const diff = localDiff(ROOT, manifest)
   pendingAppUpdate = { version: latest, manifest }
-  // 引导器自更新：比对安装根目录 DSH.exe 的哈希（清单里的 boot 字段随清单签名）
-  let boot = null
-  if (layout && manifest.boot?.sha256) {
-    try {
-      const localHash = createHash('sha256').update(readFileSync(join(layout.installRoot, 'DSH.exe'))).digest('hex')
-      if (localHash !== String(manifest.boot.sha256)) {
-        boot = { version: latest, downloadSize: Number(manifest.boot.size) || 0, name: String(manifest.boot.name || '') }
-      }
-    } catch { /* 读不到本地引导器就跳过 */ }
-  }
   return remember({
     available: true,
     latest,
@@ -2941,8 +2831,6 @@ async function checkAppUpdate({ force = false } = {}) {
     downloadSize: Number(manifest.archive?.size) || 0,
     changed: diff.changed,
     changedBytes: diff.changedBytes,
-    layout: layout ? 'boot' : 'full',
-    ...(boot ? { boot } : {}),
   })
 }
 
@@ -5398,7 +5286,7 @@ async function handleApi(req, res, url) {
     const info = await checkSelfUpdate({ force: url.searchParams.get('refresh') === '1' })
     // staged / downloading 让页面重载后也能知道下载进度：下载在服务端跑，和弹窗开不开无关
     const app = await checkAppUpdate().catch((error) => ({ available: false, reason: 'error', error: error?.message || String(error) }))
-    send(res, 200, { ...info, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight, app, appStaged: stagedApp?.version || '', runtimeStaged: stagedRuntime?.version || '' })
+    send(res, 200, { ...info, staged: stagedUpdate?.latest || '', downloading: selfDownloadInFlight, app, appStaged: stagedApp?.version || '' })
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/pending') {
@@ -5646,49 +5534,12 @@ async function handleApi(req, res, url) {
     }
     return
   }
-  if (req.method === 'POST' && url.pathname === '/api/self/boot-download') {
-    // 引导器自更新：下载新版引导器到安装根目录的 boot-update.exe；下次启动时它自替换
-    try {
-      const layout = bootLayout()
-      if (!layout) throw new Error('当前不是引导器安装的版本')
-      const data = await checkAppUpdate({ force: true })
-      if (!data.boot) {
-        send(res, 200, { ok: true, skipped: true })
-        return
-      }
-      const manifest = pendingAppUpdate.manifest
-      const target = join(layout.installRoot, 'boot-update.exe')
-      const result = await downloadToFile(releaseUrl(data.latest, manifest.boot.name), target, {
-        sha256: manifest.boot.sha256,
-        limit: 64 * 1024 * 1024,
-        onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'boot', done, total }),
-      })
-      pushLog(`引导器更新已就绪：${data.latest}（${(result.bytes / 1048576).toFixed(1)} MB），下次启动替换`)
-      emit('selfUpdate', { phase: 'boot-ready', latest: data.latest })
-      send(res, 200, { ok: true, version: data.latest })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      pushLog(`引导器更新下载失败：${message}`)
-      send(res, 400, { error: message })
-    }
-    return
-  }
   if (req.method === 'POST' && url.pathname === '/api/self/app-apply') {
-    // 应用层增量：新布局换 junction + current.json；旧布局起替换助手（等退出后换目录）
+    // 应用层增量：起替换助手（等退出后备份旧 app、换目录、重启；失败回滚）
     try {
       if (!stagedApp || !stagingExists(stagedApp.dir)) throw new Error('还没有下载好的应用更新')
       const stats = stagingStats(stagedApp.dir)
       if (stats.files < 100) throw new Error('暂存目录不完整，重新下载一次')
-      const layout = bootLayout()
-      if (layout) {
-        // 新布局：暂存目录搬到 app/<新版本>，把 resources/app 的 junction 指过去，写 current.json
-        switchBootAppVersion({ link: layout.link, installRoot: layout.installRoot, currentPath: layout.currentPath }, stagedApp.version, stagedApp.dir)
-        pushLog(`应用增量更新：切换到 ${stagedApp.version}，重启引导器`)
-        send(res, 200, { ok: true, version: stagedApp.version })
-        spawn(join(layout.installRoot, 'DSH.exe'), ['--wait-pid', String(process.pid)], { cwd: layout.installRoot, detached: true, stdio: 'ignore', windowsHide: true }).unref()
-        setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
-        return
-      }
       if (IS_MAC) {
         // mac：换 .app/Contents/Resources/app，重签后重启；助手用 /bin/sh，不依赖包里的可执行文件
         const bundle = assertMacUpdatable()
@@ -5737,61 +5588,6 @@ async function handleApi(req, res, url) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       pushLog(`应用增量更新失败：${message}`)
-      send(res, 400, { error: message })
-    }
-    return
-  }
-  if (req.method === 'POST' && url.pathname === '/api/self/runtime-download') {
-    // Electron 升级：下载新 runtime 到暂存目录（旧 runtime 原样保留，回滚只是改回 current.json）
-    try {
-      const layout = bootLayout()
-      if (!layout) throw new Error('当前不是引导器安装的版本，请用完整安装包')
-      const data = await checkAppUpdate({ force: true })
-      if (!data.runtime || !pendingRuntimeUpdate) throw new Error('没有可用的运行时更新')
-      if (stagedRuntime && stagedRuntime.version === data.runtime.version && stagingExists(stagedRuntime.dir, 'DSH.exe')) {
-        send(res, 200, { ok: true, version: stagedRuntime.version, reused: true })
-        return
-      }
-      const manifest = pendingRuntimeUpdate.manifest
-      const zipPath = join(tmpdir(), `DSH-X-runtime-${data.runtime.version}-${process.pid}.zip`)
-      const result = await downloadToFile(releaseUrl(data.latest, manifest.archive?.name || ''), zipPath, {
-        sha256: manifest.archive?.sha256 || '',
-        limit: 512 * 1024 * 1024,
-        onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'runtime', done, total }),
-      })
-      const staging = join(tmpdir(), `DSH-X-runtime-${data.runtime.version}-${process.pid}`)
-      await extractVerified(zipPath, manifest, staging)
-      rmSync(zipPath, { force: true })
-      stagedRuntime = { version: data.runtime.version, dir: staging }
-      pushLog(`运行时增量已就绪：Electron ${data.runtime.version}（${(result.bytes / 1048576).toFixed(1)} MB）`)
-      emit('selfUpdate', { phase: 'runtime-ready', latest: data.runtime.version })
-      send(res, 200, { ok: true, version: data.runtime.version })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      pushLog(`运行时增量下载失败：${message}`)
-      send(res, 400, { error: message })
-    }
-    return
-  }
-  if (req.method === 'POST' && url.pathname === '/api/self/runtime-apply') {
-    // Electron 升级：换 runtime 目录 + junction + current.json，重启引导器
-    try {
-      const layout = bootLayout()
-      if (!layout) throw new Error('当前不是引导器安装的版本，请用完整安装包')
-      if (!stagedRuntime || !stagingExists(stagedRuntime.dir, 'DSH.exe')) throw new Error('还没有下载好的运行时更新')
-      switchBootRuntimeVersion({
-        link: layout.link,
-        installRoot: layout.installRoot,
-        currentPath: layout.currentPath,
-        appTarget: layout.appRoot,
-      }, stagedRuntime.version, stagedRuntime.dir)
-      pushLog(`运行时更新：切换到 Electron ${stagedRuntime.version}，重启引导器`)
-      send(res, 200, { ok: true, version: stagedRuntime.version })
-      spawn(join(layout.installRoot, 'DSH.exe'), ['--wait-pid', String(process.pid)], { cwd: layout.installRoot, detached: true, stdio: 'ignore', windowsHide: true }).unref()
-      setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      pushLog(`运行时更新失败：${message}`)
       send(res, 400, { error: message })
     }
     return

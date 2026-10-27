@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, cp, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -44,12 +43,6 @@ const INNO_SETUP = join(VENDOR, 'innosetup.exe')
 const ISCC = join(INNO_DIR, 'ISCC.exe')
 const SETUP_ISS = join(ROOT, 'scripts', 'dsh-setup.iss')
 const SETUP_NAME = 'DSH-Setup'
-/** 微型引导安装器：只装引导器（DSH.exe），首次运行时下载 runtime + app。 */
-const BOOT_SETUP_ISS = join(ROOT, 'scripts', 'dsh-boot-setup.iss')
-const BOOT_SETUP_NAME = 'DSH-Setup-lite'
-const BOOT_DIR = join(ROOT, 'release', 'boot')
-/** runtime / app 拆分后的目录（生成增量资产用，不进安装包）。 */
-const PARTS = join(ROOT, 'release', 'parts')
 // Windows 按路径缓存快捷方式图标：同名文件覆盖后，Explorer 仍会显示缓存里的旧位图，
 // 升级用户会以为图标没更新。图标文件名带上版本号，路径一变缓存就失效，不用指望用户
 // 去清图标缓存。
@@ -246,78 +239,25 @@ async function buildInstaller() {
   console.log(`已复制到桌面: ${desktop}`)
 }
 
-/** 把完整布局拆成 runtime（Electron 壳）与 app（我们的代码），并生成带签名的增量资产。 */
-async function buildParts() {
+/**
+ * 应用层增量资产：只拆 app（resources/app）。Electron 升级不单独下运行时，
+ * 走完整安装包自更新——安装包本来就用 LZMA，比单独压一份 runtime zip 还小。
+ */
+async function buildAppUpdateAssets() {
   const electronVersion = JSON.parse(await readFile(join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
-  const runtimeDir = join(PARTS, 'runtime', electronVersion)
-  const appDir = join(PARTS, 'app', PKG.version)
-  rmSync(PARTS, { recursive: true, force: true })
-  await cp(OUT, runtimeDir, { recursive: true })
-  // runtime 里不带 app：安装时由引导器建 junction 指到 app/<启动器版本>
-  rmSync(join(runtimeDir, 'resources', 'app'), { recursive: true, force: true })
-  // Electron 自带的兜底 app 用不上，而且它的 .asar 会被 Electron 的 fs 拦截（写不进去）
-  rmSync(join(runtimeDir, 'resources', 'default_app.asar'), { force: true })
-  await cp(join(OUT, 'resources', 'app'), appDir, { recursive: true })
   const { buildAppAssets } = await import('./app-manifest.mjs')
-  // 引导器自更新：把 boot-<版本>-win.exe 的哈希写进应用清单（随清单一起签名）
-  const bootName = `boot-${PKG.version}-win.exe`
-  const bootFile = join(ROOT, 'release', bootName)
-  const boot = existsSync(bootFile)
-    ? { name: bootName, size: statSync(bootFile).size, sha256: createHash('sha256').update(readFileSync(bootFile)).digest('hex') }
-    : undefined
-  const runtimeAssets = await buildAppAssets({ appDir: runtimeDir, version: electronVersion, electronVersion, platform: 'win', prefix: 'runtime' })
-  const appAssets = await buildAppAssets({ appDir, version: PKG.version, electronVersion, platform: 'win', prefix: 'app', boot })
-  console.log(`runtime 资产: ${basename(runtimeAssets.zipPath)}（${(runtimeAssets.manifest.archive.size / 1048576).toFixed(1)} MB）`)
+  const appAssets = await buildAppAssets({ appDir: APP, version: PKG.version, electronVersion, platform: 'win', prefix: 'app' })
   console.log(`app 资产: ${basename(appAssets.zipPath)}（${(appAssets.manifest.archive.size / 1048576).toFixed(1)} MB）`)
-  return electronVersion
 }
 
-/** 微型引导安装器：只装引导器（DSH.exe），首次运行时下载 runtime + app。 */
-async function buildBootInstaller() {
-  run('cargo', ['build', '--release', '--bin', 'DSH-Boot'], join(ROOT, 'launcher'))
-  rmSync(BOOT_DIR, { recursive: true, force: true })
-  await mkdir(join(BOOT_DIR, 'assets'), { recursive: true })
-  await copyFile(join(ROOT, 'launcher', 'target', 'release', 'DSH-Boot.exe'), join(BOOT_DIR, 'DSH.exe'))
-  // 引导器自更新资产：应用更新时下载它，下次启动替换安装根目录的 DSH.exe
-  await copyFile(join(ROOT, 'launcher', 'target', 'release', 'DSH-Boot.exe'), join(ROOT, 'release', `boot-${PKG.version}-win.exe`))
-  await copyFile(join(ROOT, 'assets', 'dsh.ico'), join(BOOT_DIR, 'assets', ICON_NAME))
-  const iscc = await ensureInno()
-  const engineDir = join(VENDOR, 'installer-engine-lite')
-  await mkdir(engineDir, { recursive: true })
-  console.log('编译引导安装引擎')
-  run(iscc, [
-    BOOT_SETUP_ISS,
-    `/DMyAppVersion=${PKG.version}`,
-    `/DMyAppIcon=${ICON_NAME}`,
-    `/O${engineDir}`,
-    '/FDSH-Boot-Engine',
-  ])
-  const previousEngine = process.env.DSH_INSTALL_ENGINE
-  try {
-    process.env.DSH_INSTALL_ENGINE = join(engineDir, 'DSH-Boot-Engine.exe')
-    run('cargo', ['build', '--release', '--features', 'installer', '--bin', 'DSH-Setup'], join(ROOT, 'launcher'))
-  } finally {
-    if (previousEngine === undefined) delete process.env.DSH_INSTALL_ENGINE
-    else process.env.DSH_INSTALL_ENGINE = previousEngine
-  }
-  const setup = join(ROOT, 'release', `${BOOT_SETUP_NAME}.exe`)
-  await copyFile(join(ROOT, 'launcher', 'target', 'release', 'DSH-Setup.exe'), setup)
-  if (!existsSync(setup)) throw new Error(`没有生成 ${setup}`)
-  await copyFile(setup, join(DESKTOP, `${BOOT_SETUP_NAME}.exe`))
-  console.log(`引导安装器: ${setup}`)
-  console.log(`已复制到桌面: ${join(DESKTOP, `${BOOT_SETUP_NAME}.exe`)}`)
-}
-
-// 发布资产：先出 SBOM，再出覆盖「安装包 + SBOM」的发布清单（有私钥时顺带签名）。
+// 发布资产：先出 SBOM，再出覆盖「安装包 + app 增量 + SBOM」的发布清单（有私钥时顺带签名）。
 // 没配密钥也不该让打包失败，所以这里只提示。
-async function buildReleaseArtifacts(electronVersion) {
+async function buildReleaseArtifacts() {
   const releaseDir = join(ROOT, 'release')
   const { path: sbomPath } = writeSbom({ releaseDir, version: PKG.version })
   console.log(`SBOM: ${sbomPath}`)
   const artifacts = collectArtifacts(releaseDir, [
     `${SETUP_NAME}.exe`,
-    `${BOOT_SETUP_NAME}.exe`,
-    `runtime-${electronVersion}-win.zip`,
     `app-${PKG.version}-win.zip`,
     basename(sbomPath),
   ])
@@ -335,7 +275,5 @@ async function buildReleaseArtifacts(electronVersion) {
 await downloadNode()
 await assemble(await buildShell())
 await buildInstaller()
-// 先编引导器：app 清单要带上 boot 资产哈希
-await buildBootInstaller()
-const electronVersion = await buildParts()
-await buildReleaseArtifacts(electronVersion)
+await buildAppUpdateAssets()
+await buildReleaseArtifacts()
