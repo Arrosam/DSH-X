@@ -5125,7 +5125,7 @@
     const selfUpdateEl = document.getElementById('selfUpdate')
     const appVerEl = document.getElementById('appVer')
     /** 启动器自更新的页面状态：下载在服务端跑，弹窗关掉也继续（进度走 selfUpdate 事件）。 */
-    const selfState = { current: '', latest: '', url: '', downloading: false, ready: '', app: null, appStaged: '', pct: 0, shell: null }
+    const selfState = { current: '', latest: '', coreLatest: '', url: '', downloading: false, ready: '', app: null, appStaged: '', pct: 0, shell: null }
     let askSelfButton = null
     let askShellButton = null
 
@@ -5145,7 +5145,7 @@
             : `更新外壳到 ${latest}`
         return
       }
-      const latest = selfState.latest || ''
+      const latest = selfState.coreLatest || selfState.latest || ''
       const downloaded = Boolean(selfState.ready || selfState.appStaged)
       selfUpdateEl.textContent = selfState.downloading
         ? `更新 ${latest} · ${selfState.pct}%`
@@ -5166,13 +5166,14 @@
       if (aboutVersion && data.current) aboutVersion.textContent = data.current
       selfState.current = data.current || selfState.current
       selfState.latest = data.latest || selfState.latest
+      selfState.coreLatest = data.app?.latest || selfState.coreLatest
       selfState.url = data.url || selfState.url
       selfState.downloading = data.downloading === true
       selfState.ready = data.staged || selfState.ready
       selfState.app = data.app || selfState.app
       selfState.appStaged = data.appStaged || selfState.appStaged
       if (data.shell !== undefined) selfState.shell = data.shell
-      if (!data.update && !shellActive()) { selfUpdateEl.hidden = true; return }
+      if (!data.update && !data.app?.available && !shellActive()) { selfUpdateEl.hidden = true; return }
       selfUpdateEl.hidden = false
       paintSelfPill()
       selfUpdateEl.onclick = () => {
@@ -5180,7 +5181,7 @@
         // 而不是直接下载安装包——那会立刻弹出安装程序，用户连看都没看清
         showAsk({
           dsh: null,
-          self: data.update ? { current: selfState.current, latest: selfState.latest, url: selfState.url } : null,
+          self: data.update || data.app?.available ? { current: selfState.current, latest: selfState.latest || data.app?.latest, url: selfState.url } : null,
           shell: shellActive() ? selfState.shell : null,
         })
       }
