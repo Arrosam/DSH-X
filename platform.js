@@ -14,6 +14,7 @@ const ROOT = dirname(fileURLToPath(import.meta.url))
 
 export const IS_WINDOWS = process.platform === 'win32'
 export const IS_MAC = process.platform === 'darwin'
+export const IS_LINUX = process.platform === 'linux'
 
 /** 管理服务是不是跑在 Electron 主进程里（Windows/macOS 外壳都是，见 shell/main.mjs）。 */
 export const IN_ELECTRON = Boolean(process.versions.electron)

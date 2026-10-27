@@ -1,4 +1,5 @@
-// Windows/macOS 打包：electron-builder 出安装包（NSIS / dmg+zip），外壳自更新交给 electron-updater。
+// Windows/macOS/Linux 打包：electron-builder 出安装包（NSIS / dmg+zip / AppImage），
+// 外壳自更新交给 electron-updater。
 //
 // 安装包拆成两层：
 // - release/shell-stage → resources/app：Electron 外壳（main/tray/updater/preload/tabs/model/pages）
@@ -26,9 +27,11 @@ import {
 } from './pack-common.mjs'
 
 const IS_MAC = process.platform === 'darwin'
+const IS_WINDOWS = process.platform === 'win32'
+const IS_LINUX = process.platform === 'linux'
 const ARCH = process.arch === 'arm64' ? 'arm64' : 'x64'
-const DIST = `node-v${NODE_VERSION}-${IS_MAC ? 'darwin' : 'win'}-${ARCH}`
-const ARCHIVE = IS_MAC ? `${DIST}.tar.gz` : `${DIST}.zip`
+const DIST = `node-v${NODE_VERSION}-${IS_MAC ? 'darwin' : IS_WINDOWS ? 'win' : 'linux'}-${ARCH}`
+const ARCHIVE = IS_WINDOWS ? `${DIST}.zip` : `${DIST}.tar.gz`
 const EXTRACTED = join(VENDOR, DIST)
 const SHELL_STAGE = join(ROOT, 'release', 'shell-stage')
 const CORE_STAGE = join(ROOT, 'release', 'core-stage')
@@ -39,11 +42,11 @@ const ELECTRON_VERSION = JSON.parse(readFileSync(join(ROOT, 'node_modules', 'ele
 
 async function ensureNode() {
   await mkdir(VENDOR, { recursive: true })
-  if (existsSync(join(EXTRACTED, IS_MAC ? 'bin/node' : 'node.exe'))) return
+  if (existsSync(join(EXTRACTED, IS_WINDOWS ? 'node.exe' : 'bin/node'))) return
   const archive = join(VENDOR, ARCHIVE)
   await downloadNodeFile(ARCHIVE, archive)
-  if (IS_MAC) run('tar', ['-xzf', archive, '-C', VENDOR])
-  else run('powershell', ['-NoProfile', '-Command', `Expand-Archive -Force '${archive}' '${VENDOR}'`])
+  if (IS_WINDOWS) run('powershell', ['-NoProfile', '-Command', `Expand-Archive -Force '${archive}' '${VENDOR}'`])
+  else run('tar', ['-xzf', archive, '-C', VENDOR])
 }
 
 /**
@@ -53,18 +56,19 @@ async function ensureNode() {
  */
 async function copyNodeRuntime(nodeDir) {
   await mkdir(nodeDir, { recursive: true })
-  const modules = join(EXTRACTED, IS_MAC ? 'lib' : '', 'node_modules')
+  const modules = join(EXTRACTED, IS_WINDOWS ? '' : 'lib', 'node_modules')
   await copyNpmModules(modules, nodeDir)
   await copyPnpmModule(nodeDir, join(modules, 'npm', 'bin', 'npm-cli.js'))
 
-  // POSIX：DSH_ELECTRON_BIN 由外壳/CLI 设置；没有时依次试安装版的 Windows / mac 布局
+  // POSIX：DSH_ELECTRON_BIN 由外壳/CLI 设置；没有时依次试安装版的 Windows / mac / Linux 布局
   const nodeShim = join(nodeDir, 'node')
   await writeFile(nodeShim, [
     '#!/bin/sh',
     'if [ -n "$DSH_ELECTRON_BIN" ]; then ELECTRON_RUN_AS_NODE=1 exec "$DSH_ELECTRON_BIN" "$@"; fi',
     'dir="$(cd "$(dirname "$0")" && pwd)"',
     'if [ -x "$dir/../../../DSH.exe" ]; then ELECTRON_RUN_AS_NODE=1 exec "$dir/../../../DSH.exe" "$@"; fi',
-    'ELECTRON_RUN_AS_NODE=1 exec "$dir/../../../MacOS/DSH" "$@"',
+    'if [ -x "$dir/../../../MacOS/DSH" ]; then ELECTRON_RUN_AS_NODE=1 exec "$dir/../../../MacOS/DSH" "$@"; fi',
+    'ELECTRON_RUN_AS_NODE=1 exec "$dir/../../../DSH" "$@"',
     '',
   ].join('\n'))
   await chmod(nodeShim, 0o755)
@@ -114,7 +118,7 @@ async function buildCoreStage() {
   await copyAppFiles(CORE_STAGE)
   await copyNodeRuntime(join(CORE_STAGE, 'node'))
   await writeFile(join(CORE_STAGE, 'package.json'), `${JSON.stringify({
-    // 核心包跨平台：同一个 dsh-x-core 在 Windows 和 mac 上都能用，只有外壳按平台分开
+    // 核心包跨平台：同一个 dsh-x-core 在 Windows / mac / Linux 上都能用，只有外壳按平台分开
     name: 'dsh-x-core',
     productName: 'DSH',
     version: PKG.version,
@@ -155,6 +159,7 @@ function buildInstaller() {
   if (!existsSync(ELECTRON_BUILDER)) throw new Error('缺少 electron-builder，先 npm install')
   const args = [ELECTRON_BUILDER, '--config', join(ROOT, 'electron-builder.config.mjs'), '--publish', 'never']
   if (IS_MAC) args.push('--mac', process.arch === 'arm64' ? '--arm64' : '--x64')
+  else if (IS_LINUX) args.push('--linux')
   else args.push('--win')
   run(process.execPath, args)
   console.log(`安装包输出：${join(ROOT, 'release', 'eb')}`)

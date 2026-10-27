@@ -5,10 +5,12 @@ import test from 'node:test'
 import { MAC_BUNDLE_ID, RUNTIME_NODE } from '../platform.js'
 import { MacFileManager } from '../filemanager-mac.js'
 import { WindowsFileManager } from '../filemanager-windows.js'
+import { LinuxFileManager } from '../filemanager-linux.js'
 
-// 平台差异全在实现类里，所以这份用例直接把两套实现都 new 出来跑，不按当前系统 skip。
+// 平台差异全在实现类里，所以这份用例直接把三套实现都 new 出来跑，不按当前系统 skip。
 const mac = (deps = {}) => new MacFileManager({ home: '/Users/a', env: {}, existsSync: () => false, ...deps })
 const windows = (deps = {}) => new WindowsFileManager({ env: {}, existsSync: () => false, ...deps })
+const linux = (deps = {}) => new LinuxFileManager({ home: '/home/a', env: {}, existsSync: () => false, ...deps })
 
 // macOS 上这就是 /Users/a/Library/Application Support/DSH；在 Windows 上跑这份测试时
 // join 会给出反斜杠，所以期望值也用 join 拼，别把分隔符写死
@@ -17,6 +19,11 @@ const MAC_USER_DIR = join('/Users/a', 'Library', 'Application Support', 'DSH')
 test('每用户目录：Windows 走 %APPDATA%\\DSH，macOS 走 Application Support', () => {
   assert.equal(windows({ env: { APPDATA: 'C:\\Users\\a\\AppData\\Roaming' } }).userAppDir(), join('C:\\Users\\a\\AppData\\Roaming', 'DSH'))
   assert.equal(mac().userAppDir(), MAC_USER_DIR)
+})
+
+test('每用户目录：Linux 走 XDG_CONFIG_HOME，默认 ~/.config/DSH', () => {
+  assert.equal(linux().userAppDir(), join('/home/a', '.config', 'DSH'))
+  assert.equal(linux({ env: { XDG_CONFIG_HOME: '/cfg' } }).userAppDir(), join('/cfg', 'DSH'))
 })
 
 test('每用户目录：macOS 不看 APPDATA（它在 mac 上多半是别的工具随手设的）', () => {

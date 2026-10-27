@@ -76,4 +76,13 @@ export default {
     title: 'DSH-X',
     artifactName: 'DSH-X-${version}-${arch}.${ext}',
   },
+  linux: {
+    target: [{ target: 'AppImage', arch: ['x64'] }],
+    icon: join('assets', 'icon.png'),
+    category: 'Development',
+    executableName: 'DSH',
+    artifactName: 'DSH-X-${version}-${arch}.${ext}',
+    synopsis: 'DeepSeek Harness launcher',
+    description: 'DeepSeek Harness 轻量桌面启动器',
+  },
 }

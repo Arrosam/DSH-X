@@ -15,14 +15,13 @@ import { RUNTIME_NODE } from './platform.js'
  * 里，每处各写一次 `process.platform === 'win32' ? … : …`，加一个平台就得把整份仓库
  * 重新翻一遍。现在业务代码只认 `fileManager.xxx()`，平台差异全压在实现类里。
  *
- * 实现类分开打包：`filemanager-windows.js` 只进 Windows 安装包，`filemanager-mac.js`
- * 只进 macOS 的 .app（见 scripts/pack-common.mjs 的 APP_FILES）。所以这里只能用动态
- * import —— 静态 import 会在「另一套实现没被打进来」的那一侧直接报模块找不到。
+ * 实现类都随核心包发：Windows / mac / Linux 各一套，运行时由 filemanager.js
+ * 动态 import 当前平台那一套；核心 npm 包本身是跨平台的（见 scripts/pack-common.mjs
+ * 的 FILE_MANAGERS）。
  *
- * 要加 Linux：照着两个实现类写一个 `filemanager-linux.js`（整份契约都在下面这个基类
- * 的注释里），在 `pickFileManager()` 里挂上，再把它加进 `APP_FILES` 的平台分支。
- * 在那之前 Linux 落到 PosixFileManager：xdg-open 能用，系统对话框和自启直接报不支持——
- * 和这次重构之前的行为一致。
+ * 要加新平台：照着三个实现类写一个 `filemanager-<平台>.js`（整份契约都在下面这个基类
+ * 的注释里），在 `pickFileManager()` 里挂上，再把它加进 FILE_MANAGERS。没有专门实现的
+ * POSIX 平台落到 PosixFileManager：xdg-open 能用，系统对话框和自启直接报不支持。
  */
 export class FileManager {
   /**
@@ -184,5 +183,5 @@ export class FileManager {
   ignoreOpenError() { return false }
 }
 
-/** 还没有专门实现的平台（现在是 Linux）：xdg-open 这条路能走，其余照契约报不支持。 */
+/** 没有专门实现的其他 POSIX 平台：xdg-open 这条路能走，其余照契约报不支持。 */
 export class PosixFileManager extends FileManager {}

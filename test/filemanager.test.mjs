@@ -7,13 +7,13 @@ import test from 'node:test'
 import { FileManager, PosixFileManager } from '../filemanager-base.js'
 import { MacFileManager } from '../filemanager-mac.js'
 import { WindowsFileManager } from '../filemanager-windows.js'
+import { LinuxFileManager } from '../filemanager-linux.js'
 import { copyAppFiles } from '../scripts/pack-common.mjs'
 
 /**
- * 文件管理接口的契约用例：两套实现跑同一组断言。
- * 加 Linux 实现时把它加进 IMPLEMENTATIONS，这里的「必须自己实现」那条就会替你盯着。
+ * 文件管理接口的契约用例：三套实现跑同一组断言。
  */
-const IMPLEMENTATIONS = [['windows', WindowsFileManager], ['mac', MacFileManager]]
+const IMPLEMENTATIONS = [['windows', WindowsFileManager], ['mac', MacFileManager], ['linux', LinuxFileManager]]
 
 /** 这些成员没有通用答案，每个平台都得自己给，不能从基类继承一个「不支持」糊过去。 */
 const MUST_IMPLEMENT = [
@@ -100,6 +100,48 @@ test('打开地址：Windows 过滤 cmd 的元字符，macOS 原样交给 open',
   assert.deepEqual(mac.calls[0], { command: 'open', args: ['http://127.0.0.1:1/?&x=1'], options: {} })
 })
 
+test('Linux：XDG 目录、AppImage 自启、zenity/kdialog 对话框', async () => {
+  const linux = new LinuxFileManager({ home: '/home/a', env: { XDG_CONFIG_HOME: '/home/a/.config' }, existsSync: () => true })
+  assert.equal(linux.platform, 'linux')
+  assert.equal(linux.userAppDir(), join('/home/a/.config', 'DSH'))
+  assert.equal(linux.autoStartPath, join('/home/a/.config', 'autostart', 'dsh-x.desktop'))
+
+  const appImage = new LinuxFileManager({ home: '/home/a', env: { APPIMAGE: '/home/a/DSH-X.AppImage' }, existsSync: () => true })
+  assert.equal(appImage.launcherExecutable(), '/home/a/DSH-X.AppImage')
+  assert.deepEqual(appImage.launchArgs(), ['/home/a/DSH-X.AppImage'])
+
+  const writes = []
+  const autostart = new LinuxFileManager({
+    home: '/home/a', env: {}, existsSync: () => true,
+    mkdir: async () => {}, rm: async () => {}, writeFile: async (path, body) => { writes.push([path, body]) },
+  })
+  await autostart.setAutoStart(true)
+  assert.match(writes[0][1], /\[Desktop Entry\]/)
+  assert.match(writes[0][1], /X-GNOME-Autostart-enabled=true/)
+
+  const dialog = spy(LinuxFileManager, { stdout: '/home/a/项目\n' })
+  assert.equal(await dialog.fm.pickDirectory('/home/a'), '/home/a/项目')
+  assert.equal(dialog.calls[0].command, 'zenity')
+  assert.ok(dialog.calls[0].args.includes('--directory'))
+  assert.equal(await spy(LinuxFileManager, { stdout: '/home/a/a.zip\n' }).fm.pickFile({ save: true, defaultName: 'a.zip' }), '/home/a/a.zip')
+
+  // zenity 没装（ENOENT）时换 kdialog；用户取消（退出码 1）返回空串
+  const calls = []
+  const kdialog = new LinuxFileManager({
+    home: '/home/a', env: {}, existsSync: () => true,
+    execFile(command, args, options, callback) {
+      calls.push(command)
+      const done = typeof options === 'function' ? options : callback
+      if (command === 'zenity') done(Object.assign(new Error('not found'), { code: 'ENOENT' }), '', '')
+      else done(null, '/home/a/项目\n', '')
+    },
+  })
+  assert.equal(await kdialog.pickDirectory('/home/a'), '/home/a/项目')
+  assert.deepEqual(calls, ['zenity', 'kdialog'])
+  const canceled = spy(LinuxFileManager, { error: Object.assign(new Error('canceled'), { code: 1 }) })
+  assert.equal(await canceled.fm.pickDirectory(), '')
+})
+
 test('没有专门实现的平台：xdg-open 那条路能走，对话框和自启如实报不支持', async () => {
   const posix = new PosixFileManager()
   await assert.rejects(posix.pickDirectory(), /目录选择目前只支持 Windows 和 macOS/)
@@ -110,7 +152,7 @@ test('没有专门实现的平台：xdg-open 那条路能走，对话框和自�
   assert.equal(await posix.autoStartEnabled(), false)
 })
 
-test('核心包同时带两套文件管理实现，运行时按平台选', async () => {
+test('核心包同时带三套文件管理实现，运行时按平台选', async () => {
   const out = mkdtempSync(join(tmpdir(), 'dsh-filemanager-pack-'))
   try {
     await copyAppFiles(out)
@@ -118,6 +160,7 @@ test('核心包同时带两套文件管理实现，运行时按平台选', async
     assert.ok(existsSync(join(out, 'filemanager-base.js')), '契约基类')
     assert.ok(existsSync(join(out, 'filemanager-mac.js')), 'mac 实现随核心包发')
     assert.ok(existsSync(join(out, 'filemanager-windows.js')), 'Windows 实现随核心包发')
+    assert.ok(existsSync(join(out, 'filemanager-linux.js')), 'Linux 实现随核心包发')
   } finally {
     rmSync(out, { recursive: true, force: true })
   }

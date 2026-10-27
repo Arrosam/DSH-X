@@ -2,7 +2,7 @@
 //
 // 安装包只负责外壳和 Electron；核心作为一个 npm 包独立发版，启动器在运行时从 registry
 // 取新版本，解到暂存目录后仍走 apply-update.mjs 换核心目录。
-// 核心包跨平台（两套 filemanager 和 node 包装都在里面），Windows 和 mac 用同一个
+// 核心包跨平台（三套 filemanager 和 node 包装都在里面），Windows / mac / Linux 用同一个
 // dsh-x-core；只有外壳/Electron 按平台分开。
 // 完整性用 npm 的 dist.integrity（sha512）校验；registry 走设置里的下载源（官方/镜像）。
 
@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { netFetch } from './proxy.js'
 import { cmpVer, parseVer, VERSION_CHANNEL } from './version.js'
 
-/** 核心包跨平台：Windows 和 mac 共用同一个 dsh-x-core。 */
+/** 核心包跨平台：Windows / mac / Linux 共用同一个 dsh-x-core。 */
 export const CORE_PACKAGE = String(process.env.DSH_CORE_PACKAGE || 'dsh-x-core').trim()
 
 export const CORE_REGISTRIES = {

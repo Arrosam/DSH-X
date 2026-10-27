@@ -5,7 +5,7 @@ import { basename, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 
-/** Windows（pack.mjs）和 macOS（pack-mac.mjs）两套打包共用的部分：拷哪些文件、pnpm 从哪来。 */
+/** Windows/macOS/Linux 打包共用的部分：拷哪些文件、pnpm 从哪来。 */
 
 export const ROOT = fileURLToPath(new URL('..', import.meta.url))
 export const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
@@ -101,7 +101,7 @@ export async function downloadNodeFile(file, dest) {
  * 文件管理的两套实现都随核心包发：核心 npm 包是跨平台的，运行时由
  * filemanager.js 用动态 import 选当前平台那一套；外壳才按平台分开。
  */
-const FILE_MANAGERS = ['filemanager-windows.js', 'filemanager-mac.js']
+const FILE_MANAGERS = ['filemanager-windows.js', 'filemanager-mac.js', 'filemanager-linux.js']
 
 /**
  * 核心层的内容与平台无关（除了 node/ 包装脚本，两套都由 pack.mjs 写进去）。
