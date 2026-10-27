@@ -132,8 +132,8 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 
 ### npm 版（npm-package/）
 
-- `npm-package/` 是 `dsh-x` CLI 包：`npm i -g dsh-x` 后 `dsh-x` 启动。它依赖 `electron`（版本跟根 `package.json` 的 devDependencies 对齐），核心从 npm 拉 `dsh-x-core-<平台>` 到用户缓存（Windows `%LOCALAPPDATA%\dsh-x`、mac `~/Library/Caches/dsh-x`），再用 Electron 打开缓存里的核心。
-- CLI 设置 `DSH_NPM=1` 和 `DSH_ELECTRON_BIN`；核心的 `NPM_MODE` 会关掉安装包/核心自更新，设置页「关于」提示用 `npm update -g dsh-x`。`node/` 包装脚本优先用 `DSH_ELECTRON_BIN`，找不到才回退安装版的 `DSH.exe` / `Contents/MacOS/DSH`。
+- `npm-package/` 是 `@yyh001/dsh-x` CLI 包：`npm i -g @yyh001/dsh-x` 后 `dsh-x` 启动。它依赖 `electron`（版本跟根 `package.json` 的 devDependencies 对齐），核心从 npm 拉 `dsh-x-core-<平台>` 到用户缓存（Windows `%LOCALAPPDATA%\dsh-x`、mac `~/Library/Caches/dsh-x`），再用 Electron 打开缓存里的核心。
+- CLI 设置 `DSH_NPM=1` 和 `DSH_ELECTRON_BIN`；核心的 `NPM_MODE` 会关掉安装包/核心自更新，设置页「关于」提示用 `npm update -g @yyh001/dsh-x`。`node/` 包装脚本优先用 `DSH_ELECTRON_BIN`，找不到才回退安装版的 `DSH.exe` / `Contents/MacOS/DSH`。
 - `scripts/pack-npm.mjs` 打包/发布 CLI；CI 的 `npm-package` job 在两个平台核心发布后发 `dsh-x`（需要 `NPM_TOKEN` 和 npm 上的包名）。npm 版没有快捷方式、卸载项和开机自启；数据目录与安装版共用。
 
 ### 打包与安装布局

@@ -1,9 +1,9 @@
-# dsh-x（npm 版）
+# @yyh001/dsh-x（npm 版）
 
 用 npm 安装的 DSH-X 启动器：Electron 外壳 + 从 npm 拉取的平台核心。
 
 ```sh
-npm i -g dsh-x
+npm i -g @yyh001/dsh-x
 dsh-x
 ```
 
@@ -12,7 +12,7 @@ dsh-x
 - Windows：`%LOCALAPPDATA%\dsh-x`
 - macOS：`~/Library/Caches/dsh-x`
 
-之后用 `dsh-x --update` 更新核心，或用 `npm update -g dsh-x` 更新 CLI 和 Electron 依赖。
+之后用 `dsh-x --update` 更新核心，或用 `npm update -g @yyh001/dsh-x` 更新 CLI 和 Electron 依赖。
 
 ## 命令
 

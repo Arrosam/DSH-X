@@ -40,7 +40,8 @@ try {
 } finally {
   await rm(STAGE, { recursive: true, force: true }).catch(() => {})
 }
-const tgz = join(OUT, `dsh-x-${version}.tgz`)
+const base = String(pkg.name).replace(/^@/, '').replace('/', '-')
+const tgz = join(OUT, `${base}-${version}.tgz`)
 if (!existsSync(tgz)) throw new Error(`npm pack 没有产出 ${tgz}`)
 console.log(`npm 包：${tgz}`)
 if (process.argv.includes('--publish')) {

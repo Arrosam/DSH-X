@@ -1312,7 +1312,7 @@
   "发现新版本 {latest}，正在打开更新窗口…": "Version {latest} is available. Opening the update dialog…",
   "检查更新失败：{message}": "Update check failed: {message}",
   "连不上发布页，请检查网络或下载源后重试。": "Could not reach the release page. Check your network or download source and try again.",
-  "npm 安装的版本请用 npm update -g dsh-x 更新。": "This npm-installed copy updates with npm update -g dsh-x.",
+  "npm 安装的版本请用 npm update -g @yyh001/dsh-x 更新。": "This npm-installed copy updates with npm update -g @yyh001/dsh-x.",
   "DSH-X 外壳": "DSH-X shell",
   "更新外壳到 {latest}": "Update the shell to {latest}",
   "外壳更新会替换整个安装包（Electron 和启动器代码），安装完成后会自动打开。": "The shell update replaces the whole installer (Electron and launcher code) and reopens automatically.",
@@ -5342,7 +5342,7 @@
             aboutUpdateHintEl.textContent = t('发现外壳新版本 {latest}，正在打开更新窗口…', { latest: shell.latest || '' })
             showAsk({ dsh: null, shell, self: data.update || coreReady ? { current: data.current, latest: data.latest || data.app?.latest, url: data.url } : null })
           } else if (data.npm) {
-            aboutUpdateHintEl.textContent = t('npm 安装的版本请用 npm update -g dsh-x 更新。')
+            aboutUpdateHintEl.textContent = t('npm 安装的版本请用 npm update -g @yyh001/dsh-x 更新。')
           } else if (!data.latest && !coreReady) {
             aboutUpdateHintEl.textContent = t('连不上发布页，请检查网络或下载源后重试。')
           } else if (coreReady) {

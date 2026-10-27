@@ -207,5 +207,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dsh-x-npm
-          path: release/dsh-x-*.tgz
+          path: release/yyh001-dsh-x-*.tgz
           if-no-files-found: error
