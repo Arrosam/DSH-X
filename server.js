@@ -137,6 +137,8 @@ const PUBLIC = join(ROOT, 'public')
 let CONFIG = join(DATA, 'config.json')
 const PKG = '@deepseek-ai/dsh'
 const APP_VERSION = String(pkg.version || '0.0.0')
+/** 外壳版本：外壳加载核心前通过 DSH_SHELL_VERSION 传进来；拆包后和核心版本分开走。 */
+const SHELL_VERSION = String(process.env.DSH_SHELL_VERSION || APP_VERSION)
 const APP_REPO = 'yyh-001/DSH-X'
 // 发布页上的安装包名：scripts/pack.mjs 按平台产出同名文件
 const APP_SETUP = IS_MAC ? `DSH-X-mac-${process.arch}.dmg` : 'DSH-Setup.exe'
@@ -2664,6 +2666,8 @@ async function checkSelfUpdate({ force = false } = {}) {
   const fallback = { current, latest: null, update: false, url }
   // npm 版：CLI 和核心都走 npm，不提示完整安装包
   if (NPM_MODE) return { ...fallback, npm: true }
+  // 拆包后的核心：完整安装包的自更新归外壳（electron-updater），这里不再查 GitHub
+  if (process.env.DSH_CORE === '1') return { ...fallback, shell: true }
   if (!force && selfCache.data && Date.now() - selfCache.at < 30 * 60 * 1000) return selfCache.data
   try {
     const latest = await fetchLatestTag()
@@ -2755,10 +2759,9 @@ export async function refreshShortcuts({ installRoot, appDir = APP_DIR, version 
 }
 
 /**
- * 检查核心更新：核心是 npm 上的 dsh-x-core-<平台>，按启动器版本所在通道查 dist-tags。
- * 安装包和 Electron 不在核心更新范围内；Electron 版本不同时只提示用完整安装包。
- * Windows 换 resources/app（替换助手等退出后备份、换目录、重启）；mac 换 .app 里的
- * Resources/app 后重签。
+ * 检查核心更新：核心是 npm 上的 dsh-x-core-<平台>，按核心版本所在通道查 dist-tags。
+ * 外壳/Electron 不在核心更新范围内（那是 electron-updater 的事）；Electron 版本不同时
+ * 只提示更新外壳。核心目录在用户目录里，不在签名的 .app 内，mac 也不需要重签。
  */
 async function checkAppUpdate({ force = false } = {}) {
   if (NPM_MODE) return { available: false, reason: 'npm' }
@@ -2766,15 +2769,6 @@ async function checkAppUpdate({ force = false } = {}) {
   if (!force && appUpdateCache.data && Date.now() - appUpdateCache.at < APP_UPDATE_CACHE_MS) return appUpdateCache.data
   const remember = (data) => { appUpdateCache = { at: Date.now(), data }; return data }
   const latest = APP_VERSION
-  if (IS_MAC) {
-    try {
-      assertMacUpdatable()
-    } catch (error) {
-      return remember({ available: false, reason: 'unwritable', latest, error: error?.message || String(error) })
-    }
-    const ready = macIncrementalReadiness()
-    if (!ready.ok) return remember({ available: false, reason: ready.reason, latest, error: ready.error })
-  }
   let result
   try {
     result = await checkCoreUpdate({
@@ -5275,12 +5269,12 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/shell-update') {
-    send(res, 200, host.shellUpdate?.state() || { status: 'disabled', current: APP_VERSION, latest: '', error: '' })
+    send(res, 200, host.shellUpdate?.state() || { status: 'disabled', current: SHELL_VERSION, latest: '', error: '' })
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/shell-update/check') {
     try {
-      send(res, 200, host.shellUpdate ? await host.shellUpdate.check() : { status: 'disabled', current: APP_VERSION, latest: '', error: '' })
+      send(res, 200, host.shellUpdate ? await host.shellUpdate.check() : { status: 'disabled', current: SHELL_VERSION, latest: '', error: '' })
     } catch (error) {
       send(res, 400, { error: error instanceof Error ? error.message : String(error) })
     }
@@ -5288,7 +5282,7 @@ async function handleApi(req, res, url) {
   }
   if (req.method === 'POST' && url.pathname === '/api/shell-update/download') {
     try {
-      send(res, 200, host.shellUpdate ? await host.shellUpdate.download() : { status: 'disabled', current: APP_VERSION, latest: '', error: '' })
+      send(res, 200, host.shellUpdate ? await host.shellUpdate.download() : { status: 'disabled', current: SHELL_VERSION, latest: '', error: '' })
     } catch (error) {
       send(res, 400, { error: error instanceof Error ? error.message : String(error) })
     }
@@ -5549,59 +5543,60 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/self/app-apply') {
-    // 应用层增量：起替换助手（等退出后备份旧 app、换目录、重启；失败回滚）
+    // 核心增量：内置基线 → 复制到用户目录 core/current，重启外壳（外壳优先加载它）；
+    // 已经在 core/current → 替换助手等外壳退出后原地换目录，失败回滚。
     try {
       if (!stagedApp || !stagingExists(stagedApp.dir)) throw new Error('还没有下载好的应用更新')
       const stats = stagingStats(stagedApp.dir)
       if (stats.files < 100) throw new Error('暂存目录不完整，重新下载一次')
-      if (IS_MAC) {
-        // mac：换 .app/Contents/Resources/app，重签后重启；助手用 /bin/sh，不依赖包里的可执行文件
-        const bundle = assertMacUpdatable()
-        const ready = macIncrementalReadiness()
-        if (!ready.ok) throw new Error(ready.error || '当前安装不支持增量更新，请用完整安装包')
-        const script = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.sh`)
-        writeFileSync(script, MAC_APP_SWAP_SCRIPT)
-        chmodSync(script, 0o755)
-        const child = spawn('/bin/sh', [script,
-          String(process.pid),
-          ROOT,
-          stagedApp.dir,
-          bundle,
-          join(APP_DIR, 'update.log'),
-          join(APP_DIR, 'update-ok'),
-          join(dirname(ROOT), `app.bak-${APP_VERSION}`),
-          ready.identity || '-',
-        ], { cwd: tmpdir(), detached: true, stdio: 'ignore' })
+      const activeCore = join(APP_DIR, 'core', 'current')
+      if (fileManager.samePath(ROOT, activeCore)) {
+        // 已经在用户目录：助手等外壳退出 → 备份 → 换入 → 重启 → 等 update-ok，失败回滚
+        const helper = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.mjs`)
+        copyFileSync(join(ROOT, 'apply-update.mjs'), helper)
+        const child = spawn(RUNTIME_NODE, [helper,
+          '--app', ROOT,
+          '--staged', stagedApp.dir,
+          '--exe', process.execPath,
+          '--pid', String(process.pid),
+          '--backup', `${ROOT}.bak-${APP_VERSION}`,
+          '--marker', join(APP_DIR, 'update-ok'),
+          '--log', join(APP_DIR, 'update.log'),
+        ], {
+          cwd: tmpdir(),
+          env: { ...process.env, ...RUNTIME_NODE_ENV },
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+        })
         child.unref()
-        pushLog(`应用增量更新：替换助手已启动（${stagedApp.version}），启动器即将退出`)
+        pushLog(`核心更新：替换助手已启动（${stagedApp.version}），启动器即将退出`)
         send(res, 200, { ok: true, version: stagedApp.version })
         setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
         return
       }
-      const helper = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.mjs`)
-      copyFileSync(join(ROOT, 'apply-update.mjs'), helper)
-      const child = spawn(RUNTIME_NODE, [helper,
-        '--app', ROOT,
-        '--staged', stagedApp.dir,
-        '--exe', process.execPath,
-        '--pid', String(process.pid),
-        '--backup', `${ROOT}.bak-${APP_VERSION}`,
-        '--marker', join(APP_DIR, 'update-ok'),
-        '--log', join(APP_DIR, 'update.log'),
-      ], {
-        cwd: tmpdir(),
-        env: { ...process.env, ...RUNTIME_NODE_ENV },
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-      })
-      child.unref()
-      pushLog(`应用增量更新：替换助手已启动（${stagedApp.version}），启动器即将退出`)
-      send(res, 200, { ok: true, version: stagedApp.version })
-      setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
+      // 内置基线：复制到用户目录，写 pending 标记；外壳下次启动优先加载 current，
+      // 起不来（外壳里的 recoverBaseline）会删掉 current 回退到基线
+      const pending = join(APP_DIR, 'core', 'pending')
+      const version = stagedApp.version
+      const stagedDir = stagedApp.dir
+      await rm(activeCore, { recursive: true, force: true })
+      await mkdir(dirname(activeCore), { recursive: true })
+      await cp(stagedDir, activeCore, { recursive: true })
+      stagedApp = null
+      try { rmSync(stagedDir, { recursive: true, force: true }) } catch { /* 临时目录清不掉不影响 */ }
+      writeFileSync(pending, JSON.stringify({ version, at: Date.now() }))
+      pushLog(`核心更新：已复制到 ${activeCore}（${version}），重启外壳`)
+      send(res, 200, { ok: true, version })
+      // 不能直接 spawn DSH.exe：当前进程还占着单实例锁，新进程会立刻退出。
+      // 外壳的 host.relaunch 用 app.relaunch()，等本进程退出后才拉起新外壳。
+      setTimeout(() => shutdown().finally(() => {
+        if (typeof host.relaunch === 'function') host.relaunch()
+        else host.exit(0)
+      }), 200)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      pushLog(`应用增量更新失败：${message}`)
+      pushLog(`核心更新失败：${message}`)
       send(res, 400, { error: message })
     }
     return
@@ -6556,8 +6551,9 @@ export async function startServer() {
     pushLog(`DSH 管理器 http://127.0.0.1:${PORT}`)
     // 给应用层增量更新的替换助手留一个「新版本启动成功」的标记
     try { writeFileSync(join(APP_DIR, 'update-ok'), String(Date.now())) } catch { /* 标记写不了不影响启动 */ }
-    // 版本更新后刷新快捷方式图标（图标文件名带版本号，快捷方式还指着旧文件）
-    void refreshShortcuts().catch(() => {})
+    // 版本更新后刷新快捷方式图标（图标文件名带版本号，快捷方式还指着旧文件）。
+    // 拆包后核心在 resources/core / 用户目录里，安装根目录的快捷方式由外壳安装包负责，核心不再碰。
+    if (process.env.DSH_CORE !== '1') void refreshShortcuts().catch(() => {})
     pushLog(`版本目录 ${DATA}`)
     pushLog(`DSH_HOME ${homeDir()}`)
     const system = detectSystemDsh()

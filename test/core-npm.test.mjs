@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { coreDistTag, coreMetadataUrl, extractCoreTarball, resolveCoreRelease, stagingStats, tarCommand } from '../core-npm.js'
+import { CORE_PACKAGE, coreDistTag, coreMetadataUrl, extractCoreTarball, resolveCoreRelease, stagingStats, tarCommand } from '../core-npm.js'
 import { VERSION_CHANNEL } from '../version.js'
 
 const tempRoot = () => mkdtempSync(join(realpathSync.native(tmpdir()), 'dsh-core-npm-'))
@@ -33,8 +33,9 @@ test('npm 元数据：按通道取 dist-tag，取不到退回 latest', () => {
   assert.equal(resolveCoreRelease({ 'dist-tags': { latest: '1.0.0' }, versions: {} }, VERSION_CHANNEL.OFFICIAL), null)
 })
 
-test('npm 包名：scoped 包要编码斜杠', () => {
-  assert.equal(coreMetadataUrl('https://registry.npmjs.org/', 'dsh-x-core-win'), 'https://registry.npmjs.org/dsh-x-core-win')
+test('npm 包名：核心包跨平台，scoped 包要编码斜杠', () => {
+  assert.equal(CORE_PACKAGE, 'dsh-x-core', 'Windows 和 mac 共用同一个核心包')
+  assert.equal(coreMetadataUrl('https://registry.npmjs.org/', 'dsh-x-core'), 'https://registry.npmjs.org/dsh-x-core')
   assert.equal(coreMetadataUrl('https://registry.npmjs.org', '@scope/dsh-x-core'), 'https://registry.npmjs.org/@scope%2Fdsh-x-core')
 })
 

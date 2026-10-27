@@ -68,13 +68,13 @@ Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / �
 | `skills/` | 给 AI 用的技能源码（随仓库分发，不进安装包）：`dsh-x-selfcheck` 只读自检 DSH-X 环境（环境/管理页/数据目录/DSH_HOME/profile/实例/插件/技能/同步/日志），`node skills/dsh-x-selfcheck/scripts/selfcheck.mjs`，零依赖；用例见 `test/selfcheck-skill.test.mjs` |
 | `compat/` `perf/` | 注入 dsh 进程的钩子：兼容修补与加速 |
 | `launcher/` | Rust 安装引擎（`installer.rs` 读网页安装界面的进度、拉起内嵌 Inno 引擎）；旧的 Rust 外壳（0.1.19 及以前）已删，只留安装器这一个 bin |
-| `shell/` | Windows / macOS 的 Electron 外壳（`main.mjs` 窗口 / 托盘 / 菜单，`tabs.mjs` 内部标签页，`preload.cjs` 页面桥） |
+| `shell/` | Windows / macOS 的 Electron 外壳（`main.mjs` 窗口 / 托盘 / 菜单，`tabs.mjs` 内部标签页，`preload.cjs` 页面桥，`updater.mjs` electron-updater）；`package.json` 是外壳版本，核心版本在根 `package.json` |
 | `test/` | 用例与假服务器 |
 | `docs/` | GitHub Pages 落地页 + 看板娘设计稿（`mascot-design/`） |
 | `assets/` | 图标 master（`icon.png` → `make-icons.py` 出全套） |
 | `data/` `release/` `vendor/` | 运行时数据与产物，gitignored，可重建，**不用整理** |
 
-**顶层 .js 平铺是有意的，不是没整理**：安装目录也是平铺的——`scripts/pack-common.mjs` 的 `APP_FILES` 按名字把文件原样拷进 `resources/app`（Windows：`<安装目录>/resources/app/`；macOS：`DSH-X.app/Contents/Resources/app/`），`shell/` 按 `../server.js` 引用服务。要把它们收进 `src/` 得同时改四处（`APP_FILES` 与拷贝目标、`platform.js`/`server.js` 的根路径推导、`shell/` 的相对引用、`dsh-setup.iss`）并重新打包验证，别只挪文件。
+**顶层 .js 平铺是有意的，不是没整理**：核心文件按 `scripts/pack-common.mjs` 的 `APP_FILES` 原样拷进 `resources/core`（Windows：`<安装目录>/resources/core/`；macOS：`DSH-X.app/Contents/Resources/core/`），外壳在 `resources/app`，启动时动态 import 核心的 `server.js`。要把它们收进 `src/` 得同时改 `APP_FILES` 与拷贝目标、`platform.js`/`server.js` 的根路径推导、核心更新路径和 `scripts/pack.mjs`，并重新打包验证，别只挪文件。
 
 ## 关键机制
 
@@ -119,34 +119,39 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 
 ### 核心更新（core-npm.js / apply-update.mjs）
 
-- 发布侧：核心（app 层）作为一个 npm 包发版：Windows 是 `dsh-x-core-win`，mac 是 `dsh-x-core-mac`。`scripts/pack-core.mjs` 把 `release/app-stage`（electron-builder 的 app 层）打成 tarball，包里的 `package.json` 带 `dshX.electron`（构建所用的 Electron 版本）；CI 在 tag 上用 `NPM_TOKEN` 按版本通道发到 `latest` / `rc` / `alpha`。安装包由 electron-builder 出，核心包和安装包解耦。
-- 客户端：`/api/self` 的 `app` 来自 npm registry 的 dist-tags（按当前版本所在通道选），`/api/self/app-download` 下载 tarball、校验 npm 的 `dist.integrity`（sha512）、解到暂存目录，`/api/self/app-apply` 负责切换。registry 默认官方/镜像跟着设置里的下载源走，`DSH_CORE_REGISTRY` 可以覆盖（本地演示用）。
-- **统一安装布局**：Windows 安装包（`DSH-Setup-<版本>.exe`）把 Electron 壳装在安装根目录、`resources/app` 是普通目录；mac 是 `DSH-X.app/Contents/Resources/app`。两端都只有这一种布局。
-  - Windows 换 `resources/app`：替换助手（`apply-update.mjs`，等父进程退出 → 备份旧 app → 换目录 → 重启 → 45 秒内等不到启动标记 `<APP_DIR>/update-ok` 就回滚）。
-  - macOS 换 `Resources/app`：`MAC_APP_SWAP_SCRIPT`（等退出 → 备份 → 换目录 → `codesign --force --deep --sign <身份>` 重签整个包 → `open` 重启 → 45 秒启动标记，失败回滚并重签旧包）。只对 ad-hoc / 未签名的包开放（`macSignatureAllowsIncremental`）；固定证书签名的包重签会破坏公证，直接回退完整 dmg。
+- 发布侧：核心作为一个跨平台 npm 包发版：`dsh-x-core`（Windows 和 mac 共用；两套 filemanager 和 node 包装都在包里，运行时按平台选）。`scripts/pack-core.mjs` 把 `release/core-stage` 打成 tarball，包里的 `package.json` 的 `main` 是 `server.js`，并带 `dshX.electron`（构建所用的 Electron 版本）；CI 在 Windows job 上用 `NPM_TOKEN` 按版本通道发到 `latest` / `rc` / `alpha`。mac job 只出 dmg/zip，不再发第二个核心包。
+- **版本分两套**：根 `package.json` 是核心版本（npm 核心包、安装包里的基线核心），`shell/package.json` 是外壳版本（electron-builder 的安装包、`latest.yml`、npm CLI 包）。UI/服务端改动只 bump 核心版本，外壳版本不动，所以不会触发 100MB+ 的安装包更新；只有 Electron/主进程/托盘/更新器变化才 bump 外壳版本。
+- **bump 规则**：只改核心 → 只 bump 根 `package.json`；只改外壳/Electron → 只 bump `shell/package.json`；Electron 升级时两个都 bump（核心包要按新 Electron 重发，npm 不允许覆盖同版本）。只改核心时 npm CLI 包版本不变，CI 的 `npm view` 检查会跳过重复发布。
+- **迁移**：旧 0.1.20 外壳只认 `dsh-x-core-win` / `dsh-x-core-mac`，不会看到新的 `dsh-x-core`，所以先发新核心包也不会被旧外壳的 `app-apply` 拿去换 `resources/app`。旧安装要先 bump `shell/package.json` 发一次新外壳（electron-updater 会拉），之后新外壳/CLI 才走 `dsh-x-core`；旧的平台包保持原样，不再发新版本。
+- 客户端：`/api/self` 的 `app` 来自 npm registry 的 dist-tags（按核心版本所在通道选），`/api/self/app-download` 下载 tarball、校验 npm 的 `dist.integrity`（sha512）、解到暂存目录，`/api/self/app-apply` 负责切换。registry 默认官方/镜像跟着设置里的下载源走，`DSH_CORE_REGISTRY` 可以覆盖（本地演示用）。
+- **安装布局**：`resources/app` 只有外壳（Electron main/tray/updater/preload/tabs + `electron-updater` 依赖），`resources/core` 是基线核心。mac 是 `Contents/Resources/app` + `Contents/Resources/core`。外壳启动时按 `DSH_CORE_DIR` → `%APPDATA%\DSH\core\current`（mac `~/Library/Application Support/DSH/core/current`）→ `resources/core` 选核心，动态 import 它的 `server.js`；核心声明 `dshX.electron` 和当前外壳不一致时退回基线。
+- 核心切换：
+  - 内置基线 → 复制暂存目录到 `core/current`，写 `pending`，用外壳的 `host.relaunch`（`app.relaunch()`，等本进程退出后才拉起新外壳）重启；新核心起不来时外壳的 `recoverBaseline` 删掉 current 并回退基线。
+  - 已经在 `core/current` → 替换助手 `apply-update.mjs`（等父进程退出 → 备份 → 换目录 → 重启 → 45 秒内等不到启动标记 `<APP_DIR>/update-ok` 就回滚）。
+  - 核心在用户目录里，不在签名的 .app 内，mac 不需要重签；旧版换 `Resources/app` + `MAC_APP_SWAP_SCRIPT` 的代码只为兼容旧安装包保留，核心更新不再走它。
 - **外壳/Electron 升级**：`shell/updater.mjs` 用 electron-updater（electron-builder 的 NSIS/dmg + `latest.yml`/`latest-mac.yml` + blockmap）。主进程把 `shellUpdate` 状态/操作挂在 host 上，页面走 `/api/shell-update/check|download|install`，进度是 SSE `shellUpdate`。安装时先停 dsh、退出，再静默安装并拉起新版。mac 没有 Developer ID 时 `identity: null`，electron-updater 不可用，回退完整 dmg。
-- **核心升级**：核心包声明 `dshX.electron`，和当前进程不一致时 `checkAppUpdate` 返回 `reason: 'electron'`，页面提示先更新外壳；核心更新只换 `resources/app`，不动 Electron。
-- 边界：源码运行、mac 固定证书签名、npm 上还没有对应平台包时都不提供核心更新；页面按外壳更新或手动下载兜底。
-- 版本更新后启动器会刷新桌面/开始菜单快捷方式图标（`refreshShortcuts`）：图标文件名带版本号（`assets/dsh-<版本>.ico`），每个版本只改一次并记戳。
-- 本地验收：`node scripts/update-flow-demo.mjs` 用 `release/app-stage` 造一份 0.1.21 的假核心和假 npm registry，按打印的命令（带 `DSH_CORE_REGISTRY`）启动 `release/eb/win-unpacked` 里的测试安装，点更新即可走完整替换流程；外壳更新用 `DSH_UPDATE_FEED` 指到本地 latest.yml 目录。
+- **核心升级**：核心包声明 `dshX.electron`，和当前进程不一致时 `checkAppUpdate` 返回 `reason: 'electron'`，页面提示先更新外壳；核心更新只换核心目录，不动 Electron。
+- 边界：源码运行、npm 版（`NPM_MODE`）、npm 上还没有对应平台包时都不提供核心更新；拆包后的核心模式（`DSH_CORE=1`）关掉 GitHub 安装包自更新检查，由外壳的 electron-updater 负责。
+- 快捷方式图标：electron-builder 的快捷方式指向 `DSH.exe`，图标随外壳安装包更新；核心模式不再调 `refreshShortcuts`。
+- 本地验收：`node scripts/update-flow-demo.mjs` 用 `release/core-stage` 造一份 0.1.21 的假核心和假 npm registry，复制 `release/eb/win-unpacked` 到 `release/test-install`，按打印的命令（`APPDATA` 指到 `test-install/userdata`、带 `DSH_CORE_REGISTRY`）启动，点更新即可走「复制到 core/current → 重启外壳」；外壳更新用 `DSH_UPDATE_FEED` 指到本地 latest.yml 目录。
 
 ### npm 版（npm-package/）
 
-- `npm-package/` 是 `@yyh001/dsh-x` CLI 包：`npm i -g @yyh001/dsh-x` 后 `dsh-x` 启动。它依赖 `electron`（版本跟根 `package.json` 的 devDependencies 对齐），核心从 npm 拉 `dsh-x-core-<平台>` 到用户缓存（Windows `%LOCALAPPDATA%\dsh-x`、mac `~/Library/Caches/dsh-x`），再用 Electron 打开缓存里的核心。
-- CLI 设置 `DSH_NPM=1` 和 `DSH_ELECTRON_BIN`；核心的 `NPM_MODE` 会关掉安装包/核心自更新，设置页「关于」提示用 `npm update -g @yyh001/dsh-x`。`node/` 包装脚本优先用 `DSH_ELECTRON_BIN`，找不到才回退安装版的 `DSH.exe` / `Contents/MacOS/DSH`。
-- `scripts/pack-npm.mjs` 打包/发布 CLI；CI 的 `npm-package` job 在两个平台核心发布后发 `dsh-x`（需要 `NPM_TOKEN` 和 npm 上的包名）。npm 版没有快捷方式、卸载项和开机自启；数据目录与安装版共用。
+- `npm-package/` 是 `@yyh001/dsh-x` CLI 包：`npm i -g @yyh001/dsh-x` 后 `dsh-x` 启动。包里有 `shell/` 和 `assets/icon.png`，版本跟 `shell/package.json` 走；依赖 `electron`（版本跟根 `package.json` 的 devDependencies 对齐），核心从 npm 拉跨平台的 `dsh-x-core` 到用户缓存（Windows `%LOCALAPPDATA%\dsh-x`、mac `~/Library/Caches/dsh-x`），然后 `spawn(electron, [包根])` 启动外壳，并用 `DSH_CORE_DIR` 指向缓存核心。
+- CLI 设置 `DSH_NPM=1`、`DSH_CORE_DIR` 和 `DSH_ELECTRON_BIN`；核心的 `NPM_MODE` 会关掉安装包/核心自更新，设置页「关于」提示用 `npm update -g @yyh001/dsh-x`。`node/` 包装脚本优先用 `DSH_ELECTRON_BIN`，找不到才回退安装版的 `DSH.exe` / `Contents/MacOS/DSH`。
+- `scripts/pack-npm.mjs` 打包/发布 CLI（含外壳）；CI 的 `npm-package` job 在两个平台核心发布后发 `dsh-x`（需要 `NPM_TOKEN` 和 npm 上的包名）。npm 版没有快捷方式、卸载项和开机自启；数据目录与安装版共用。
 
 ### 打包与安装布局
 
-- 文件管理的实现类不在 `APP_FILES` 里，由 `copyAppFiles(out, platform)` 按平台挑一个（`FILE_MANAGERS`）：Windows 的包里没有 `filemanager-mac.js`，反之亦然。平台没有对应实现时打包直接报错，不会装出一个起不来的包。
-- `APP_FILES`（`scripts/pack-common.mjs`）= 启动器源码清单；`copyAppFiles` 把它们平铺拷进 app 目录（macOS: `DSH-X.app/Contents/Resources/app/`；Windows: `<安装目录>/resources/app/`），**不打 asar**：dsh 子进程要按真实路径读 `compat/`、`perf/`，包里的 `package.json` 的 `main` 改指 `shell/main.mjs`。
-- app 目录里还有 `node/`（运行时目录：只有 npm / pnpm 的 JS 包和 `node` / `node.cmd` 包装，**没有 node.exe**——dsh 子进程用 Electron 自带的 Node）、`public/`、`assets/`、`compat/`、`perf/`、`packs/`。
-- **Windows / macOS 外壳都是 Electron**：`pack.mjs` 先把 `APP_FILES` + `shell/` + `node/`（npm/pnpm 包装）+ `electron-updater` 依赖组装到 `release/app-stage`，再交给 electron-builder（`electron-builder.config.mjs`）出 NSIS/dmg/zip；`asar: false` 保持真实文件路径。`pack-mac.mjs`、`electron-prune.mjs`、`launcher/` 的旧 Rust/Inno 安装引擎已经退役，不再参与构建。
+- 文件管理的实现类不在 `APP_FILES` 里，`copyAppFiles` 把两套都拷进核心包（`FILE_MANAGERS`）；运行时 `filemanager.js` 按平台动态 import 只加载一套。核心包跨平台，所以不能再按平台只带一套；外壳才按平台分开。
+- `APP_FILES`（`scripts/pack-common.mjs`）= 核心源码清单；`copyAppFiles` 把它们平铺拷进核心目录（macOS: `DSH-X.app/Contents/Resources/core/`；Windows: `<安装目录>/resources/core/`），**不打 asar**：dsh 子进程要按真实路径读 `compat/`、`perf/`。核心的 `package.json` 的 `main` 是 `server.js`，由外壳动态 import。
+- 核心目录里还有 `node/`（运行时目录：只有 npm / pnpm 的 JS 包和 `node` / `node.cmd` 包装，**没有 node.exe**——dsh 子进程用 Electron 自带的 Node）、`public/`、`assets/`、`compat/`、`perf/`、`packs/`。
+- **Windows / macOS 外壳都是 Electron**：`pack.mjs` 先分别组装 `release/shell-stage`（`shell/` + 图标 + `electron-updater` 依赖，版本 = `shell/package.json`）和 `release/core-stage`（`APP_FILES` + `node/`，版本 = 根 `package.json`），再交给 electron-builder（`electron-builder.config.mjs`）出 NSIS/dmg/zip；`directories.app` 指 shell-stage，core-stage 走 `extraResources` 放到 `resources/core`。`asar: false` 保持真实文件路径。`pack-mac.mjs`、`electron-prune.mjs`、`launcher/` 的旧 Rust/Inno 安装引擎已经退役，不再参与构建。
 - **Electron 版本钉死 44.7.0，别随手升**：dsh 的 `node-addon-require-builtin` 只给几个 Electron 版本留了预编译（43.0.0 / 44.0.0 / 44.7.0 / 45.0.0-alpha.6），版本对不上时 dsh 一启动就报 `unsupported Electron runtime fingerprint`（见 `dsh: host preparation failed`）。升级 Electron 前先看 dsh 那边的支持列表，改完在打包版里真启动一个实例验证。
-- 两个平台和服务同进程（Electron 外壳），用 `setHost({ onWake, openTab, openWindow, exit, shellUpdate })` 直接接管；旧 Rust 外壳读 stdout 标记行的路径已经退役。
+- 两个平台和服务同进程（Electron 外壳），用 `setHost({ onWake, openTab, openWindow, exit, relaunch, shellUpdate })` 直接接管；`relaunch` 供核心更新后重启外壳（`app.relaunch()`，避免单实例锁把新进程顶掉）。旧 Rust 外壳读 stdout 标记行的路径已经退役。
 - dsh / npm / pnpm 子进程一律用 `platform.js` 的 `RUNTIME_NODE`，**别用 `process.execPath` 自己拼**：Electron 里 `RUNTIME_NODE` 就是 Electron 本体，拉子进程时必须同时展开 `RUNTIME_NODE_ENV`（里面是 `ELECTRON_RUN_AS_NODE=1`），否则会当 GUI 打开；`withBundledRuntime` / `orderRuntimePaths` 负责把 `node/` 里的 `node` / `node.cmd` 包装放进 PATH。
 - 自更新（Windows）：electron-updater 下载 NSIS 安装包 → 静默安装 → 由安装程序拉起新版；macOS 用 `latest-mac.yml` + zip（需要 Developer ID 签名；没有就回退完整 dmg）。electron-builder 的 `latest.yml` / `latest-mac.yml` 和 `.blockmap` 必须一起上传，否则差分/更新取不到包。
-- 发版产物要一起传：Windows 的 `DSH-Setup-<版本>.exe` + `.blockmap` + `latest.yml`，mac 的 dmg + zip + `latest-mac.yml`；核心 npm 包由 `pack-core.mjs` 单独发。
+- 发版产物要一起传：Windows 的 `DSH-Setup-<外壳版本>.exe` + `.blockmap` + `latest.yml`，mac 的 dmg + zip + `latest-mac.yml`；核心 npm 包（`<核心版本>`）由 `pack-core.mjs` 单独发。只改核心时外壳版本不变，安装包名和 `latest.yml` 的版本与上次相同（electron-updater 因此不提示外壳更新），核心走 npm 更新。
 
 ### 网络与子进程环境
 

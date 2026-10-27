@@ -98,24 +98,19 @@ export async function downloadNodeFile(file, dest) {
 
 /** 把启动器的源码和静态资源拷进 out（node 运行时和原生外壳由各平台自己放）。 */
 /**
- * 文件管理的实现类按平台分开打包：装到哪台机器上就只带哪一套。
- * filemanager.js 用动态 import 挑实现，所以另一套不在安装目录里也不会报模块找不到。
+ * 文件管理的两套实现都随核心包发：核心 npm 包是跨平台的，运行时由
+ * filemanager.js 用动态 import 选当前平台那一套；外壳才按平台分开。
  */
-const FILE_MANAGERS = {
-  win32: 'filemanager-windows.js',
-  darwin: 'filemanager-mac.js',
-}
+const FILE_MANAGERS = ['filemanager-windows.js', 'filemanager-mac.js']
 
 /**
- * platform 决定带哪套文件管理实现，默认跟着当前这台机器 —— Windows 的包在
- * Windows 上打、mac 的包在 mac 上打，两条链路本来就各自在自己的平台跑。
+ * 核心层的内容与平台无关（除了 node/ 包装脚本，两套都由 pack.mjs 写进去）。
+ * 安装包的外壳才按平台分开：Windows 出 NSIS，mac 出 dmg/zip。
  */
-export async function copyAppFiles(out, platform = process.platform) {
+export async function copyAppFiles(out) {
   await mkdir(join(out, 'public'), { recursive: true })
   await mkdir(join(out, 'assets'), { recursive: true })
-  const fileManager = FILE_MANAGERS[platform]
-  if (!fileManager) throw new Error(`没有 ${platform} 的文件管理实现：照 filemanager-base.js 的契约补一个再打包`)
-  for (const file of [...APP_FILES, fileManager]) {
+  for (const file of [...APP_FILES, ...FILE_MANAGERS]) {
     await copyFile(join(ROOT, file), join(out, file))
   }
   await cp(join(ROOT, 'public'), join(out, 'public'), {

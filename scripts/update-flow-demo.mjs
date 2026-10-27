@@ -3,12 +3,13 @@
 //   node scripts/update-flow-demo.mjs
 //
 // 做三件事：
-// 1. 用 release/DSH/resources/app 打一份「0.1.21」的假核心 tarball，放进 release/test-release/
+// 1. 用 release/core-stage 打一份「0.1.21」的假核心 tarball，放进 release/test-release/
 // 2. 在 8899 起一个假的 npm registry（元数据 + tarball），客户端用 DSH_CORE_REGISTRY 指过来
-// 3. 把 release/DSH 复制成 release/test-install，更新只改这份副本
+// 3. 把 electron-builder 产出的安装目录复制成 release/test-install（外壳 + 基线核心）
 //
 // 然后按打印出来的命令启动测试安装：管理器里点更新，走
-// 查 npm 元数据 → 下载 tarball → sha512 校验 → 解压 → 换 resources/app → 重启。
+// 查 npm 元数据 → 下载 tarball → sha512 校验 → 解压 → 复制到用户目录 core/current → 重启外壳。
+// APPDATA 指到 test-install/userdata，测试不会碰本机真实的 DSH 数据。
 
 import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
@@ -25,11 +26,12 @@ const PORT = 8899
 const CURRENT = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
 const NEXT = '0.1.21'
 const IS_MAC = process.platform === 'darwin'
-const APP = join(RELEASE, 'app-stage')
+const APP = join(RELEASE, 'core-stage')
+const USER_DATA = join(TEST_INSTALL, 'userdata')
 const TEST_APP = IS_MAC ? join(TEST_INSTALL, 'DSH-X.app') : join(TEST_INSTALL, 'DSH.exe')
 const LAUNCH = IS_MAC ? join(TEST_APP, 'Contents', 'MacOS', 'DSH') : TEST_APP
 const electronVersion = JSON.parse(await readFile(join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
-const PACKAGE = process.env.DSH_CORE_PACKAGE || (IS_MAC ? 'dsh-x-core-mac' : 'dsh-x-core-win')
+const PACKAGE = process.env.DSH_CORE_PACKAGE || 'dsh-x-core'
 
 let metadata = null
 let tarballName = ''
@@ -104,17 +106,21 @@ async function prepareInstall() {
     if (!existsSync(join(built, 'DSH.exe'))) throw new Error('找不到 electron-builder 产出的 win-unpacked')
     await cp(built, TEST_INSTALL, { recursive: true })
   }
+  await mkdir(USER_DATA, { recursive: true })
   console.log(`测试安装目录：${TEST_INSTALL}`)
+  console.log(`测试用户数据：${USER_DATA}`)
 }
 
 await buildAssets()
 const server = serve()
 await prepareInstall()
+const shellVersion = JSON.parse(readFileSync(join(ROOT, 'shell', 'package.json'), 'utf8')).version
+const envPrefix = IS_MAC ? `HOME="${USER_DATA}"` : `APPDATA="${USER_DATA}"`
 console.log('')
-console.log(`启动测试安装（当前 ${CURRENT}），管理器里点更新应看到 ${NEXT}：`)
-console.log(`  DSH_CORE_REGISTRY=http://127.0.0.1:${PORT} "${LAUNCH}"`)
+console.log(`启动测试安装（核心 ${CURRENT}，外壳 ${shellVersion}），管理器里点更新应看到核心 ${NEXT}：`)
+console.log(`  ${envPrefix} DSH_CORE_REGISTRY=http://127.0.0.1:${PORT} "${LAUNCH}"`)
 console.log('')
-console.log('点「更新到 0.1.21」：查 npm 元数据 → 下载核心 tarball → sha512 校验 → 换 resources/app → 重启。')
-console.log('Electron 版本变化时核心包会拒绝，管理器回退到完整安装包。')
+console.log('点「更新到 0.1.21」：查 npm 元数据 → 下载核心 tarball → sha512 校验 → 复制到 core/current → 重启外壳。')
+console.log('外壳版本不变，所以不会下载完整安装包；Electron 版本变化时才需要更新外壳。')
 console.log('测试完 Ctrl+C 结束本地 registry。')
 void server

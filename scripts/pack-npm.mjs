@@ -1,9 +1,10 @@
-// 把 npm-package/ 打成 dsh-x 的 npm 包；--publish 时发到 npm。
+// 把 npm-package/ + shell/ 打成 dsh-x 的 npm 包；--publish 时发到 npm。
 //
 //   node scripts/pack-npm.mjs
 //   node scripts/pack-npm.mjs --publish
 //
-// CLI 包本身很小，核心和 Electron 都在运行时按平台获取（核心从 npm，Electron 是依赖）。
+// CLI 包本身很小：外壳代码在这里，核心在运行时按平台从 npm 拉，Electron 是依赖。
+// 版本跟外壳走（shell/package.json），核心版本由 npm 上的 dsh-x-core-* 决定。
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -23,16 +24,23 @@ function run(command, args, cwd = ROOT) {
 }
 
 const rootPkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-const version = rootPkg.version
+const shellPkg = JSON.parse(readFileSync(join(ROOT, 'shell', 'package.json'), 'utf8'))
+const version = shellPkg.version
 const electron = String(rootPkg.devDependencies?.electron || '').replace(/^[~^]/, '') || '44.7.0'
 
 await rm(STAGE, { recursive: true, force: true })
 await mkdir(STAGE, { recursive: true })
 await cp(SOURCE, STAGE, { recursive: true })
+// 外壳：Electron 入口是包根的 shell/main.mjs；托盘图标在 assets/icon.png
+await cp(join(ROOT, 'shell'), join(STAGE, 'shell'), { recursive: true })
+await mkdir(join(STAGE, 'assets'), { recursive: true })
+await cp(join(ROOT, 'assets', 'icon.png'), join(STAGE, 'assets', 'icon.png'))
 const pkgPath = join(STAGE, 'package.json')
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
 pkg.version = version
+pkg.main = 'shell/main.mjs'
 pkg.dependencies = { ...pkg.dependencies, electron }
+pkg.files = [...new Set([...(pkg.files || []), 'shell', 'assets/icon.png'])]
 await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
 await mkdir(OUT, { recursive: true })
 try {
@@ -46,6 +54,13 @@ if (!existsSync(tgz)) throw new Error(`npm pack 没有产出 ${tgz}`)
 console.log(`npm 包：${tgz}`)
 if (process.argv.includes('--publish')) {
   const tag = { official: 'latest', rc: 'rc', alpha: 'alpha' }[versionChannel(version)] || 'latest'
-  run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['publish', tgz, '--tag', tag, '--access', 'public'])
-  console.log(`已发布 dsh-x@${version}（${tag}）`)
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+  // 只改核心的版本里外壳版本不变：同一个 CLI 版本已经发过就跳过，别让 CI 红在「不能覆盖已发布版本」
+  const existing = spawnSync(npm, ['view', `${pkg.name}@${version}`, 'version'], { encoding: 'utf8', windowsHide: true, shell: process.platform === 'win32' })
+  if (existing.status === 0 && existing.stdout.trim()) {
+    console.log(`${pkg.name}@${version} 已经在 npm 上，跳过发布`)
+  } else {
+    run(npm, ['publish', tgz, '--tag', tag, '--access', 'public'])
+    console.log(`已发布 dsh-x@${version}（${tag}）`)
+  }
 }

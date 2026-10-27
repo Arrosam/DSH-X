@@ -37,13 +37,14 @@ export class MacFileManager extends FileManager {
 
   /**
    * 当前代码所在的 .app 包路径；源码运行返回空串。
-   * 打包布局是 <X>.app/Contents/Resources/app/<本文件>。
+   * 打包布局是 <X>.app/Contents/Resources/core/<本文件>（旧版是 Resources/app）。
+   * 只看 Resources/Contents 两层，核心在 app 还是 core 目录下都能找到外壳。
    */
   appBundle(root = this.root) {
     const resources = dirname(root)
     const contents = dirname(resources)
     const bundle = dirname(contents)
-    if (basename(root) !== 'app' || basename(resources) !== 'Resources' || basename(contents) !== 'Contents') return ''
+    if (basename(resources) !== 'Resources' || basename(contents) !== 'Contents') return ''
     return bundle.endsWith('.app') ? bundle : ''
   }
 

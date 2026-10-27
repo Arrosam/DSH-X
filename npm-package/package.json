@@ -9,6 +9,8 @@
   "files": [
     "bin",
     "lib",
+    "shell",
+    "assets/icon.png",
     "README.md"
   ],
   "engines": {
@@ -19,7 +21,8 @@
     "darwin"
   ],
   "dependencies": {
-    "electron": "44.7.0"
+    "electron": "44.7.0",
+    "electron-updater": "^6.8.11"
   },
   "keywords": [
     "dsh",

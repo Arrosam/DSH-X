@@ -4,15 +4,15 @@ import { FileManager, PosixFileManager } from './filemanager-base.js'
 /**
  * 按平台挑一套文件管理实现，业务代码只认这里导出的 `fileManager`。
  *
- * 实现类分开打包：`filemanager-windows.js` 只进 Windows 安装包，`filemanager-mac.js`
- * 只进 macOS 的 .app（见 scripts/pack-common.mjs 的 APP_FILES）。所以只能用动态
- * import —— 静态 import 会在「另一套实现没被打进来」的那一侧直接报模块找不到。
+ * 两套实现都随核心包发（核心 npm 包是跨平台的，见 scripts/pack-common.mjs 的
+ * FILE_MANAGERS）；运行时用动态 import 只加载当前平台那一套。这样同一个 dsh-x-core
+ * 在 Windows 和 mac 上都能用，只有外壳/Electron 按平台分开。
  *
  * 契约、基类和 Linux 的兜底实现都在 filemanager-base.js：实现类静态 import 的是它，
  * 不是本文件——本文件有顶层 await，实现类再回头 import 它就会死锁。
  *
  * 要加 Linux：照着两个实现类写一个 `filemanager-linux.js`（整份契约在基类的注释里），
- * 在下面挂上，再把它加进 `APP_FILES` 的平台分支。在那之前 Linux 落到 PosixFileManager：
+ * 在下面挂上，再把它加进 FILE_MANAGERS。在那之前 Linux 落到 PosixFileManager：
  * xdg-open 能用，系统对话框和自启直接报不支持——和这次重构之前的行为一致。
  */
 async function pickFileManager() {

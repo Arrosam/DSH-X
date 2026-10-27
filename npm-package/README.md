@@ -7,12 +7,12 @@ npm i -g @yyh001/dsh-x
 dsh-x
 ```
 
-首次运行会从 npm registry 下载当前平台的核心包（`dsh-x-core-win` / `dsh-x-core-mac`，约 12 MB），缓存到：
+首次运行会从 npm registry 下载跨平台的核心包（`dsh-x-core`，约 12 MB；Windows 和 mac 共用同一个包），缓存到：
 
 - Windows：`%LOCALAPPDATA%\dsh-x`
 - macOS：`~/Library/Caches/dsh-x`
 
-之后用 `dsh-x --update` 更新核心，或用 `npm update -g @yyh001/dsh-x` 更新 CLI 和 Electron 依赖。
+之后用 `dsh-x --update` 更新核心，或用 `npm update -g @yyh001/dsh-x` 更新 CLI（外壳）和 Electron 依赖。每次启动也会检查 npm 上的核心版本，有新版就自动下载。
 
 ## 命令
 
@@ -26,7 +26,7 @@ dsh-x --help
 
 ## 和安装版的区别
 
-- 安装版（`DSH-Setup.exe` / dmg）自带 Electron 和一份核心，更新走安装包/核心自更新。
+- 安装版（`DSH-Setup.exe` / dmg）自带 Electron 外壳和一份基线核心；外壳用 electron-updater 更新，核心用 npm 更新。
 - npm 版用 `electron` npm 依赖和缓存里的核心，更新走 npm；没有快捷方式、卸载项和开机自启。
 - 两者共用 `%APPDATA%\DSH`（macOS `~/Library/Application Support/DSH`）里的设置和 dsh 版本，单实例锁会让先启动的那个接管。
 

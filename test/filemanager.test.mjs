@@ -110,25 +110,15 @@ test('没有专门实现的平台：xdg-open 那条路能走，对话框和自�
   assert.equal(await posix.autoStartEnabled(), false)
 })
 
-test('分开打包：装到哪个平台就只带哪一套实现', async () => {
+test('核心包同时带两套文件管理实现，运行时按平台选', async () => {
   const out = mkdtempSync(join(tmpdir(), 'dsh-filemanager-pack-'))
   try {
-    await copyAppFiles(out, 'darwin')
-    assert.ok(existsSync(join(out, 'filemanager.js')), '选实现的入口两个平台都要')
-    assert.ok(existsSync(join(out, 'filemanager-base.js')), '契约基类两个平台都要')
-    assert.ok(existsSync(join(out, 'filemanager-mac.js')))
-    assert.ok(!existsSync(join(out, 'filemanager-windows.js')), 'mac 的包里不该有 Windows 的实现')
+    await copyAppFiles(out)
+    assert.ok(existsSync(join(out, 'filemanager.js')), '选实现的入口')
+    assert.ok(existsSync(join(out, 'filemanager-base.js')), '契约基类')
+    assert.ok(existsSync(join(out, 'filemanager-mac.js')), 'mac 实现随核心包发')
+    assert.ok(existsSync(join(out, 'filemanager-windows.js')), 'Windows 实现随核心包发')
   } finally {
     rmSync(out, { recursive: true, force: true })
   }
-  const win = mkdtempSync(join(tmpdir(), 'dsh-filemanager-pack-'))
-  try {
-    await copyAppFiles(win, 'win32')
-    assert.ok(existsSync(join(win, 'filemanager-windows.js')))
-    assert.ok(!existsSync(join(win, 'filemanager-mac.js')), 'Windows 的包里不该有 mac 的实现')
-  } finally {
-    rmSync(win, { recursive: true, force: true })
-  }
-  // 没实现的平台要在打包时就喊停，而不是装完了才发现起不来
-  await assert.rejects(copyAppFiles(mkdtempSync(join(tmpdir(), 'dsh-filemanager-pack-')), 'linux'), /filemanager-base\.js 的契约/)
 })

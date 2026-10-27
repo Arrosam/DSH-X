@@ -14,7 +14,9 @@ test('npm 包元数据：有 bin、平台限制和 electron 依赖', () => {
   assert.equal(PKG.bin['dsh-x'], 'bin/dsh-x.mjs')
   assert.deepEqual(PKG.os, ['win32', 'darwin'])
   assert.ok(PKG.dependencies.electron, 'electron 是运行时依赖')
+  assert.ok(PKG.dependencies['electron-updater'], '外壳 updater 的依赖也要带上')
   assert.ok(PKG.files.includes('bin') && PKG.files.includes('lib'))
+  assert.ok(PKG.files.includes('shell'), 'npm 版带着外壳代码')
 })
 
 test('npm CLI 的 --version / --core 不联网也能用', () => {

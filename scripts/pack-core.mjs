@@ -1,23 +1,22 @@
-// 把 app 层打成 npm 核心包：dsh-x-core-<平台>@<版本>。
+// 把核心层打成 npm 核心包：dsh-x-core@<版本>。
 //
-//   node scripts/pack-core.mjs                    # 用 release/DSH/resources/app，当前版本
+//   node scripts/pack-core.mjs                    # 用 release/core-stage，当前核心版本
 //   node scripts/pack-core.mjs --version 0.1.21   # 本地演示用假版本
 //   node scripts/pack-core.mjs --publish          # 发到 npm（CI 里用 NPM_TOKEN）
 //
-// 核心包按平台分开：app 层里的 filemanager 和 node 包装脚本本来就不同。
-// 发布脚本只做打包，不碰安装包；安装包仍然由 pack.mjs 出。
+// 核心包跨平台：两套 filemanager 和两套 node 包装都在里面，Windows 和 mac 共用同一个包。
+// 发布脚本只做打包，不碰安装包；安装包仍然由 pack.mjs 出（外壳 + 基线核心）。
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { versionChannel } from '../version.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const DEFAULT_APP = join(ROOT, 'release', 'app-stage')
-const IS_MAC = process.platform === 'darwin'
+const DEFAULT_APP = join(ROOT, 'release', 'core-stage')
 
 function argValue(name, fallback = '') {
   const index = process.argv.indexOf(name)
@@ -33,13 +32,20 @@ function run(command, args, cwd = ROOT) {
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed`)
 }
 
-export function corePackageName(platform = process.platform) {
-  return process.env.DSH_CORE_PACKAGE || (platform === 'win32' ? 'dsh-x-core-win' : platform === 'darwin' ? 'dsh-x-core-mac' : 'dsh-x-core')
+export function corePackageName() {
+  return process.env.DSH_CORE_PACKAGE || 'dsh-x-core'
 }
 
 /** 生成核心 tarball；返回路径与完整性信息（演示和 CI 共用）。 */
 export async function buildCorePackage({ appDir = DEFAULT_APP, version, outDir = join(ROOT, 'release'), electronVersion, name } = {}) {
-  if (!existsSync(join(appDir, 'server.js'))) throw new Error(`缺少 app 层：${appDir}（先跑 npm run dist）`)
+  if (!existsSync(join(appDir, 'server.js'))) throw new Error(`缺少核心层：${appDir}（先跑 npm run dist）`)
+  // 跨平台核心包要在 mac 上也能直接跑：POSIX 包装脚本必须带可执行位（npm pack 会保留）
+  if (process.platform !== 'win32') {
+    for (const name of ['node', 'npm', 'npx', 'pnpm', 'pnpx']) {
+      const shim = join(appDir, 'node', name)
+      if (!existsSync(shim) || (statSync(shim).mode & 0o111) === 0) throw new Error(`核心层的 POSIX 包装不可执行：${shim}`)
+    }
+  }
   const pkgVersion = String(version || JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version)
   const electron = String(electronVersion || JSON.parse(readFileSync(join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version)
   const packageName = String(name || corePackageName())
@@ -53,9 +59,10 @@ export async function buildCorePackage({ appDir = DEFAULT_APP, version, outDir =
     version: pkgVersion,
     private: false,
     type: 'module',
-    main: 'shell/main.mjs',
+    // 核心由外壳用 server.js 启动，不是 Electron 入口
+    main: 'server.js',
     files: ['**/*'],
-    // 核心按哪个 Electron 版本构建；启动器发现不一致就让用户走完整安装包
+    // 核心按哪个 Electron 版本构建；外壳发现不一致就让用户更新外壳
     dshX: { electron },
   }, null, 2)}\n`)
   await mkdir(outDir, { recursive: true })
@@ -86,7 +93,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   console.log(`integrity：${result.integrity}`)
   if (process.argv.includes('--publish')) {
     const tag = { official: 'latest', rc: 'rc', alpha: 'alpha' }[versionChannel(result.version)] || 'latest'
-    run(npmCommand(), ['publish', result.tgzPath, '--tag', tag, '--access', 'public'])
-    console.log(`已发布 ${result.packageName}@${result.version}（${tag}）`)
+    const npm = npmCommand()
+    // 只改外壳的版本里核心版本不变：同一个核心包已经发过就跳过
+    const existing = spawnSync(npm, ['view', `${result.packageName}@${result.version}`, 'version'], { encoding: 'utf8', windowsHide: true, shell: process.platform === 'win32' })
+    if (existing.status === 0 && existing.stdout.trim()) {
+      console.log(`${result.packageName}@${result.version} 已经在 npm 上，跳过发布`)
+    } else {
+      run(npm, ['publish', result.tgzPath, '--tag', tag, '--access', 'public'])
+      console.log(`已发布 ${result.packageName}@${result.version}（${tag}）`)
+    }
   }
 }
