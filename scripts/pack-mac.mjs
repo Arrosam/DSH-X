@@ -1,49 +1,51 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
-import { chmod, copyFile, cp, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
-  NODE_VERSION,
   PKG,
   ROOT,
   VENDOR,
+  buildShellBinary,
   copyAppFiles,
   copyNpmModules,
-  copyPnpm,
+  copyPnpm as copyPnpmModule,
   downloadNodeFile,
+  nodeArchiveFile,
   run,
 } from './pack-common.mjs'
-import { packager } from '@electron/packager'
 import { LAUNCHER_NAME, MAC_APP_NAME, MAC_BUNDLE_ID } from '../platform.js'
 import { macSigningIdentity, signMacBundle } from './mac-signing.mjs'
-import { pruneMacElectron } from './electron-prune.mjs'
 
 /**
  * macOS 打包：release/DSH-X.app + release/DSH-X-mac-<arch>.dmg。
  *
- * 外壳是 Electron（shell/），不再是 launcher/ 的 Rust + WKWebView；Rust 那边现在只剩安装引擎。
+ * 安装包里没有 Electron，也没有 Node：外壳是 launcher/ 的 Rust 二进制（WKWebView），
+ * Node 由外壳首次运行时下载到数据目录，Electron 由服务按需下载。
  * 包的布局（platform.js 的 appBundle 按它找文件，自更新按它换包）：
- *   DSH-X.app/Contents/MacOS/DSH            Electron 主程序（executableName 改成了 DSH）
- *   DSH-X.app/Contents/Frameworks/…         Electron 框架与 Helper
- *   DSH-X.app/Contents/Resources/app/…      和 Windows 安装目录一样的内容 + shell/；node 就地是 Electron 本身
+ *   DSH-X.app/Contents/MacOS/DSH            原生外壳
+ *   DSH-X.app/Contents/Resources/app/…      启动器自己的代码 + shell/ + npm/pnpm 的 JS 包
  *   DSH-X.app/Contents/Resources/AppIcon.icns
  *
- * Resources/app 是普通目录、不打 asar：dsh 子进程要用 Electron 自带的 Node（ELECTRON_RUN_AS_NODE=1）
- * 去跑里面的 compat/、perf/ 钩子，管理服务也要按真实路径找 public/ 和随包的整合包，asar 里的文件外部进程读不到。
+ * Resources/app 是普通目录：原生外壳用下载的 Node 跑 app 里的 start.js；按需下载的 Electron
+ * 也用它当应用目录（package.json 的 main 指向 shell/main.mjs）。node 本体不在里面——
+ * 签名后的 .app 不能写，Node 只能放数据目录。
  *
  * dmg 的文件名带架构，和 server.js 的 APP_SETUP 对上——自更新按它去发布页取包。
- * 默认打当前机器的架构；DSH_MAC_ARCH=x64 / arm64 可以指定（Electron 和 node 都按架构下载，不用交叉编译）。
+ * 两个架构各自在自己的机器上打（CI 是两台 runner）：跨架构构建要另装 Rust target、
+ * 而且本机也没法验证，这里不猜。
  */
 
 const ARCH = process.env.DSH_MAC_ARCH || process.arch
 const ARCHS = new Set(['arm64', 'x64'])
 if (!ARCHS.has(ARCH)) throw new Error(`不支持的架构：${ARCH}（只支持 ${[...ARCHS].join(' / ')}）`)
+if (ARCH !== process.arch) throw new Error(`DSH_MAC_ARCH=${ARCH} 与当前机器 ${process.arch} 不一致：跨架构请在对应架构的机器上打包`)
 macSigningIdentity() // 缺固定证书时在下载 Node / 编译 Rust 前就中止正式构建
 
-const DIST = `node-v${NODE_VERSION}-darwin-${ARCH}`
-const TARBALL = `${DIST}.tar.gz`
-const TARBALL_PATH = join(VENDOR, TARBALL)
+const NODE_TARBALL = nodeArchiveFile(`darwin-${ARCH}`)
+const DIST = NODE_TARBALL.replace(/\.tar\.gz$/, '')
+const TARBALL_PATH = join(VENDOR, NODE_TARBALL)
 const EXTRACTED = join(VENDOR, DIST)
 const RELEASE = join(ROOT, 'release')
 const BUNDLE = join(RELEASE, MAC_APP_NAME)
@@ -58,42 +60,39 @@ const DS_STORE_WAIT_SECONDS = 20
 const DMG_TITLE_BAR = 28
 /** dmg 窗口布局（点，左上角为原点）：背景图和 Finder 摆图标共用这一份。 */
 const DMG_LAYOUT = { width: 640, height: 440, iconSize: 112, appX: 170, appsX: 470, iconY: 190 }
-/** Electron 官方构建要求的最低系统版本：比 Node 22 的 11.0 高，以它为准（Electron 44 起是 13.0）。 */
-const MIN_MACOS = '13.0'
-/** Electron 包装出来的临时目录（packager 的 out），组装好之后挪到 release/DSH-X.app。 */
-const ELECTRON_OUT = join(RELEASE, 'electron-out')
-/** 外壳源码：和 APP_FILES 一样平铺拷进 Resources/app/shell。 */
-const SHELL_DIR = join(ROOT, 'shell')
+/**
+ * 最低系统版本 11.0：打包出来的外壳二进制（LC_BUILD_VERSION 的 minos 就是 11.0，
+ * 即 rustc 在 aarch64-apple-darwin 上的默认部署目标）与外壳首次运行要下载的 Node 22
+ * 官方二进制（同一版本实测 minos 也是 11.0）都是这个下限。比 Electron 时代的 13 低。
+ */
+const MIN_MACOS = '11.0'
 /** iconset 需要的尺寸（每个再配一张 @2x）。 */
 const ICON_SIZES = [16, 32, 128, 256, 512]
 
+/**
+ * 打包时下载一份 Node 发行包，只是为了抄出 npm / pnpm 的 JS 包。
+ * node 本体不进安装包（安装包也不带运行时）。
+ */
 async function downloadNode() {
   await mkdir(VENDOR, { recursive: true })
-  if (existsSync(join(EXTRACTED, 'bin', 'node'))) return
-  await downloadNodeFile(TARBALL, TARBALL_PATH)
+  if (existsSync(join(EXTRACTED, 'lib', 'node_modules', 'npm'))) return
+  await downloadNodeFile(NODE_TARBALL, TARBALL_PATH)
   run('tar', ['-xzf', TARBALL_PATH, '-C', VENDOR])
 }
 
 /**
- * 自带运行时目录摆成和 Windows 一样的扁平布局（node/node_modules + 包装脚本），
- * server.js 的 withBundledRuntime、registry.js 的 LOCAL_NODE 只认这一种。
- * 这里**不再放 node 可执行文件**：dsh 子进程用 Electron 本体（ELECTRON_RUN_AS_NODE=1），和 Windows 一致。
- * 发行包里的 npm/npx 是指向 ../lib/node_modules 的符号链接，换了布局就断了，所以自己写包装。
+ * app 层的 node/ 目录：只有 npm / pnpm 的 JS 包和命令行包装，没有 node 本体。
+ * 包装脚本调用 PATH 上的 `node` —— 原生外壳启动服务时把下载运行时所在的 bin
+ * 目录前置进了 PATH（服务再传给 dsh 子进程），app 层自己的 node/ 里没有 node，
+ * 不会遮蔽运行时那份。发行包里的 npm/npx 是指向 ../lib/node_modules 的符号链接，
+ * 换了布局就断了，所以自己写包装。
  */
 async function copyNodeRuntime() {
   const nodeDir = join(APP, 'node')
   await mkdir(nodeDir, { recursive: true })
-  // 插件构建脚本里叫 `node` 时落到 Electron 上；路径从 Resources/app/node 指回 Contents/MacOS/DSH
-  const nodeShim = join(nodeDir, 'node')
-  await writeFile(nodeShim, [
-    '#!/bin/sh',
-    'ELECTRON_RUN_AS_NODE=1 exec "$(dirname "$0")/../../../MacOS/DSH" "$@"',
-    '',
-  ].join('\n'))
-  await chmod(nodeShim, 0o755)
   const modules = join(EXTRACTED, 'lib', 'node_modules')
   await copyNpmModules(modules, nodeDir)
-  await copyPnpm(nodeDir, join(modules, 'npm', 'bin', 'npm-cli.js'))
+  await copyPnpmModule(nodeDir, join(modules, 'npm', 'bin', 'npm-cli.js'))
   const shims = {
     npm: 'npm/bin/npm-cli.js',
     npx: 'npm/bin/npx-cli.js',
@@ -105,66 +104,11 @@ async function copyNodeRuntime() {
     await writeFile(file, [
       '#!/bin/sh',
       'dir="$(cd "$(dirname "$0")" && pwd)"',
-      `exec "$dir/node" "$dir/node_modules/${cli}" "$@"`,
+      `exec node "$dir/node_modules/${cli}" "$@"`,
       '',
     ].join('\n'))
     await chmod(file, 0o755)
   }
-}
-
-/**
- * 只要 Electron 的空壳：packager 负责下载对应架构的 Electron、改名（可执行文件 → DSH，Helper 跟着改）、
- * 写 Info.plist 的基础项。app 目录给它一个只含 package.json 的占位，真正的内容下面自己拷——
- * packager 默认会打 asar、按 package.json 裁 node_modules，这两样都不适合这个布局（见文件头）。
- */
-async function buildShell() {
-  const stub = join(tmpdir(), `dsh-x-electron-stub-${process.pid}`)
-  rmSync(stub, { recursive: true, force: true })
-  await mkdir(stub, { recursive: true })
-  await writeFile(join(stub, 'package.json'), JSON.stringify({ name: 'dsh-x', productName: 'DSH-X', version: PKG.version, main: 'shell/main.mjs' }))
-  // packager 会检查入口文件存在；占位而已，assemble 时整个 app 目录换成真正的内容
-  await mkdir(join(stub, 'shell'), { recursive: true })
-  await writeFile(join(stub, 'shell', 'main.mjs'), '')
-  rmSync(ELECTRON_OUT, { recursive: true, force: true })
-  const electronVersion = JSON.parse(await readFile(join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
-  const [out] = await packager({
-    dir: stub,
-    out: ELECTRON_OUT,
-    platform: 'darwin',
-    arch: ARCH,
-    electronVersion,
-    name: 'DSH-X',
-    executableName: LAUNCHER_NAME,
-    appBundleId: MAC_BUNDLE_ID,
-    appVersion: PKG.version,
-    buildVersion: PKG.version,
-    appCategoryType: 'public.app-category.developer-tools',
-    appCopyright: 'Copyright (C) 2026 yyh',
-    darwinDarkModeSupport: true,
-    asar: false,
-    prune: false,
-    overwrite: true,
-    quiet: true,
-    // 签名在组装完之后统一做（scripts/mac-signing.mjs），这里不签
-    osxSign: false,
-  })
-  rmSync(stub, { recursive: true, force: true })
-  return join(out, 'DSH-X.app')
-}
-
-/**
- * Info.plist：packager 已写好基础项，这里补上我们自己的（图标、语言、最低系统）和
- * 媒体权限的用途说明——dsh 的语音输入要麦克风，没有说明文字 macOS 会直接拒绝、连询问都不弹。
- */
-function patchInfoPlist(plist) {
-  const set = (key, type, value) => run('plutil', ['-replace', key, `-${type}`, value, plist])
-  set('CFBundleIconFile', 'string', ICON_FILE)
-  set('CFBundleDevelopmentRegion', 'string', 'zh_CN')
-  set('CFBundleDisplayName', 'string', 'DSH-X')
-  set('LSMinimumSystemVersion', 'string', MIN_MACOS)
-  set('NSHighResolutionCapable', 'bool', 'YES')
-  set('NSMicrophoneUsageDescription', 'string', 'DSH 的语音输入需要使用麦克风。 / DSH voice input uses the microphone.')
-  set('NSCameraUsageDescription', 'string', 'DSH 页面请求使用摄像头时需要。 / Needed when a DSH page asks for the camera.')
 }
 
 /** assets/icon.png（512 母版）→ AppIcon.icns。 */
@@ -181,26 +125,57 @@ function buildIcon(dest) {
   rmSync(iconset, { recursive: true, force: true })
 }
 
-async function assemble(shellApp) {
+/**
+ * Info.plist 自己写（不再由 @electron/packager 生成）。基础键之外只留真正需要的：
+ * 图标、最低系统、深色模式与高分屏。麦克风/摄像头用途说明不用了——外壳里只有管理页，
+ * dsh 的语音输入在系统浏览器或按需下载的 Electron 窗口里，不在这个签名的 .app 里。
+ */
+function infoPlist() {
+  const entries = {
+    CFBundleDevelopmentRegion: 'zh_CN',
+    CFBundleDisplayName: 'DSH-X',
+    CFBundleExecutable: LAUNCHER_NAME,
+    CFBundleIconFile: ICON_FILE,
+    CFBundleIdentifier: MAC_BUNDLE_ID,
+    CFBundleInfoDictionaryVersion: '6.0',
+    CFBundleName: 'DSH-X',
+    CFBundlePackageType: 'APPL',
+    CFBundleShortVersionString: PKG.version,
+    CFBundleVersion: PKG.version,
+    LSApplicationCategoryType: 'public.app-category.developer-tools',
+    LSMinimumSystemVersion: MIN_MACOS,
+    NSHumanReadableCopyright: 'Copyright (C) 2026 yyh',
+  }
+  const body = Object.entries(entries)
+    .map(([key, value]) => `  <key>${key}</key>\n  <string>${value}</string>`)
+    .join('\n')
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0">',
+    '<dict>',
+    body,
+    // 支持深色模式、高分屏（不写的话 WKWebView 在 Retina 上是糊的）
+    '  <key>NSHighResolutionCapable</key>\n  <true/>',
+    '  <key>NSRequiresAquaSystemAppearance</key>\n  <false/>',
+    '</dict>',
+    '</plist>',
+    '',
+  ].join('\n')
+}
+
+async function assemble(shellBinary) {
   rmSync(BUNDLE, { recursive: true, force: true })
-  await rename(shellApp, BUNDLE)
-  rmSync(ELECTRON_OUT, { recursive: true, force: true })
-  // packager 放的占位 app 换成真正的内容
-  rmSync(APP, { recursive: true, force: true })
-  await copyAppFiles(APP)
-  await cp(SHELL_DIR, join(APP, 'shell'), { recursive: true })
-  // Electron 按 Resources/app/package.json 的 main 找入口；仓库里的 main 是给 npm start 的 start.js，
-  // 包里改指外壳。版本号等其余字段原样保留（server.js 读它显示版本、比较自更新）。
-  const appPackage = join(APP, 'package.json')
-  await writeFile(appPackage, `${JSON.stringify({ ...JSON.parse(await readFile(appPackage, 'utf8')), main: 'shell/main.mjs' }, null, 2)}\n`)
+  await mkdir(join(CONTENTS, 'MacOS'), { recursive: true })
+  await copyFile(shellBinary, join(CONTENTS, 'MacOS', LAUNCHER_NAME))
+  await chmod(join(CONTENTS, 'MacOS', LAUNCHER_NAME), 0o755)
+  await copyAppFiles(APP, 'darwin')
   await copyNodeRuntime()
-  // Electron 默认的 electron.icns 换成我们的图标
-  rmSync(join(CONTENTS, 'Resources', 'electron.icns'), { force: true })
   buildIcon(join(CONTENTS, 'Resources', ICON_FILE))
-  patchInfoPlist(join(CONTENTS, 'Info.plist'))
-  // 签名之前裁剪 Electron 自带的多语言与软件渲染（见 electron-prune.mjs 的理由）
-  const prunedBytes = pruneMacElectron(BUNDLE)
-  if (prunedBytes > 0) console.log(`已裁剪 Electron 运行时：省下 ${(prunedBytes / 1048576).toFixed(1)} MB`)
+  await writeFile(join(CONTENTS, 'Info.plist'), infoPlist())
+  // 有些老工具仍按 PkgInfo 认「这是个应用包」；两行字，顺手写上
+  await writeFile(join(CONTENTS, 'PkgInfo'), 'APPL????')
+  // 签名放在所有文件都齐之后：改 resources 里的任何东西都会让已有签名失效
   signMacBundle(BUNDLE)
   console.log(`已打包到 ${BUNDLE}`)
 }
@@ -298,6 +273,7 @@ function buildDmg() {
   const rw = join(tmpdir(), `dsh-x-dmg-${process.pid}-rw.dmg`)
   rmSync(staging, { recursive: true, force: true })
   run('mkdir', ['-p', join(staging, '.background')])
+  // ditto 保留符号链接与权限位；用 cp -R 会把 .app 里的链接语义改掉
   run('ditto', [BUNDLE, join(staging, MAC_APP_NAME)])
   run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', join(staging, MAC_APP_NAME)])
   run('ln', ['-s', '/Applications', join(staging, 'Applications')])
@@ -326,13 +302,12 @@ function buildDmg() {
   }
 
   rmSync(DMG, { force: true })
-  // UDBZ（bzip2）比 UDZO（zlib-9）压得更小，Chromium 的大二进制上大概再省 5%
+  // UDBZ（bzip2）比 UDZO（zlib-9）压得更小；这里只剩十几 MB 的应用包，差距不大但没理由不用
   run('hdiutil', ['convert', rw, '-format', 'UDBZ', '-o', DMG])
   rmSync(rw, { force: true })
   console.log(`安装包: ${DMG}`)
 }
 
 await downloadNode()
-const shellApp = await buildShell()
-await assemble(shellApp)
+await assemble(buildShellBinary())
 buildDmg()

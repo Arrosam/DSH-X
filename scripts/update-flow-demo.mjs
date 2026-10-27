@@ -1,78 +1,57 @@
-// 本地模拟一次「发版」，用来验收引导器安装与增量更新，不需要真的发布到 GitHub。
+// 本地模拟一次「发版」，用来验收应用层增量更新（换 resources/app + 重启），不需要真的发布到 GitHub。
 //
+//   npm run dist                       # 先出一份 Windows 安装目录 release/DSH
 //   node scripts/update-flow-demo.mjs
 //
 // 做三件事：
-// 1. 用当前构建产物造一套「0.1.21」的假发布资产（app 版本号改成 0.1.21），连同 0.1.20 与
-//    runtime 资产一起放进 release/test-release/
+// 1. 用当前打包产物（release/DSH/resources/app）造一套「当前版本」的 app 资产，
+//    再复制一份把版本号改成 0.1.21，造一套「新版本」资产（有 release/release-key.pem 就签名）
 // 2. 在 8899 起一个静态服务器，把这个目录当发布页
-// 3. 准备一个干净的安装目录 release/test-install/（只放引导器）
+// 3. 把 release/DSH 拷成 release/test-install/，让你在副本上验证，不弄脏真安装目录
 //
-// 然后按打印出来的命令启动引导器：它用 DSH_BOOT_* 从本地装 0.1.20；装完应用带着
-// DSH_UPDATE_* 环境变量启动，检查更新时会看到本地造的 0.1.21，可以点更新走完整流程。
+// 然后按打印出来的命令启动 test-install/DSH.exe：管理器里点「更新」应看到 0.1.21，
+// 走增量下载 → 切换 → 重启，版本号变成 0.1.21。
+// 运行时（Node / Electron）不在这条链路里：它们放在每用户数据目录，更新只换 app 层。
 
 import { createServer } from 'node:http'
 import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { cp, mkdir, readFile } from 'node:fs/promises'
+import { cp } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { buildAppAssets } from './app-manifest.mjs'
 
 const ROOT = join(import.meta.dirname, '..')
 const RELEASE = join(ROOT, 'release')
-const PARTS = join(RELEASE, 'parts')
+const INSTALL = join(RELEASE, 'DSH')
+const APP_SOURCE = join(INSTALL, 'resources', 'app')
 const TEST_RELEASE = join(RELEASE, 'test-release')
 const TEST_INSTALL = join(RELEASE, 'test-install')
 const PORT = 8899
 const CURRENT = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
 const NEXT = '0.1.21'
 
-const electronVersion = JSON.parse(await readFile(join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
-const { createHash } = await import('node:crypto')
-
-/** 引导器资产：把当前编译产物复制成 boot-<版本>-win.exe，返回清单里的 boot 信息。 */
-async function bootAsset(version) {
-  const built = join(ROOT, 'launcher', 'target', 'release', 'DSH-Boot.exe')
-  const name = `boot-${version}-win.exe`
-  const target = join(TEST_RELEASE, name)
-  await cp(built, target)
-  return { name, size: statSync(target).size, sha256: createHash('sha256').update(readFileSync(target)).digest('hex') }
-}
-
 async function buildAssets() {
-  await mkdir(TEST_RELEASE, { recursive: true })
-  // 0.1.20（首次安装用）：从 parts 重新生成，确保装的是当前代码
-  await buildAppAssets({ appDir: join(PARTS, 'app', CURRENT), version: CURRENT, electronVersion, platform: 'win', outDir: TEST_RELEASE })
-  for (const name of [`runtime-${electronVersion}-win.zip`, `runtime-${electronVersion}-win.manifest.json`, `runtime-${electronVersion}-win.manifest.json.sig`]) {
-    if (!existsSync(join(RELEASE, name))) throw new Error(`缺少 ${name}，先跑一次 npm run dist`)
-    await cp(join(RELEASE, name), join(TEST_RELEASE, name))
-  }
-  // 假 0.1.21：拿当前 app 复制一份，改版本号（界面上能看出来更新成功）
-  const source = join(PARTS, 'app', CURRENT)
-  if (!existsSync(source)) throw new Error('缺少 release/parts/app，先跑一次 npm run dist')
+  if (!existsSync(APP_SOURCE)) throw new Error(`缺少 ${APP_SOURCE}：先跑一次 npm run dist（Windows）`)
+  rmSync(TEST_RELEASE, { recursive: true, force: true })
+  mkdirSync(TEST_RELEASE, { recursive: true })
+  // 当前版本：用刚打出来的 app 原样出一套，和 release/DSH 里的内容一致
+  const now = await buildAppAssets({ appDir: APP_SOURCE, version: CURRENT, platform: 'win', outDir: TEST_RELEASE })
+  console.log(`当前版本资产：${basename(now.zipPath)}（${(now.manifest.archive.size / 1048576).toFixed(1)} MB）`)
+
+  // 假 0.1.21：拿当前 app 复制一份，只改版本号（界面上能看出来更新成功）
   const staged = join(RELEASE, 'test-app-src')
   rmSync(staged, { recursive: true, force: true })
-  await cp(source, staged, { recursive: true })
+  await cp(APP_SOURCE, staged, { recursive: true })
   const pkgPath = join(staged, 'package.json')
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
   pkg.version = NEXT
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
-  const assets = await buildAppAssets({ appDir: staged, version: NEXT, electronVersion, platform: 'win', outDir: TEST_RELEASE, boot: await bootAsset(NEXT) })
-  console.log(`假发布资产：${basename(assets.zipPath)}（${(assets.manifest.archive.size / 1048576).toFixed(1)} MB）`)
-
-  // Electron 升级链路：如果准备了 37.5.1 的运行时目录，就再出一套「新版 runtime + 配套 app」
-  const runtimeSrc = join(RELEASE, 'test-runtime-37')
-  if (existsSync(runtimeSrc)) {
-    const rt = await buildAppAssets({ appDir: runtimeSrc, version: '37.5.1', electronVersion: '37.5.1', platform: 'win', prefix: 'runtime', outDir: TEST_RELEASE })
-    console.log(`假运行时资产：${basename(rt.zipPath)}（${(rt.manifest.archive.size / 1048576).toFixed(1)} MB）`)
-    const staged2 = join(RELEASE, 'test-app-022')
-    rmSync(staged2, { recursive: true, force: true })
-    await cp(source, staged2, { recursive: true })
-    const pkg2 = JSON.parse(readFileSync(join(staged2, 'package.json'), 'utf8'))
-    pkg2.version = '0.1.22'
-    writeFileSync(join(staged2, 'package.json'), `${JSON.stringify(pkg2, null, 2)}
-`)
-    const app2 = await buildAppAssets({ appDir: staged2, version: '0.1.22', electronVersion: '37.5.1', platform: 'win', outDir: TEST_RELEASE })
-    console.log(`假应用资产：${basename(app2.zipPath)}（0.1.22 / Electron 37.5.1）`)
+  const next = await buildAppAssets({ appDir: staged, version: NEXT, platform: 'win', outDir: TEST_RELEASE })
+  console.log(`新版本资产：${basename(next.zipPath)}（${(next.manifest.archive.size / 1048576).toFixed(1)} MB）`)
+  rmSync(staged, { recursive: true, force: true })
+  if (!next.sigPath) {
+    console.log('')
+    console.log('注意：没有 release/release-key.pem，清单没签名，客户端不会走增量更新（会回退完整安装包）。')
+    console.log('要验证增量：node scripts/release-manifest.mjs keygen，再重跑本脚本与 npm run dist。')
   }
 }
 
@@ -97,28 +76,20 @@ function serve() {
   return server
 }
 
-function prepareInstall() {
+/** 在副本上验证更新：真安装目录被换掉时不好恢复，也不好继续做别的验证。 */
+async function prepareInstall() {
   rmSync(TEST_INSTALL, { recursive: true, force: true })
-  mkdirSync(TEST_INSTALL, { recursive: true })
-  // 优先用刚编译的引导器（含本地测试钩子）；没有就退回打包产物
-  const built = join(ROOT, 'launcher', 'target', 'release', 'DSH-Boot.exe')
-  const boot = existsSync(built) ? built : join(RELEASE, 'boot', 'DSH.exe')
-  if (!existsSync(boot)) throw new Error('缺少引导器：先在 launcher/ 跑 cargo build --release --bin DSH-Boot')
-  writeFileSync(join(TEST_INSTALL, 'DSH.exe'), readFileSync(boot))
+  await cp(INSTALL, TEST_INSTALL, { recursive: true })
   console.log(`测试安装目录：${TEST_INSTALL}`)
 }
 
 await buildAssets()
 const server = serve()
-prepareInstall()
+await prepareInstall()
 console.log('')
-console.log('阶段 A：应用增量（0.1.20 → 0.1.21）——启动引导器：')
-console.log(`  DSH_BOOT_BASE=http://127.0.0.1:${PORT} DSH_BOOT_VERSION=${CURRENT} DSH_UPDATE_BASE=http://127.0.0.1:${PORT} DSH_UPDATE_VERSION=${NEXT} "${join(TEST_INSTALL, 'DSH.exe')}"`)
+console.log('启动测试安装（DSH_UPDATE_* 是本地测试通道，指向本脚本起的发布页）：')
+console.log(`  DSH_UPDATE_BASE=http://127.0.0.1:${PORT} DSH_UPDATE_VERSION=${NEXT} "${join(TEST_INSTALL, 'DSH.exe')}"`)
 console.log('')
-console.log(`装完应用会带着 DSH_UPDATE_* 启动：管理器里点「更新」应看到 ${NEXT}，走增量下载 → 切换 → 重启，版本号变成 ${NEXT}。`)
-console.log('')
-console.log('阶段 B：Electron 运行时升级（需要 release/test-runtime-37 存在）')
-console.log('  重启应用时把 DSH_UPDATE_VERSION 改成 0.1.22：管理器会提示更新运行时（37.5.1，约 120 MB），')
-console.log('  切完运行时会重启到新 runtime，随后再提示应用更新到 0.1.22。')
+console.log(`管理器里点「更新」应看到 ${NEXT}：下载 app 整包 → 校验 → 替换 resources/app → 重启，版本号变成 ${NEXT}。`)
 console.log('测试完 Ctrl+C 结束本地发布页。')
 void server

@@ -61,6 +61,35 @@ Name: "desktopicon"; Description: "{cm:desktopicon}"; GroupDescription: "{cm:add
 [Files]
 Source: "..\release\DSH\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+; 从 0.1.x 升级上来时的清理：旧包是 Electron 完整安装包或 lite 引导器，[Files] 只覆盖同名文件，
+; 不主动删的话 Electron 的 dll / 多语言目录 / 旧 node 目录会一直留在安装目录里。
+; 整个 resources\app 一起删：app 层没有用户数据（都在每用户目录），删掉重装最干净——
+; 否则上一版有、这一版不再随包发的模块会一直留着。
+Type: filesandordirs; Name: "{app}\resources\app"
+Type: filesandordirs; Name: "{app}\locales"
+Type: filesandordirs; Name: "{app}\node"
+; lite 引导器的目录（current.json + runtime/<v> + app/<v>）
+Type: filesandordirs; Name: "{app}\runtime"
+Type: filesandordirs; Name: "{app}\app"
+Type: files; Name: "{app}\current.json"
+Type: files; Name: "{app}\boot-update.exe"
+Type: files; Name: "{app}\DSH.exe.old"
+Type: files; Name: "{app}\update.log"
+Type: files; Name: "{app}\update-ok"
+; 完整安装包时代剩下的文件（Electron 框架、asar、旧图标）
+Type: files; Name: "{app}\resources\app.asar"
+Type: files; Name: "{app}\resources\default_app.asar"
+Type: files; Name: "{app}\resources\electron.asar"
+Type: files; Name: "{app}\*.dll"
+Type: files; Name: "{app}\*.pak"
+Type: files; Name: "{app}\*.dat"
+Type: files; Name: "{app}\*.bin"
+Type: files; Name: "{app}\LICENSE"
+Type: files; Name: "{app}\LICENSES.chromium.html"
+Type: files; Name: "{app}\version"
+Type: files; Name: "{app}\assets\dsh-*.ico"
+
 [Icons]
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\{#MyAppIcon}"; Tasks: desktopicon
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\{#MyAppIcon}"
@@ -94,7 +123,14 @@ Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "{cm:launch
 Filename: "{cmd}"; Parameters: "/c ping -n 3 127.0.0.1 > nul & del /f /q ""{srcexe}"""; Description: "{cm:deleteinstaller}"; Flags: runhidden nowait postinstall skipifsilent
 
 [UninstallDelete]
+; 不是 Inno 装的（旧版 node_modules、lite 引导器运行时下载的目录）卸载时要自己清
 Type: filesandordirs; Name: "{app}\node_modules"
+Type: filesandordirs; Name: "{app}\runtime"
+Type: filesandordirs; Name: "{app}\app"
+Type: files; Name: "{app}\current.json"
+Type: files; Name: "{app}\update.log"
+Type: files; Name: "{app}\update-ok"
+Type: files; Name: "{app}\lang.txt"
 
 [Code]
 #include "installer-engine.iss"

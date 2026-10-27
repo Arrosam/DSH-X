@@ -177,7 +177,7 @@ async function main(argv) {
     const artifacts = collectArtifacts(releaseDir, [`DSH-Setup.exe`, `dsh-x-${version}.spdx.json`])
     if (!artifacts.length) throw new Error('release/ 里没有安装包，先 npm run dist')
     const { collectComponents } = await import('./release-sbom.mjs')
-    const { manifest, signed } = writeReleaseManifest({ releaseDir, version, artifacts, components: collectComponents({ nodeDir: join(releaseDir, 'DSH', 'node') }) })
+    const { manifest, signed } = writeReleaseManifest({ releaseDir, version, artifacts, components: collectComponents({ nodeDir: join(releaseDir, 'DSH', 'resources', 'app', 'node') }) })
     console.log(`发布清单: ${MANIFEST}`)
     console.log(`版本 ${manifest.version}${manifest.tag ? ` · tag ${manifest.tag}` : ' · 没有 tag'}${manifest.dirty ? ' · 有未提交改动' : ''}`)
     for (const artifact of manifest.artifacts) console.log(`  ${artifact.path}  ${(artifact.size / 1048576).toFixed(1)}MB  ${artifact.sha256.slice(0, 16)}…`)

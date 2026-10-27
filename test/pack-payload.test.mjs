@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -31,6 +31,12 @@ test('安装包会带上整合包配方，且不带上插件源码', async () =>
     assert.ok(existsSync(join(out, 'diagnostic-command-error.js')), '诊断命令错误模块随启动器一起复制')
     assert.ok(existsSync(join(out, 'reserved-profile-boot.mjs')), '起 desktop profile 用的绕行入口在')
     assert.ok(existsSync(join(out, 'public', 'index.html')), '管理页在')
+    // 运行时不随安装包发，但外壳与服务都要读版本表；按需下载 Electron 的模块也必须在 app 层
+    assert.ok(existsSync(join(out, 'runtime-versions.json')), 'Node / Electron 版本表随 app 层发（外壳与服务共用）')
+    assert.ok(existsSync(join(out, 'runtime-download.js')), '按需下载 Electron 运行时的模块在')
+    assert.ok(existsSync(join(out, 'shell', 'main.mjs')), '按需拉起的 Electron 标签窗口宿主在 app 层')
+    // 按需下载的 Electron 用 `Electron <app 目录>` 启动，入口从 package.json 的 main 找
+    assert.equal(JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).main, 'shell/main.mjs', 'app 层的 main 指向 Electron 入口')
     const hookResult = spawnSync(process.execPath, ['--import', pathToFileURL(join(out, 'perf', 'register.mjs')).href, '--eval', ''], {
       cwd: out, encoding: 'utf8', windowsHide: true, timeout: 10_000,
     })

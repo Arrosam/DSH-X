@@ -3,6 +3,10 @@
 # 为什么要有这个：mac 的包在 Windows 上打不出来（codesign / hdiutil 都是 macOS 独有），
 # 所以 Windows 和 macOS 各自跑在自己的 runner 上；另外这也是「不怕本机环境差异」的一条路。
 #
+# 安装包里不再有 Electron 和 Node：外壳是 launcher/ 的 Rust 二进制，Node 由外壳首次运行时
+# 下载、Electron 由服务按需下载。所以两个平台都不再需要 @electron/packager / electron 这类
+# 运行时 devDependencies（package.json 里已没有），npm ci 这一步也就不需要了。
+#
 # 只上传资产、不创建 Release：Release 连同中文发行说明仍按原来的流程在本地建，
 # 建完这个 workflow 会把产物补上去（Windows 的 exe + SBOM + 清单 + 签名，mac 的 dmg）。
 #
@@ -28,9 +32,10 @@ jobs:
         with:
           node-version: '22'
 
-      # 外壳换成 Electron 后打包要 devDependencies（@electron/packager + electron）
-      - name: 安装打包依赖
-        run: npm ci
+      # 外壳用 Rust（launcher/），windows-latest 自带 Rust 工具链；先把版本打出来，
+      # 工具链缺失时要红在这一步而不是打包中途。Inno Setup 由 scripts/pack.mjs 按需自动安装。
+      - name: 确认 Rust 工具链
+        run: cargo --version
 
       - name: 跑测试
         run: npm test
@@ -43,17 +48,16 @@ jobs:
           mkdir -p release
           if [ -n "$KEY" ]; then printf '%s' "$KEY" > release/release-key.pem; echo "有私钥，本次会签名"; else echo "没有私钥，只出清单"; fi
 
-      - name: 打包（Rust + Inno Setup，脚本会在 runner 上自己装 Inno）
+      - name: 打包（Rust 原生外壳 + Inno Setup）
         run: npm run dist
 
-      # 应用层增量资产由 pack.mjs 生成（app + runtime 两套清单/zip，有私钥就签名）；这里只做校验
+      # 应用层增量资产由 pack.mjs 生成（app 清单/zip，有私钥就签名）；这里只做校验。
+      # 清单里不再有 Electron 版本与 runtime 资产——运行时不随安装包发。
       - name: 校验应用层增量资产
         shell: bash
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          ELECTRON="$(node -p "require('./node_modules/electron/package.json').version")"
           node scripts/app-manifest.mjs verify --manifest release/app-"$VERSION"-win.manifest.json --zip release/app-"$VERSION"-win.zip --sig release/app-"$VERSION"-win.manifest.json.sig
-          node scripts/app-manifest.mjs verify --manifest release/runtime-"$ELECTRON"-win.manifest.json --zip release/runtime-"$ELECTRON"-win.zip --sig release/runtime-"$ELECTRON"-win.manifest.json.sig
 
       - name: 校验清单（没配签名私钥就按「未签名」核体积与哈希）
         shell: bash
@@ -66,13 +70,9 @@ jobs:
           name: DSH-Setup-windows
           path: |
             release/DSH-Setup.exe
-            release/DSH-Setup-lite.exe
             release/app-*-win.zip
             release/app-*-win.manifest.json
             release/app-*-win.manifest.json.sig
-            release/runtime-*-win.zip
-            release/runtime-*-win.manifest.json
-            release/runtime-*-win.manifest.json.sig
             release/dsh-x-*.spdx.json
             release/release-manifest.json
             release/release-manifest.sig
@@ -89,16 +89,18 @@ jobs:
             echo "还没有 $tag 的 Release，资产先留在 workflow artifacts 里；建好 Release 后再跑一次即可"
             exit 0
           fi
-          # 发布页只放安装包、dmg 与应用层增量资产（SBOM/发布清单留在本机自查；
-          # 应用清单的签名是客户端校验用的，必须上传）
-          gh release upload "$tag" release/DSH-Setup.exe release/DSH-Setup-lite.exe release/boot-*-win.exe release/app-*-win.zip release/app-*-win.manifest.json release/app-*-win.manifest.json.sig release/runtime-*-win.zip release/runtime-*-win.manifest.json release/runtime-*-win.manifest.json.sig --clobber
+          # 发布页只放安装包与应用层增量资产（SBOM/发布清单留在本机自查；
+          # 应用清单的签名是客户端校验用的，有签名就一并上传）
+          gh release upload "$tag" release/DSH-Setup.exe release/app-*-win.zip release/app-*-win.manifest.json --clobber
+          if ls release/app-*-win.manifest.json.sig >/dev/null 2>&1; then
+            gh release upload "$tag" release/app-*-win.manifest.json.sig --clobber
+          fi
 
-  # mac 的打包能力在 PR #25（scripts/pack-mac.mjs）里，合并之后这里才真的会出包；
-  # 没合并时这一步只打个招呼就过，不至于把整个 workflow 挂红。
   macos:
     strategy:
       fail-fast: false
       matrix:
+        # 两个架构各自在自己的 runner 上原生编译 Rust（跨架构要另装 target，本机也验证不了）
         include:
           - runner: macos-14 # Apple Silicon
             arch: arm64
@@ -118,22 +120,18 @@ jobs:
         with:
           node-version: '22'
 
-      - name: 还没有 mac 打包支持就跳过
-        id: probe
+      # 外壳用 Rust，.dmg 用 Xcode CLT（codesign / hdiutil / sips / iconutil / swift）；
+      # macos runner 都自带，打出版本号，缺失时早点红。
+      - name: 确认 Rust 与 Xcode 工具链
         run: |
-          if [ -f scripts/pack-mac.mjs ]; then echo "ready=yes" >> "$GITHUB_OUTPUT"; else echo "ready=no" >> "$GITHUB_OUTPUT"; echo "scripts/pack-mac.mjs 还不存在（PR #25 未合并），跳过 mac 打包"; fi
-
-      # mac 外壳是 Electron（shell/）：打包要 devDependencies 里的 electron 与 @electron/packager
-      - name: 安装打包依赖
-        if: steps.probe.outputs.ready == 'yes'
-        run: npm ci
+          cargo --version
+          xcode-select -p
+          codesign --version
 
       - name: 跑测试
-        if: steps.probe.outputs.ready == 'yes'
         run: npm test
 
       - name: 导入固定 macOS 签名证书
-        if: steps.probe.outputs.ready == 'yes'
         shell: bash
         env:
           DSH_MAC_CERT_P12_BASE64: ${{ secrets.DSH_MAC_CERT_P12_BASE64 }}
@@ -141,13 +139,12 @@ jobs:
           DSH_MAC_EXPECTED_SHA1: ${{ vars.DSH_MAC_SIGNING_SHA1 }}
         run: bash scripts/setup-mac-signing.sh
 
-      - name: 打包（.app + .dmg，签名按配置）
-        if: steps.probe.outputs.ready == 'yes'
+      - name: 打包（Rust 原生外壳 + .app + .dmg，签名按配置）
         run: npm run dist
 
-      # 应用层增量资产（mac 的 app 在 .app/Contents/Resources/app）
+      # 应用层增量资产（mac 的 app 在 .app/Contents/Resources/app）。清单里没有 Electron 版本，
+      # 运行时不跟着 app 更新走，由服务按需下载、单独升级。
       - name: 写入签名私钥（没配 secret 就跳过）
-        if: steps.probe.outputs.ready == 'yes'
         shell: bash
         env:
           KEY: ${{ secrets.DSH_RELEASE_KEY }}
@@ -155,19 +152,17 @@ jobs:
           mkdir -p release
           if [ -n "$KEY" ]; then printf '%s' "$KEY" > release/release-key.pem; echo "有私钥，本次会签名"; else echo "没有私钥，只出清单"; fi
 
-      - name: 生成应用层增量资产
-        if: steps.probe.outputs.ready == 'yes'
+      - name: 生成并校验应用层增量资产
         shell: bash
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          ELECTRON="$(node -p "require('./node_modules/electron/package.json').version")"
-          node scripts/app-manifest.mjs build --app "release/DSH-X.app/Contents/Resources/app" --version "$VERSION" --electron "$ELECTRON" --platform mac --out release
+          node scripts/app-manifest.mjs build --app "release/DSH-X.app/Contents/Resources/app" --version "$VERSION" --platform mac --out release
+          node scripts/app-manifest.mjs verify --manifest release/app-"$VERSION"-mac.manifest.json --zip release/app-"$VERSION"-mac.zip --sig release/app-"$VERSION"-mac.manifest.json.sig
 
       - uses: actions/upload-artifact@v4
-        if: steps.probe.outputs.ready == 'yes'
         with:
           name: DSH-X-mac-${{ matrix.arch }}
-          # 清单/SBOM 目前只有 Windows 的 pack.mjs 会生成，mac 这边先只传 dmg；
+          # 清单/SBOM 目前只有 Windows 的 pack.mjs 会生成，mac 这边先只传 dmg 与 app 资产；
           # 两平台各写一份同名清单会互相覆盖，等清单支持多产物之后再说
           path: |
             release/DSH-X-mac-*.dmg
@@ -177,7 +172,7 @@ jobs:
           if-no-files-found: error
 
       - name: 挂到同 tag 的 Release 上
-        if: steps.probe.outputs.ready == 'yes' && startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -186,7 +181,10 @@ jobs:
             gh release upload "$tag" release/DSH-X-mac-*.dmg --clobber
             # app 资产两架构内容相同，只让 arm64 传，避免两个 job 的 zip/清单/签名互相覆盖
             if [ "${{ matrix.arch }}" = "arm64" ]; then
-              gh release upload "$tag" release/app-*-mac.zip release/app-*-mac.manifest.json release/app-*-mac.manifest.json.sig --clobber
+              gh release upload "$tag" release/app-*-mac.zip release/app-*-mac.manifest.json --clobber
+              if ls release/app-*-mac.manifest.json.sig >/dev/null 2>&1; then
+                gh release upload "$tag" release/app-*-mac.manifest.json.sig --clobber
+              fi
             fi
           else
             echo "还没有 $tag 的 Release，dmg 先留在 workflow artifacts 里"

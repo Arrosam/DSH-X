@@ -165,27 +165,33 @@ test('allowUnsigned：没签名只提醒，体积和哈希照样得对上', () =
   }
 })
 
-test('SBOM：运行时按条目声明，启动器自己的文件逐个带哈希', () => {
+test('SBOM：随包的 npm/pnpm 按条目声明，启动器自己的文件逐个带哈希', () => {
   const box = sandbox()
   try {
     const releaseDir = join(box.dir, 'release')
     const dshDir = join(releaseDir, 'DSH')
-    mkdirSync(join(dshDir, 'public'), { recursive: true })
-    mkdirSync(join(dshDir, 'node', 'node_modules', 'pnpm'), { recursive: true })
+    const appDir = join(dshDir, 'resources', 'app')
+    mkdirSync(join(appDir, 'public'), { recursive: true })
+    mkdirSync(join(appDir, 'node', 'node_modules', 'pnpm'), { recursive: true })
+    mkdirSync(join(appDir, 'node', 'node_modules', 'npm'), { recursive: true })
     writeFileSync(join(releaseDir, 'DSH-Setup.exe'), Buffer.from('installer'))
-    writeFileSync(join(dshDir, 'server.js'), '// server\n')
-    writeFileSync(join(dshDir, 'public', 'index.html'), '<html></html>\n')
-    writeFileSync(join(dshDir, 'node', 'node.exe'), 'not a real exe')
-    writeFileSync(join(dshDir, 'node', 'node_modules', 'pnpm', 'package.json'), JSON.stringify({ name: 'pnpm', version: '8.15.9' }))
+    writeFileSync(join(dshDir, 'DSH.exe'), Buffer.from('rust shell'))
+    writeFileSync(join(appDir, 'server.js'), '// server\n')
+    writeFileSync(join(appDir, 'public', 'index.html'), '<html></html>\n')
+    writeFileSync(join(appDir, 'node', 'node_modules', 'pnpm', 'package.json'), JSON.stringify({ name: 'pnpm', version: '8.15.9' }))
+    writeFileSync(join(appDir, 'node', 'node_modules', 'npm', 'package.json'), JSON.stringify({ name: 'npm', version: '10.9.2' }))
 
     const files = collectShippedFiles(dshDir)
-    assert.ok(files.includes('server.js'), '启动器自己的文件要列进去')
-    assert.ok(files.includes('public/index.html'))
-    assert.ok(!files.some((name) => name.startsWith('node/')), 'node/ 里不逐个列文件（按运行时条目声明）')
+    assert.ok(files.includes('DSH.exe'), '原生外壳二进制要列进去')
+    assert.ok(files.includes('resources/app/server.js'), '启动器自己的文件要列进去')
+    assert.ok(files.includes('resources/app/public/index.html'))
+    assert.ok(!files.some((name) => name.startsWith('resources/app/node/')), 'npm/pnpm 的 JS 包按组件条目声明，不逐个列文件')
 
-    const components = collectComponents({ nodeDir: join(dshDir, 'node') })
+    const components = collectComponents({ nodeDir: join(appDir, 'node') })
     assert.equal(components.pnpm, '8.15.9', '从包自带 package.json 读版本')
-    assert.equal(components.node, undefined, '假 exe 跑不起来就该如实缺席，不能瞎编版本')
+    assert.equal(components.npm, '10.9.2')
+    assert.equal(components.electron, undefined, 'Electron 不再随包发，SBOM 里不该有它')
+    assert.equal(components.node, undefined, 'Node 不再随包发，SBOM 里不该有它')
 
     const sbom = buildSbom({
       version: '9.9.9',
@@ -202,7 +208,9 @@ test('SBOM：运行时按条目声明，启动器自己的文件逐个带哈希'
     assert.equal(sbom.packages[0].name, 'DSH-X')
     assert.equal(sbom.packages[0].versionInfo, '9.9.9')
     assert.ok(sbom.packages.some((item) => item.name === 'pnpm' && item.versionInfo === '8.15.9'))
-    assert.ok(sbom.files.length >= 4, `安装包 + 启动器文件 + node.exe 都要在：${sbom.files.map((f) => f.fileName)}`)
+    assert.ok(sbom.packages.some((item) => item.name === 'npm' && item.versionInfo === '10.9.2'))
+    assert.ok(sbom.files.length >= 3, `安装包 + 启动器文件都要在：${sbom.files.map((f) => f.fileName)}`)
+    assert.ok(sbom.documentComment.includes('不随安装包发'), '文档里要说清 Node/Electron 不在包里')
     for (const file of sbom.files) {
       assert.equal(file.checksums[0].algorithm, 'SHA256')
       assert.equal(file.checksums[0].checksumValue.length, 64)
