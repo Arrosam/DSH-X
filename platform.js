@@ -18,8 +18,12 @@ export const IS_MAC = process.platform === 'darwin'
 /** 管理服务是不是跑在 Electron 主进程里（Windows/macOS 外壳都是，见 shell/main.mjs）。 */
 export const IN_ELECTRON = Boolean(process.versions.electron)
 
-/** 打包后的 Electron 外壳（`electron .` 源码运行时 process.defaultApp 为 true）。 */
-export const PACKAGED = IN_ELECTRON && !process.defaultApp
+/**
+ * 打包后的核心：跑在安装包里（resources/core）或用户目录的 core/current。
+ * 外壳（shell/main.mjs）加载核心前会设 DSH_CORE=1——核心不在 resources/app 里，
+ * 但路径和更新行为都要按安装包处理。
+ */
+export const PACKAGED = (IN_ELECTRON && !process.defaultApp) || process.env.DSH_CORE === '1'
 
 /** npm 版（dsh-x 包拉起 Electron）：更新走 npm，不走安装包/核心自更新。 */
 export const NPM_MODE = process.env.DSH_NPM === '1'

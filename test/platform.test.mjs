@@ -28,8 +28,10 @@ test('每用户目录：Windows 没有 APPDATA 时返回空串，调用方退回
   assert.equal(windows({ root: 'C:\\DSH' }).appDir, join('C:\\DSH', 'data'))
 })
 
-test('appBundle：认得 <X>.app/Contents/Resources/app 布局', () => {
-  assert.equal(mac({ root: '/Applications/DSH-X.app/Contents/Resources/app' }).appBundle(), '/Applications/DSH-X.app')
+test('appBundle：认得 <X>.app/Contents/Resources/app 和 core 布局', () => {
+  for (const dir of ['app', 'core']) {
+    assert.equal(mac({ root: `/Applications/DSH-X.app/Contents/Resources/${dir}` }).appBundle(), '/Applications/DSH-X.app')
+  }
 })
 
 test('appBundle：源码目录、布局不全都不算包；Windows 没有包这回事', () => {

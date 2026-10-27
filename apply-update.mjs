@@ -1,12 +1,13 @@
-// 应用层增量更新的落地助手：由即将退出的启动器用 ELECTRON_RUN_AS_NODE 拉起。
+// 核心增量更新的落地助手：由即将退出的外壳用 ELECTRON_RUN_AS_NODE 拉起。
 //
-// 流程：等父进程退出 → 备份旧 resources/app → 换上新解压好的暂存目录 → 重启启动器 →
+// 流程：等父进程退出 → 备份旧核心目录 → 换上新解压好的暂存目录 → 重启外壳 →
 // 等新版本写出启动标记；没等到就回滚到备份再重启。所有结果写进 update.log。
 //
-// 只替换 resources/app，不碰 DSH.exe 和 Electron 运行时（所以不受文件锁影响）。
-// 参数全部走命令行；这里只依赖 Node 内置模块，脚本可以放在临时目录里跑。
+// 只替换核心目录（安装包的 resources/core 或用户目录的 core/current），不碰 DSH.exe 和
+// Electron 运行时（所以不受文件锁影响）。参数全部走命令行；这里只依赖 Node 内置模块，
+// 脚本可以放在临时目录里跑。
 
-import { appendFileSync, existsSync, renameSync, rmSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, renameSync, rmSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 
@@ -65,11 +66,22 @@ function relaunch() {
   }
 }
 
+/** 跨卷时 rename 会 EXDEV：先复制再删源。暂存目录在 %TEMP%，可能在另一个盘上。 */
+function move(from, to) {
+  try {
+    renameSync(from, to)
+  } catch (error) {
+    if (error?.code !== 'EXDEV') throw error
+    cpSync(from, to, { recursive: true })
+    rmSync(from, { recursive: true, force: true })
+  }
+}
+
 function swapIn() {
   if (existsSync(backupDir)) rmSync(backupDir, { recursive: true, force: true })
   renameSync(appDir, backupDir)
   try {
-    renameSync(stagedDir, appDir)
+    move(stagedDir, appDir)
   } catch (error) {
     // 新目录换不上：把备份挪回去，保持旧版本可用
     try { renameSync(backupDir, appDir) } catch { /* 尽力而为 */ }

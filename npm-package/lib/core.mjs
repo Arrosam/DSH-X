@@ -1,10 +1,10 @@
-// dsh-x npm 版的运行核心：从 npm 拉 dsh-x-core-<平台>，解到用户缓存目录。
+// dsh-x npm 版的运行核心：从 npm 拉跨平台的 dsh-x-core，解到用户缓存目录。
 //
-// 和桌面安装版共用同一份核心包（dsh-x-core-win / dsh-x-core-mac），但这里不碰
-// resources/app，也不做 45 秒回滚——npm 版的生命周期就是：装包/更新核心 → 启动 Electron。
+// 和桌面安装版共用同一份核心包（dsh-x-core），但这里不碰 resources/core，也不做
+// 45 秒回滚——npm 版的生命周期就是：装包/更新核心 → 启动 Electron 外壳。
 
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -14,7 +14,7 @@ const IS_WINDOWS = process.platform === 'win32'
 const IS_MAC = process.platform === 'darwin'
 
 export function corePackageName() {
-  return process.env.DSH_CORE_PACKAGE || (IS_WINDOWS ? 'dsh-x-core-win' : IS_MAC ? 'dsh-x-core-mac' : 'dsh-x-core')
+  return process.env.DSH_CORE_PACKAGE || 'dsh-x-core'
 }
 
 export function cacheRoot() {
@@ -85,12 +85,21 @@ function tarCommand() {
   return '/usr/bin/tar'
 }
 
+/** 在 Windows 上打的 tarball 里 POSIX 包装可能没有可执行位；解到 mac 后补上。 */
+function ensurePosixShims(dest) {
+  if (IS_WINDOWS) return
+  for (const name of ['node', 'npm', 'npx', 'pnpm', 'pnpx']) {
+    try { chmodSync(join(dest, 'node', name), 0o755) } catch { /* 没有就跳过 */ }
+  }
+}
+
 function extract(tarball, dest) {
   rmSync(dest, { recursive: true, force: true })
   mkdirSync(dest, { recursive: true })
   const result = spawnSync(tarCommand(), ['-xzf', tarball, '-C', dest, '--strip-components=1'], { windowsHide: true, encoding: 'utf8' })
   if (result.status !== 0) throw new Error(`解压核心包失败：${String(result.stderr || result.status).trim()}`)
   if (!existsSync(join(dest, 'server.js')) || !existsSync(join(dest, 'package.json'))) throw new Error('核心包里缺少 server.js 或 package.json')
+  ensurePosixShims(dest)
   return JSON.parse(readFileSync(join(dest, 'package.json'), 'utf8'))
 }
 

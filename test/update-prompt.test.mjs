@@ -50,9 +50,11 @@ test('外壳自更新走 electron-updater，核心仍走 npm', () => {
   assert.match(html, /post\('\/api\/shell-update\/download'\)/)
   assert.match(html, /post\('\/api\/shell-update\/install'\)/)
   assert.match(html, /t\('DSH-X 外壳'\)/, '弹窗里外壳和核心分开显示')
+  assert.match(html, /t\('DSH-X 核心'\)/, '核心那一行不再叫「启动器」')
   // 核心：npm 的 app-download/app-apply 还在
   assert.match(html, /post\('\/api\/self\/app-download'\)/)
   assert.match(html, /post\('\/api\/self\/app-apply'\)/)
+  assert.match(html, /本次只更新核心（约 12 MB 的 npm 包）/, '核心更新只换核心，不换外壳')
   // 主进程里的 updater 通过 host 暴露，SSE 事件名是 shellUpdate
   assert.match(html, /addEventListener\('shellUpdate'/)
 })

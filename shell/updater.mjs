@@ -1,13 +1,14 @@
 // 外壳/Electron 的自更新：electron-updater（NSIS / dmg）。
 //
-// 核心（resources/app）由 npm 通道更新；这里只管安装包本身——Electron 版本、
-// 外壳窗口/托盘/更新器代码。状态通过 host 暴露给管理页，进度走 SSE shellUpdate 事件。
+// 核心（resources/core 或用户目录的 core/current）由 npm 通道更新；这里只管安装包本身——
+// Electron 版本、外壳窗口/托盘/更新器代码。状态通过 host 暴露给管理页，进度走 SSE shellUpdate 事件。
 
 import { app } from 'electron'
 import electronUpdater from 'electron-updater'
-import { NPM_MODE } from '../platform.js'
 
 const { autoUpdater } = electronUpdater
+/** npm 版（CLI 拉起的外壳）：更新由 npm 负责，这里不启用。 */
+const NPM_MODE = process.env.DSH_NPM === '1'
 
 /** electron-updater 的报错带一大段 HTTP 头/堆栈；页面只留第一句，缺 latest.yml 时给人话。 */
 function friendlyError(error) {
@@ -19,12 +20,13 @@ function friendlyError(error) {
 /**
  * @param {object} options
  * @param {() => Promise<void>} [options.onBeforeInstall] 安装前收尾（停 dsh、关服务）
+ * @param {string} [options.version] 外壳版本（源码运行时 app.getVersion() 可能是 Electron 的版本）
  */
-export function createUpdater({ onBeforeInstall } = {}) {
+export function createUpdater({ onBeforeInstall, version } = {}) {
   const enabled = !NPM_MODE && (app.isPackaged || Boolean(process.env.DSH_UPDATE_FEED))
   const state = {
     status: enabled ? 'idle' : 'disabled',
-    current: app.getVersion(),
+    current: String(version || app.getVersion()),
     latest: '',
     progress: null,
     error: '',
@@ -83,7 +85,7 @@ export function createUpdater({ onBeforeInstall } = {}) {
         await autoUpdater.checkForUpdates()
       } catch (error) {
         state.status = 'error'
-        state.error = error?.message || String(error)
+        state.error = friendlyError(error)
         emit()
       }
       return snapshot()
@@ -95,7 +97,7 @@ export function createUpdater({ onBeforeInstall } = {}) {
         await autoUpdater.downloadUpdate()
       } catch (error) {
         state.status = 'error'
-        state.error = error?.message || String(error)
+        state.error = friendlyError(error)
         emit()
       }
       return snapshot()

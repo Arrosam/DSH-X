@@ -39,21 +39,6 @@ jobs:
       - name: 打包（electron-builder：NSIS + latest.yml/blockmap）
         run: npm run dist
 
-      # 核心走 npm 独立发版：把 app 层打成 dsh-x-core-win-<版本>.tgz
-      - name: 打包核心 npm 包
-        run: node scripts/pack-core.mjs
-
-      - name: 发布核心到 npm
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "没有 NPM_TOKEN，跳过 npm 发布"; exit 0; fi
-          VERSION="$(node -p "require('./package.json').version")"
-          TAG="$(node --input-type=module -e "import { versionChannel } from './version.js'; import { readFileSync } from 'node:fs'; const v=JSON.parse(readFileSync('package.json','utf8')).version; console.log({official:'latest',rc:'rc',alpha:'alpha'}[versionChannel(v)] || 'latest')")"
-          npm publish "release/dsh-x-core-win-$VERSION.tgz" --tag "$TAG" --access public
-
       - uses: actions/upload-artifact@v4
         with:
           name: DSH-Setup-windows
@@ -61,7 +46,6 @@ jobs:
             release/eb/DSH-Setup-*.exe
             release/eb/DSH-Setup-*.exe.blockmap
             release/eb/latest.yml
-            release/dsh-x-core-win-*.tgz
           if-no-files-found: error
 
       - name: 挂到同 tag 的 Release 上
@@ -132,10 +116,10 @@ jobs:
         if: steps.probe.outputs.ready == 'yes'
         run: npm run dist
 
-      # 核心走 npm 独立发版；两架构的 app 层内容相同，只让 arm64 打包/发布
+      # 核心包跨平台，在 mac arm64 上统一打包/发布：mac 构建会保留 POSIX 包装脚本的可执行位
       - name: 打包核心 npm 包
         if: steps.probe.outputs.ready == 'yes' && matrix.arch == 'arm64'
-        run: node scripts/pack-core.mjs --app "release/app-stage"
+        run: node scripts/pack-core.mjs
 
       - name: 发布核心到 npm
         if: steps.probe.outputs.ready == 'yes' && matrix.arch == 'arm64' && startsWith(github.ref, 'refs/tags/v')
@@ -146,7 +130,8 @@ jobs:
           if [ -z "$NODE_AUTH_TOKEN" ]; then echo "没有 NPM_TOKEN，跳过 npm 发布"; exit 0; fi
           VERSION="$(node -p "require('./package.json').version")"
           TAG="$(node --input-type=module -e "import { versionChannel } from './version.js'; import { readFileSync } from 'node:fs'; const v=JSON.parse(readFileSync('package.json','utf8')).version; console.log({official:'latest',rc:'rc',alpha:'alpha'}[versionChannel(v)] || 'latest')")"
-          npm publish "release/dsh-x-core-mac-$VERSION.tgz" --tag "$TAG" --access public
+          if npm view "dsh-x-core@$VERSION" version >/dev/null 2>&1; then echo "dsh-x-core@$VERSION 已发布，跳过"; exit 0; fi
+          npm publish "release/dsh-x-core-$VERSION.tgz" --tag "$TAG" --access public
 
       - uses: actions/upload-artifact@v4
         if: steps.probe.outputs.ready == 'yes'
@@ -156,7 +141,6 @@ jobs:
             release/eb/DSH-X-*.dmg
             release/eb/DSH-X-*.zip
             release/eb/latest-mac.yml
-            release/dsh-x-core-mac-*.tgz
           if-no-files-found: error
 
       - name: 挂到同 tag 的 Release 上

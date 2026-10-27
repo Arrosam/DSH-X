@@ -1,0 +1,7 @@
+{
+  "name": "dsh-x-shell",
+  "version": "0.1.21",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs"
+}

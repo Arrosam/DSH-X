@@ -1,11 +1,10 @@
-// 必须是第一个 import：它在 platform.js / server.js 求值之前补好 PATH 和外壳标记（见 env.mjs）
+// 必须是第一个 import：它在核心（server.js）求值之前补好 PATH 和外壳标记（见 env.mjs）
 import './env.mjs'
 import { BrowserWindow, Menu, Tray, WebContentsView, app, dialog, ipcMain, nativeImage, nativeTheme, session, shell } from 'electron'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { IS_MAC, IS_WINDOWS, RUNTIME_NODE } from '../platform.js'
-import { APP_DIR } from '../filemanager.js'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BrowserTabs } from './tabs.mjs'
 import { createUpdater } from './updater.mjs'
 import { dataUrl, errorPage, idlePage } from './pages.mjs'
@@ -32,8 +31,12 @@ import {
  * 和 Rust 外壳最大的不同：管理服务（server.js）不再是子进程，而是跑在本进程里。所以
  * - 「把窗口叫出来 / 开标签 / 开窗口」不再走 stdout 标记行，而是 setHost 换成直接调用；
  * - 退出时先让服务收尾（停 dsh、通知页面），再退出 Electron（见 quit）。
- * dsh 子进程用 RUNTIME_NODE 拉起（platform.js）：源码运行是系统 node，打包后是 Electron 本体
- * 加 ELECTRON_RUN_AS_NODE=1——这样不用再随包塞一份 node.exe（省 80MB+）。
+ * dsh 子进程用 RUNTIME_NODE 拉起（见下）：Electron 本体加 ELECTRON_RUN_AS_NODE=1——
+ * 这样不用再随包塞一份 node.exe（省 80MB+）。
+ *
+ * 外壳和核心是两层：安装包的 resources/app 只有这个外壳，核心在 resources/core（基线）或
+ * 用户目录的 core/current（npm 更新后的版本）。外壳启动时动态 import 核心的 server.js，
+ * 核心更新不需要换整个安装包；外壳自己的更新才走 electron-updater（见 updater.mjs）。
  *
  * 关窗口 ≠ 退出：托盘还在、dsh 照常跑；⌘Q、托盘「退出」才真正退出。
  */
@@ -41,6 +44,22 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..')
 const PRELOAD = join(HERE, 'preload.cjs')
+const IS_MAC = process.platform === 'darwin'
+const IS_WINDOWS = process.platform === 'win32'
+/** 拉 dsh 子进程用的 node：Electron 本体（源码运行可用 DSH_RUNTIME_NODE 覆盖）。 */
+const RUNTIME_NODE = process.env.DSH_RUNTIME_NODE || process.execPath
+/**
+ * 每用户目录：和核心的 filemanager 同一套约定（%APPDATA%\DSH / ~/Library/Application Support/DSH）。
+ * 外壳不 import 核心的 filemanager，拆包后核心目录可以整个换掉。
+ */
+const APP_DATA = IS_MAC
+  ? join(homedir(), 'Library', 'Application Support')
+  : (process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'))
+const APP_DIR = join(APP_DATA, 'DSH')
+/** 用户目录里的活动核心（npm 核心更新换的就是这个目录）。 */
+const ACTIVE_CORE = join(APP_DIR, 'core', 'current')
+/** 安装包内置的基线核心（resources/core）；源码运行时就是仓库根目录（server.js 所在处）。 */
+const BASELINE_CORE = existsSync(join(ROOT, 'server.js')) ? ROOT : join(dirname(ROOT), 'core')
 /** 和 preload.cjs 的 IPC_CHANNEL 一致。 */
 const IPC_CHANNEL = 'dsh-x:ipc'
 /**
@@ -66,6 +85,11 @@ const TRAY_ACTION_TIMEOUT_MS = 120_000
 /** 菜单栏 / 托盘图标按 18pt（macOS）或 16px（Windows 托盘）显示，给 2 倍图才不糊。 */
 const TRAY_ICON_POINTS = IS_MAC ? 18 : 16
 const ICON_FILE = join(ROOT, 'assets', 'icon.png')
+/**
+ * 托盘图标用 tray.ico（带圆角/透明边），不用 icon.png——后者是不透明的方形母版，
+ * 直接塞进 Windows 托盘会是一个方块。mac 继续用 PNG。
+ */
+const TRAY_ICON_FILE = IS_WINDOWS ? join(ROOT, 'assets', 'tray.ico') : ICON_FILE
 /** 页面进程崩溃时 Chromium 报的原因：这几种是正常结束，不用重装。 */
 const CLEAN_EXITS = new Set(['clean-exit', 'killed'])
 /** dsh 页面能申请的权限：只放行本机地址的麦克风 / 摄像头（询问用户），其余一律拒绝。 */
@@ -82,8 +106,53 @@ let trayMenuKey = ''
 let state = parseTrayState('')
 let quitting = false
 
-/** 启动器版本：源码运行（npm run electron）时 app.getVersion() 是 Electron 的版本，所以自己读。 */
-const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
+/** 外壳版本：源码运行（npm run electron）时 app.getVersion() 是 Electron 的版本，所以自己读 shell/package.json。 */
+const VERSION = JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).version
+
+/** 读一个核心目录的 package.json（拿版本和它声明的 Electron 版本）；读不到返回 null。 */
+function corePackage(dir) {
+  try {
+    return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 启动哪个核心：CLI 明确指定（DSH_CORE_DIR）→ 用户目录里更新过的 current → 安装包基线。
+ * current 声明的 Electron 和当前外壳不一致（外壳升级换了运行时）时，退回基线并删掉 current，
+ * 避免每次启动都加载一个对不上的核心。
+ */
+function resolveCoreDir() {
+  if (process.env.DSH_CORE_DIR) return process.env.DSH_CORE_DIR
+  // 源码运行（npm run electron）用仓库自己的核心，不去碰用户目录里安装版更新的 core/current
+  if (!app.isPackaged && process.env.DSH_NPM !== '1') return BASELINE_CORE
+  if (!existsSync(join(ACTIVE_CORE, 'server.js'))) return BASELINE_CORE
+  const pkg = corePackage(ACTIVE_CORE)
+  const electron = pkg?.dshX?.electron
+  if (electron && String(electron) !== String(process.versions.electron)) {
+    try { rmSync(ACTIVE_CORE, { recursive: true, force: true }) } catch { /* 删不掉下次再试 */ }
+    return BASELINE_CORE
+  }
+  return ACTIVE_CORE
+}
+
+/**
+ * 用户目录里的核心起不来：删掉它，重启回安装包基线。
+ * pendingOnly 用于 startServer 失败：只有「刚换上、还没成功启动过」的核心才回退，
+ * 已经正常用过的 current 因为别的原因起不来（比如端口/设置）不该被删。
+ */
+function recoverBaseline(coreDir, { pendingOnly = false } = {}) {
+  if (coreDir !== ACTIVE_CORE) return false
+  const pending = join(APP_DIR, 'core', 'pending')
+  if (pendingOnly && !existsSync(pending)) return false
+  try { rmSync(ACTIVE_CORE, { recursive: true, force: true }) } catch { /* ignore */ }
+  try { rmSync(pending, { force: true }) } catch { /* ignore */ }
+  console.log('核心启动失败，回退到安装包内置版本')
+  app.relaunch()
+  app.exit(0)
+  return true
+}
 
 // 浏览器数据（cookie、站点权限、缓存）放在每用户目录下，和 Rust 外壳的 DSH/webview 并排；
 // 不用 Electron 默认的 ~/Library/Application Support/<应用名>——源码运行时那个名字是「Electron」。
@@ -106,7 +175,14 @@ async function start() {
   // Windows 的任务栏分组 / 通知要用 AppUserModelID；macOS 没有这个概念（bundle id 在 Info.plist 里）
   if (IS_WINDOWS) app.setAppUserModelId('io.github.yyh-001.dsh-x')
   if (IS_MAC) app.setAboutPanelOptions({ applicationName: 'DSH-X', applicationVersion: VERSION })
-  console.log(`DSH-X ${VERSION} (Electron ${process.versions.electron}, Chromium ${process.versions.chrome})`)
+  const coreDir = resolveCoreDir()
+  // 核心按「打包态」运行：它不在 resources/app 里，但仍要按安装包路径处理更新和快捷方式。
+  // 源码 `npm run electron` 不算打包态（PACKAGED 为 false），否则开发时也会去查 npm 核心更新。
+  if (app.isPackaged || process.env.DSH_NPM === '1') process.env.DSH_CORE = '1'
+  process.env.DSH_SHELL_VERSION = VERSION
+  // 核心的 node/ 包装脚本转调外壳的 Electron 本体
+  process.env.DSH_ELECTRON_BIN = process.execPath
+  console.log(`DSH-X ${VERSION} · core ${coreDir} (Electron ${process.versions.electron}, Chromium ${process.versions.chrome})`)
   // macOS 需要应用菜单提供 ⌘Q / 复制粘贴；Windows 的页面里 Ctrl+C/V 由 Chromium 自己处理，
   // 没有「窗口菜单」这回事，干脆不要菜单栏（Rust 外壳也没有）。
   if (IS_MAC) Menu.setApplicationMenu(appMenu())
@@ -116,8 +192,7 @@ async function start() {
   // 系统深浅色在运行中变了（控制中心切换）：停止页跟着重画（#58）
   nativeTheme.on('updated', () => tabs?.systemThemeChanged())
 
-  // 源码运行时 RUNTIME_NODE 来自 PATH 上的 node；打包后永远是 Electron 本体（process.execPath），
-  // 只有旧安装包（带 node/node.exe）或显式 DSH_RUNTIME_NODE 指歪了才可能落空。
+  // 打包后 RUNTIME_NODE 永远是 Electron 本体（process.execPath）；只有显式 DSH_RUNTIME_NODE 指歪了才可能落空。
   if (!RUNTIME_NODE || (app.isPackaged && !existsSync(RUNTIME_NODE))) {
     showStartupError('启动器文件不完整', '找不到用来运行 dsh 的 node。', '重新安装一次 DSH-X 即可。')
     return
@@ -126,7 +201,16 @@ async function start() {
   // 管理服务直接在本进程里起。端口被占时它自己顺延；被自己的另一个实例占着会抛 EALREADY——
   // 单实例锁已经挡掉了同一个包的第二个实例，走到这里说明是别的副本（源码运行、Windows 版不会
   // 在 macOS 上），那就唤醒它然后安静退出，和 start.js 的处理一致。
-  server = await import('../server.js')
+  let core
+  try {
+    core = await import(pathToFileURL(join(coreDir, 'server.js')).href)
+  } catch (error) {
+    // 用户目录里的核心坏到加载不了：删掉，重启回安装包基线；内置核心坏了只能报错
+    if (recoverBaseline(coreDir)) return
+    showStartupError('启动器核心缺失', '找不到或加载不了核心文件。', `${coreDir}\n${error?.stack || String(error)}`)
+    return
+  }
+  server = core
   try {
     managerBase = `${await server.startServer()}/`
   } catch (error) {
@@ -135,10 +219,15 @@ async function start() {
       app.exit(0)
       return
     }
+    // 刚换上的核心起不来才回退（pending 标记是核心更新写入的）；老 current 起不来按普通错误报
+    if (recoverBaseline(coreDir, { pendingOnly: true })) return
     showStartupError('dsh 服务启动失败', '管理页没能起来。', error?.stack || String(error))
     return
   }
+  // 核心已经成功启动：新版本通过验收，清掉「待验证」标记
+  try { rmSync(join(APP_DIR, 'core', 'pending'), { force: true }) } catch { /* ignore */ }
   const updater = createUpdater({
+    version: VERSION,
     onBeforeInstall: async () => {
       quitting = true
       await server.shutdown()
@@ -149,6 +238,8 @@ async function start() {
     openTab: (target) => openInternalTab(target),
     openWindow: (url) => openDshWindow(url),
     exit: (code) => exitApp(code),
+    // 核心更新后重启：app.relaunch() 等当前进程退出后才拉起新进程，单实例锁已经释放
+    relaunch: () => { app.relaunch(); app.exit(0) },
     shellUpdate: {
       state: () => updater.state(),
       check: () => updater.check(),
@@ -468,7 +559,7 @@ function closeWindow(window) {
 }
 
 function createTray() {
-  const image = nativeImage.createFromPath(ICON_FILE).resize({ width: TRAY_ICON_POINTS, height: TRAY_ICON_POINTS, quality: 'best' })
+  const image = nativeImage.createFromPath(TRAY_ICON_FILE).resize({ width: TRAY_ICON_POINTS, height: TRAY_ICON_POINTS, quality: 'best' })
   tray = new Tray(image)
   tray.setToolTip('DSH-X')
   // Windows 托盘点左键叫回管理页（右键才是菜单）；macOS 点菜单栏图标默认弹菜单，不抢。

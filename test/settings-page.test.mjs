@@ -125,18 +125,23 @@ test('自动清理旧版本：开关在 dsh 那组里，改动即保存，读设
   }
 })
 
-test('设置页有「关于」：显示当前版本，按钮主动检查更新', () => {
+test('设置页有「关于」：核心/外壳版本，按钮主动检查更新', () => {
   assert.match(html, /<section class="set-section" data-category="about"[\s\S]*?id="aboutVersion"[\s\S]*?id="aboutCheckUpdate"/, '关于里有当前版本和检查更新按钮')
+  assert.match(html, /id="aboutShellVersion"/, '关于里单独显示外壳版本')
   assert.match(html, /<p class="hint" id="aboutUpdateHint" role="status" aria-live="polite"><\/p>/, '检查结果用 hint 行显示')
-  assert.match(html, /const aboutVersion = document\.getElementById\('aboutVersion'\)/, '加载 /api/self 时回填版本')
+  assert.match(html, /const aboutVersion = document\.getElementById\('aboutVersion'\)/, '加载 /api/self 时回填核心版本')
+  assert.match(html, /const aboutShellVersion = document\.getElementById\('aboutShellVersion'\)/, '加载 /api/self 时回填外壳版本')
   assert.match(html, /getJson\('\/api\/self\?refresh=1'\)/, '按钮绕开缓存重新检查')
   assert.match(html, /showAsk\(\{ dsh: null, self: \{ current: data\.current, latest: data\.latest, url: data\.url \} \}\)/, '有更新时打开更新弹窗')
-  assert.match(html, /连不上发布页，请检查网络或下载源后重试。/, '连不上发布页时给出可操作的提示')
+  assert.match(html, /已是最新版本（核心 \{core\}，外壳 \{shell\}）/, '都最新时同时报两个版本')
+  assert.match(html, /核心更新检查失败：\{message\}/, '核心检查失败单独提示')
+  assert.match(html, /data\.app\?\.reason === 'manifest'/, 'npm 元数据取不到时也如实报错')
+  assert.match(html, /data\.app\?\.reason === 'electron'/, '核心需要新版 Electron 时提示先更新外壳')
   const server = readFileSync(fileURLToPath(new URL('../server.js', import.meta.url)), 'utf8')
   assert.match(server, /const refresh = url\.searchParams\.get\('refresh'\) === '1'/, 'refresh=1 解析成布尔')
-  assert.match(server, /checkAppUpdate\(\{ force: refresh \}\)/, '应用层清单也绕缓存')
+  assert.match(server, /checkAppUpdate\(\{ force: refresh \}\)/, '核心清单也绕缓存')
   const dict = new vm.Script(`(${html.match(/const EN = (\{[\s\S]*?\n\})/)[1]})`).runInNewContext()
-  for (const key of ['关于', '关于 DSH-X', '当前版本', '检查更新', '正在检查…', '发现新版本 {latest}，正在打开更新窗口…', '检查更新失败：{message}', '连不上发布页，请检查网络或下载源后重试。', '查看当前版本并检查更新。']) {
+  for (const key of ['关于', '关于 DSH-X', '当前版本', '外壳版本', 'DSH-X 核心', '检查更新', '正在检查…', '发现新版本 {latest}，正在打开更新窗口…', '检查更新失败：{message}', '核心已是最新；外壳更新检查失败：{message}', '查看当前版本并检查更新。']) {
     assert.ok(dict[key], `「${key.slice(0, 12)}…」有英文`)
   }
 })

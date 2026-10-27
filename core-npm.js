@@ -1,23 +1,21 @@
-// 核心（app 层）的 npm 分发：查 registry 的 dist-tags → 下载 tarball → 校验 → 解压。
+// 核心的 npm 分发：查 registry 的 dist-tags → 下载 tarball → 校验 → 解压。
 //
 // 安装包只负责外壳和 Electron；核心作为一个 npm 包独立发版，启动器在运行时从 registry
-// 取新版本，解到暂存目录后仍走 apply-update.mjs / MAC_APP_SWAP_SCRIPT 换 resources/app。
+// 取新版本，解到暂存目录后仍走 apply-update.mjs 换核心目录。
+// 核心包跨平台（两套 filemanager 和 node 包装都在里面），Windows 和 mac 用同一个
+// dsh-x-core；只有外壳/Electron 按平台分开。
 // 完整性用 npm 的 dist.integrity（sha512）校验；registry 走设置里的下载源（官方/镜像）。
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { netFetch } from './proxy.js'
-import { IS_MAC, IS_WINDOWS } from './platform.js'
 import { cmpVer, parseVer, VERSION_CHANNEL } from './version.js'
 
-/** 核心包按平台分开：app 层里的 filemanager 和 node 包装脚本本来就不同。 */
-export const CORE_PACKAGE = String(
-  process.env.DSH_CORE_PACKAGE
-  || (IS_WINDOWS ? 'dsh-x-core-win' : IS_MAC ? 'dsh-x-core-mac' : 'dsh-x-core'),
-).trim()
+/** 核心包跨平台：Windows 和 mac 共用同一个 dsh-x-core。 */
+export const CORE_PACKAGE = String(process.env.DSH_CORE_PACKAGE || 'dsh-x-core').trim()
 
 export const CORE_REGISTRIES = {
   official: 'https://registry.npmjs.org',
@@ -142,6 +140,14 @@ export function tarCommand() {
   return '/usr/bin/tar'
 }
 
+/** 在 Windows 上打的 tarball 里 POSIX 包装可能没有可执行位；解到 mac 后补上。 */
+function ensurePosixShims(dest) {
+  if (process.platform === 'win32') return
+  for (const name of ['node', 'npm', 'npx', 'pnpm', 'pnpx']) {
+    try { chmodSync(join(dest, 'node', name), 0o755) } catch { /* 没有就跳过 */ }
+  }
+}
+
 /** npm tarball 里所有文件都在 package/ 下；解包时剥掉这一层。 */
 export function extractCoreTarball(tarball, dest) {
   rmSync(dest, { recursive: true, force: true })
@@ -151,6 +157,7 @@ export function extractCoreTarball(tarball, dest) {
   if (!existsSync(join(dest, 'server.js')) || !existsSync(join(dest, 'package.json'))) {
     throw new Error('核心包里缺少 server.js 或 package.json')
   }
+  ensurePosixShims(dest)
   return JSON.parse(readFileSync(join(dest, 'package.json'), 'utf8'))
 }
 

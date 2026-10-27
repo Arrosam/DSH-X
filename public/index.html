@@ -464,6 +464,12 @@
                 </div>
                 <div class="set-row">
                   <div class="set-text">
+                    <span class="set-name" data-i18n="外壳版本">外壳版本</span>
+                    <span class="set-desc" id="aboutShellVersion">-</span>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-text">
                     <span class="set-name" data-i18n="GitHub">GitHub</span>
                     <span class="set-desc" data-i18n="在 GitHub 上给 DSH-X 点个 Star">在 GitHub 上给 DSH-X 点个 Star</span>
                   </div>
@@ -1250,13 +1256,8 @@
   "下载失败": "Download failed",
   "更新到 {latest}（约 {size} MB）": "Update to {latest} (about {size} MB)",
   "更新到 {latest}": "Update to {latest}",
-  "本次只需下载约 {size} MB（应用层增量），Electron 运行时不变。": "Only about {size} MB to download this time (app-layer update); the Electron runtime stays unchanged.",
-  "本次只更新应用核心（npm 包），Electron 运行时不变。": "Only the app core (npm package) is updated; the Electron runtime stays unchanged.",
-  "增量更新失败：{message}。可以改用完整安装包。": "Incremental update failed: {message}. You can switch to the full installer.",
-  "改用完整安装包": "Use the full installer",
-  "正在替换应用文件，启动器会重启…": "Replacing application files; the launcher will restart…",
   "正在重启…": "Restarting…",
-  "增量更新没能开始：{message}": "The incremental update could not start: {message}",
+  "核心更新没能开始：{message}": "The core update could not start: {message}",
   "更新已就绪": "Update ready",
   "新版本已下载，点这里完成安装": "New version downloaded — click to finish installing",
   "正在后台下载新版本": "Downloading the new version in the background",
@@ -1317,11 +1318,20 @@
   "GitHub": "GitHub",
   "在 GitHub 上给 DSH-X 点个 Star": "Give DSH-X a star on GitHub",
   "当前版本": "Current version",
+  "外壳版本": "Shell version",
+  "DSH-X 核心": "DSH-X core",
+  "核心更新检查失败：{message}": "Core update check failed: {message}",
+  "核心 {latest} 需要新版外壳（Electron {electron}）后才能安装。": "Core {latest} needs a newer shell (Electron {electron}) before it can be installed.",
+  "已是最新版本（核心 {core}，外壳 {shell}）。": "Already up to date (core {core}, shell {shell}).",
+  "更新核心": "Update core",
+  "核心更新失败：{message}。可以重试，或到发布页下载完整安装包。": "Core update failed: {message}. Retry, or download the full installer from the releases page.",
+  "正在替换核心文件，启动器会重启…": "Replacing core files; the launcher will restart…",
+  "本次只更新核心（约 12 MB 的 npm 包），外壳和 Electron 不变。": "Only the core (about 12 MB from npm) is updated; the shell and Electron stay unchanged.",
+  "本次只需下载约 {size} MB（核心增量），外壳和 Electron 不变。": "Only about {size} MB (core delta) is downloaded; the shell and Electron stay unchanged.",
   "查看当前版本并检查更新。": "See the current version and check for updates.",
   "正在检查…": "Checking…",
   "发现新版本 {latest}，正在打开更新窗口…": "Version {latest} is available. Opening the update dialog…",
   "检查更新失败：{message}": "Update check failed: {message}",
-  "连不上发布页，请检查网络或下载源后重试。": "Could not reach the release page. Check your network or download source and try again.",
   "npm 安装的版本请用 npm update -g @yyh001/dsh-x 更新。": "This npm-installed copy updates with npm update -g @yyh001/dsh-x.",
   "DSH-X 外壳": "DSH-X shell",
   "更新外壳到 {latest}": "Update the shell to {latest}",
@@ -5061,6 +5071,8 @@
         let state
         try { state = JSON.parse(event.data) } catch { return }
         selfState.shell = state
+        const aboutShellVersion = document.getElementById('aboutShellVersion')
+        if (aboutShellVersion && state.current) aboutShellVersion.textContent = state.current
         const wrap = document.getElementById('askProgress')
         const bar = document.getElementById('askProgressBar')
         if (state.status === 'downloading' && wrap && bar) {
@@ -5163,7 +5175,7 @@
         : downloaded ? `更新 ${latest} · 已下载` : (latest ? `更新 ${latest}` : t('更新'))
       selfUpdateEl.title = downloaded ? t('新版本已下载，点这里完成安装')
         : selfState.downloading ? t('正在后台下载新版本')
-          : (latest ? `更新启动器到 ${latest}` : t('更新启动器'))
+          : (latest ? `更新核心到 ${latest}` : t('更新核心'))
     }
 
     /**
@@ -5175,6 +5187,8 @@
       if (appVerEl) appVerEl.textContent = data.current || ''
       const aboutVersion = document.getElementById('aboutVersion')
       if (aboutVersion && data.current) aboutVersion.textContent = data.current
+      const aboutShellVersion = document.getElementById('aboutShellVersion')
+      if (aboutShellVersion && data.shell?.current) aboutShellVersion.textContent = data.shell.current
       selfState.current = data.current || selfState.current
       selfState.latest = data.latest || selfState.latest
       selfState.coreLatest = data.app?.latest || selfState.coreLatest
@@ -5253,7 +5267,7 @@
     }
     /**
      * 外壳/Electron 更新：electron-updater 下载安装包，静默安装后自动打开新版。
-     * 核心（resources/app）的 npm 更新仍走 startAppUpdate。
+     * 核心（resources/core / core/current）的 npm 更新走 startAppUpdate。
      */
     async function startShellUpdate(btn) {
       const shell = selfState.shell
@@ -5287,8 +5301,8 @@
     }
 
     /**
-     * 应用层增量更新：只下载并替换 resources/app，Electron 运行时不动。
-     * 下载完成 → 起替换助手 → 启动器退出重启；失败时按钮换成完整安装包那条路。
+     * 核心更新：从 npm 下载 dsh-x-core-*，只换核心目录，外壳和 Electron 不动。
+     * 下载完成 → 复制到 core/current 或起替换助手 → 外壳退出重启。
      */
     async function startAppUpdate(btn) {
       if (selfState.downloading) return
@@ -5311,12 +5325,12 @@
       } catch (error) {
         selfState.downloading = false
         paintSelfPill()
-        askNoteEl.textContent = t('增量更新失败：{message}。可以改用完整安装包。', { message: error.message })
+        askNoteEl.textContent = t('核心更新失败：{message}。可以重试，或到发布页下载完整安装包。', { message: error.message })
         if (wrap) wrap.hidden = true
         if (btn) {
           btn.disabled = false
-          btn.textContent = t('改用完整安装包')
-          btn.onclick = () => { void startSelfUpdate(btn) }
+          btn.textContent = t('重试')
+          btn.onclick = () => { void startAppUpdate(btn) }
         }
       }
     }
@@ -5324,12 +5338,12 @@
     async function applyAppUpdate(btn) {
       if (btn) { btn.disabled = true; btn.textContent = t('正在重启…') }
       askNoteEl.hidden = false
-      askNoteEl.textContent = t('正在替换应用文件，启动器会重启…')
+      askNoteEl.textContent = t('正在替换核心文件，启动器会重启…')
       try {
         await post('/api/self/app-apply')
       } catch (error) {
         if (btn) { btn.disabled = false; btn.textContent = t('重试') }
-        askNoteEl.textContent = t('增量更新没能开始：{message}', { message: error.message })
+        askNoteEl.textContent = t('核心更新没能开始：{message}', { message: error.message })
       }
     }
 
@@ -5347,26 +5361,29 @@
           const data = await getJson('/api/self?refresh=1')
           const shell = await post('/api/shell-update/check').catch(() => null)
           applySelfUpdate({ ...data, shell: shell || data.shell })
-          const shellReady = shell && ['available', 'downloading', 'ready'].includes(shell.status)
+          const shellState = shell || data.shell || null
+          const shellReady = shellState && ['available', 'downloading', 'ready'].includes(shellState.status)
           const coreReady = Boolean(data.app?.available)
           if (shellReady) {
-            aboutUpdateHintEl.textContent = t('发现外壳新版本 {latest}，正在打开更新窗口…', { latest: shell.latest || '' })
-            showAsk({ dsh: null, shell, self: data.update || coreReady ? { current: data.current, latest: data.latest || data.app?.latest, url: data.url } : null })
+            aboutUpdateHintEl.textContent = t('发现外壳新版本 {latest}，正在打开更新窗口…', { latest: shellState.latest || '' })
+            showAsk({ dsh: null, shell: shellState, self: coreReady ? { current: data.current, latest: data.app?.latest, url: data.url } : null })
           } else if (data.npm) {
             aboutUpdateHintEl.textContent = t('npm 安装的版本请用 npm update -g @yyh001/dsh-x 更新。')
-          } else if (!data.latest && !coreReady) {
-            aboutUpdateHintEl.textContent = t('连不上发布页，请检查网络或下载源后重试。')
           } else if (coreReady) {
             aboutUpdateHintEl.textContent = t('发现新版本 {latest}，正在打开更新窗口…', { latest: data.app?.latest || data.latest })
-            showAsk({ dsh: null, self: { current: data.current, latest: data.latest || data.app?.latest, url: data.url } })
+            showAsk({ dsh: null, self: { current: data.current, latest: data.app?.latest || data.latest, url: data.url } })
+          } else if (data.app?.reason === 'electron') {
+            aboutUpdateHintEl.textContent = t('核心 {latest} 需要新版外壳（Electron {electron}）后才能安装。', { latest: data.app.latest || '', electron: data.app.electron || '' })
+          } else if (shellState?.status === 'error') {
+            // 核心已经是最新，但外壳检查失败（常见：发布页还没有 latest.yml）
+            aboutUpdateHintEl.textContent = t('核心已是最新；外壳更新检查失败：{message}', { message: shellState.error || '' })
+          } else if (data.app?.reason === 'error' || data.app?.reason === 'manifest') {
+            aboutUpdateHintEl.textContent = t('核心更新检查失败：{message}', { message: data.app.error || '' })
           } else if (data.update) {
             aboutUpdateHintEl.textContent = t('发现新版本 {latest}，正在打开更新窗口…', { latest: data.latest })
             showAsk({ dsh: null, self: { current: data.current, latest: data.latest, url: data.url } })
-          } else if (shell?.status === 'error') {
-            // 核心已经是最新，但外壳检查失败（常见：发布页还没有 latest.yml）
-            aboutUpdateHintEl.textContent = t('核心已是最新；外壳更新检查失败：{message}', { message: shell.error || '' })
           } else {
-            aboutUpdateHintEl.textContent = t('已是最新版本（{version}）。', { version: data.current || '' })
+            aboutUpdateHintEl.textContent = t('已是最新版本（核心 {core}，外壳 {shell}）。', { core: data.current || '', shell: shellState?.current || '' })
           }
         } catch (error) {
           aboutUpdateHintEl.textContent = t('检查更新失败：{message}', { message: error.message })
@@ -5515,7 +5532,7 @@
         const target = appAvailable ? (app.latest || update.self.latest) : update.self.latest
         const selfRow = askRow(
           'self',
-          t('DSH-X 启动器'),
+          t('DSH-X 核心'),
           update.self.current,
           target || t('最新'),
           ready ? t('安装并重启')
@@ -5540,11 +5557,11 @@
           askNoteEl.hidden = false
           askNoteEl.textContent = t('新版本已下载，安装后启动器会重启。')
         } else if (appAvailable) {
-          // 核心更新：只换 resources/app，Electron 运行时不动
+          // 核心更新：只换核心目录，外壳和 Electron 不动
           askNoteEl.hidden = false
           askNoteEl.textContent = sizeMb
-            ? t('本次只需下载约 {size} MB（应用层增量），Electron 运行时不变。', { size: sizeMb })
-            : t('本次只更新应用核心（npm 包），Electron 运行时不变。')
+            ? t('本次只需下载约 {size} MB（核心增量），外壳和 Electron 不变。', { size: sizeMb })
+            : t('本次只更新核心（约 12 MB 的 npm 包），外壳和 Electron 不变。')
         }
         // 自动更新不管用时的退路：直接给发布页，自己挑对应平台的安装包。
         const manual = document.createElement('a')
