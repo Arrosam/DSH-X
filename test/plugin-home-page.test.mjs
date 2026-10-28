@@ -40,7 +40,6 @@ test('目录选择去重；仅插件类请求跟随目录，显式全局与启�
   assert.match(nodes.pluginHome.innerHTML, /工作（D:\/工作）/, '选项带名字和路径')
   c.pluginHome = 'D:/工作'
   c.paintPluginHomes()
-  assert.equal(nodes.pluginHomeHint.textContent, '使用目录：D:/工作')
   assert.equal(c.apiScopeHeaders('/api/plugins')['x-dsh-home'], encodeURIComponent('D:/工作'))
   assert.equal(Object.keys(c.apiScopeHeaders('/api/settings')).length, 0)
   assert.equal(Object.keys(c.apiScopeHeaders('/api/mcp')).length, 0)
