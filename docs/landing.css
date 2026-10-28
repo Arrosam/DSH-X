@@ -89,7 +89,40 @@ h1 span { display: block; }
 .title-name { color: var(--accent); }
 .title-rest { margin-top: 3px; font-size: clamp(34px, 3.55vw, 49px); letter-spacing: -.045em; }
 .lead { margin: 24px 0 0; max-width: 420px; color: var(--muted); font-size: 17px; line-height: 1.75; }
-.cta { display: flex; flex-wrap: wrap; gap: 11px; margin-top: 34px; }
+.cta { display: flex; flex-wrap: wrap; align-items: stretch; gap: 11px; margin-top: 34px; }
+/* 按钮整体就是下拉：点整块展开包列表，菜单项自带下载地址 */
+.split { position: relative; display: inline-flex; }
+.split-trigger { font: inherit; cursor: pointer; }
+.split-trigger:active { transform: translateY(0) scale(.985); }
+.split-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.split-caret { display: inline-flex; align-items: center; margin-left: -3px; opacity: .75; transition: transform .22s cubic-bezier(.34, 1.4, .64, 1); }
+.split-caret svg { width: 13px; height: 13px; }
+.split[data-open="true"] .split-caret { transform: rotate(180deg); }
+/* 菜单用 opacity / transform 过渡，不用 display——display 变不了，才没有动画可看 */
+.split-menu {
+  position: absolute; top: calc(100% + 7px); left: 0; z-index: 30;
+  min-width: 100%; padding: 5px;
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 18px 40px rgba(19, 32, 61, .18);
+  transform-origin: top left;
+  opacity: 0; transform: translateY(-6px) scale(.96); visibility: hidden; pointer-events: none;
+  transition: opacity .16s ease, transform .2s cubic-bezier(.34, 1.4, .64, 1), visibility 0s linear .2s;
+}
+.split[data-open="true"] .split-menu {
+  opacity: 1; transform: translateY(0) scale(1); visibility: visible; pointer-events: auto;
+  transition: opacity .18s ease, transform .22s cubic-bezier(.34, 1.4, .64, 1), visibility 0s;
+}
+.split-menu a {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 8px 10px; border-radius: 8px;
+  color: var(--text); text-decoration: none; white-space: nowrap;
+  font-size: 13px; font-weight: 620;
+  transition: background .16s, color .16s, transform .16s;
+}
+.split-menu a:hover { background: rgba(54, 107, 216, .09); color: var(--accent); transform: translateX(2px); }
+.menu-hint { color: var(--muted); font-size: 11.5px; font-weight: 500; }
 .btn {
   display: inline-flex;
   align-items: center;
@@ -119,18 +152,7 @@ h1 span { display: block; }
 .dl[hidden] { display: none; }
 .dl svg { width: 14px; height: 14px; fill: currentColor; }
 .dl b { color: var(--text); font-weight: 750; }
-/* 同一平台的另一种格式：默认藏着，脚本按系统放出对应那条 */
-.cta-alt { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 9px 0 0; color: var(--muted); font-size: 12.5px; }
-.cta-alt[hidden] { display: none; }
-.cta-alt a { color: var(--accent); text-decoration: none; }
-.cta-alt a:hover { text-decoration: underline; }
-.cta-alt a[hidden] { display: none; }
-/* 版本下拉：低调地坐在下载数旁边，和右边那行文字一个重量 */
-.ver { display: inline-flex; align-items: center; }
-.ver[hidden] { display: none; }
-.ver select { appearance: auto; background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 2px 6px; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
-.ver select:hover { color: var(--accent); border-color: rgba(54, 107, 216, .42); }
-.ver-link { text-decoration: none; color: var(--muted); }
+.ver-link { text-decoration: none; color: var(--muted); transition: color .16s; }
 .ver-link:hover { color: var(--accent); }
 .cta-note { margin: 6px 0 0; max-width: 420px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .links { display: flex; flex-wrap: wrap; align-items: center; gap: 11px; margin-top: 37px; }
