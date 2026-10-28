@@ -28,7 +28,7 @@ export function currentRegistry() {
   const name = loadSettingsSync().downloadSource
   return DOWNLOAD_SOURCES[name] || DOWNLOAD_SOURCES[DEFAULTS.downloadSource]
 }
-const USER_AGENT = `dsh-versions/${pkg.version || '0.0.0'}`
+const USER_AGENT = `dsh-x/${pkg.version || '0.0.0'}`
 let npmReady = null
 
 // npm/npx 的 Windows 包装。`node` 落在哪儿随安装方式变：源码运行就是系统 node；打包后
