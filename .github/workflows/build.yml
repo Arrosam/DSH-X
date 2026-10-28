@@ -175,7 +175,8 @@ jobs:
             security delete-keychain "$RUNNER_TEMP/dsh-mac-signing.keychain-db"
           fi
 
-  # Linux：AppImage + latest-linux.yml；外壳自更新走 electron-updater 的 AppImage 通道
+  # Linux：AppImage（外壳自更新走 electron-updater 的 AppImage 通道）+ deb（装进系统菜单、
+  # 能被 apt 卸干净，但没有外壳自更新——updater.mjs 拿不到 APPIMAGE 变量时会当不支持）
   linux:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -192,7 +193,7 @@ jobs:
       - name: 跑测试
         run: npm test -- --test-timeout=120000
 
-      - name: 打包（electron-builder：AppImage + latest-linux.yml）
+      - name: 打包（electron-builder：AppImage + deb + latest-linux.yml）
         run: npm run dist
 
       - uses: actions/upload-artifact@v4
@@ -200,6 +201,7 @@ jobs:
           name: DSH-X-linux
           path: |
             release/eb/DSH-X-*.AppImage
+            release/eb/DSH-X-*.deb
             release/eb/latest-linux.yml
           if-no-files-found: error
 
@@ -210,9 +212,10 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" release/eb/DSH-X-*.AppImage release/eb/latest-linux.yml --clobber
+            # latest-linux.yml 只描述 AppImage（electron-updater 的 Linux 通道），deb 不进它
+            gh release upload "$tag" release/eb/DSH-X-*.AppImage release/eb/DSH-X-*.deb release/eb/latest-linux.yml --clobber
           else
-            echo "还没有 $tag 的 Release，AppImage 先留在 workflow artifacts 里"
+            echo "还没有 $tag 的 Release，AppImage 和 deb 先留在 workflow artifacts 里"
           fi
 
   # npm 版：CLI 包 + 从 npm 拉跨平台核心。等三个平台的包都出完再发，保证核心包先到 registry。

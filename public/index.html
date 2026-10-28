@@ -1333,6 +1333,7 @@
   "发现新版本 {latest}，正在打开更新窗口…": "Version {latest} is available. Opening the update dialog…",
   "检查更新失败：{message}": "Update check failed: {message}",
   "npm 安装的版本请用 npm update -g @yyh001/dsh-x 更新。": "This npm-installed copy updates with npm update -g @yyh001/dsh-x.",
+  "核心已是最新。这个安装形态（deb / macOS）不支持外壳自更新，换外壳请到发布页下载新的安装包。": "The core is up to date. This install (deb / macOS) cannot self-update the shell; download the new installer from the releases page.",
   "DSH-X 外壳": "DSH-X shell",
   "更新外壳到 {latest}": "Update the shell to {latest}",
   "外壳更新会替换整个安装包（Electron 和启动器代码），安装完成后会自动打开。": "The shell update replaces the whole installer (Electron and launcher code) and reopens automatically.",
@@ -5385,6 +5386,10 @@
           } else if (data.update) {
             aboutUpdateHintEl.textContent = t('发现新版本 {latest}，正在打开更新窗口…', { latest: data.latest })
             showAsk({ dsh: null, self: { current: data.current, latest: data.latest, url: data.url } })
+          } else if (shellState?.status === 'disabled') {
+            // deb / macOS：外壳自更新本来就关着（没有 APPIMAGE 变量 / 临时签名装不上），核心照常自动更新。
+            // 不能落到下面那句「已是最新」——用户会以为外壳也没得更新，而它其实得去发布页换包。
+            aboutUpdateHintEl.textContent = t('核心已是最新。这个安装形态（deb / macOS）不支持外壳自更新，换外壳请到发布页下载新的安装包。')
           } else {
             aboutUpdateHintEl.textContent = t('已是最新版本（核心 {core}，外壳 {shell}）。', { core: data.current || '', shell: shellState?.current || '' })
           }

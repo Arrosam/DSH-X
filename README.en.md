@@ -34,7 +34,7 @@ DSH-X is a third-party desktop launcher for DeepSeek Harness: launch entries, mu
 - **Opening modes**: tabs inside DSH-X, a system browser tab, standalone browser window or desktop window.
 - **Appearance**: light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.
 - **Updates and recovery**: self-update, profile recovery and configurable old-version retention; each launch entry's current and previous versions are kept additionally.
-- **Windows / macOS / Linux**: a Windows installer, Apple Silicon / Intel dmgs and a Linux AppImage (macOS 13+), with tray / menu bar operation and launch at login, plus bundled npm / pnpm wrappers.
+- **Windows / macOS / Linux**: a Windows installer, Apple Silicon / Intel dmgs, plus a Linux AppImage and deb (macOS 13+), with tray / menu bar operation and launch at login, plus bundled npm / pnpm wrappers.
 
 Feedback: **QQ group [993579665](https://qm.qq.com/q/7AD2g70HqS)**
 
@@ -144,7 +144,7 @@ Windows: download `DSH-Setup-<version>.exe` from the [releases page](https://git
 
 macOS: open `DSH-X-<version>-arm64.dmg` (Apple Silicon) or `DSH-X-<version>-x64.dmg` (Intel) and drag **DSH-X** into Applications. The package is ad-hoc signed and not notarized, so the first launch may require manual approval through macOS security prompts; shell auto-update is currently unavailable, while core updates still come from npm.
 
-Linux: download `DSH-X-<version>-x86_64.AppImage`, `chmod +x` it and run it. If FUSE is unavailable, use `./DSH-X-<version>-x86_64.AppImage --appimage-extract-and-run`. Settings live in `~/.config/DSH` and the core cache in `~/.cache/dsh-x`. AppImage shell updates use electron-updater; core updates use npm.
+Linux: download `DSH-X-<version>-x86_64.AppImage`, `chmod +x` it and run it. If FUSE is unavailable, use `./DSH-X-<version>-x86_64.AppImage --appimage-extract-and-run`. On Debian / Ubuntu you can also install `DSH-X-<version>-amd64.deb` with `sudo apt install ./DSH-X-<version>-amd64.deb`: it lands in `/opt/DSH-X`, adds a menu entry and uninstalls with `apt remove dsh-x`, but **the deb build has no shell auto-update** — grab the new installer from the releases page. Settings live in `~/.config/DSH` and the core cache in `~/.cache/dsh-x`; core updates use npm for both packages.
 
 Add or edit a launch entry on the home page, select its environment and version, then start it. Open **Version management** from the launch-entry editor to manually install or remove versions. Settings → General → **How dsh opens** offers internal tabs, a browser or a separate window. Internal tabs require the installed desktop app.
 

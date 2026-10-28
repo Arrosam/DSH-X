@@ -75,12 +75,23 @@ export default {
     artifactName: 'DSH-X-${version}-${arch}.${ext}',
   },
   linux: {
-    target: [{ target: 'AppImage', arch: ['x64'] }],
+    target: [
+      // AppImage：单个文件、全发行版通用，也是 electron-updater 在 Linux 上唯一认的形态
+      // （它靠 APPIMAGE 环境变量找到要替换的那个文件）。
+      { target: 'AppImage', arch: ['x64'] },
+      // deb：给 Debian / Ubuntu 系一个装进系统、能从菜单启动、能被 apt 卸干净的包。
+      // 代价是自更新断掉——deb 装出来的进程没有 APPIMAGE 变量，updater.mjs 那边会当不支持，
+      // 用户得手动换包；核心那层（core/current）照旧走 npm，不受影响。
+      { target: 'deb', arch: ['x64'] },
+    ],
     icon: join('assets', 'icon.png'),
     category: 'Development',
     executableName: 'DSH',
     artifactName: 'DSH-X-${version}-${arch}.${ext}',
     synopsis: 'DeepSeek Harness launcher',
     description: 'DeepSeek Harness 桌面启动器',
+    // deb 的 Maintainer 字段是必填的，不填 electron-builder 直接报错。
+    // 用 GitHub 的 noreply 地址，不把真实邮箱写进包元信息。
+    maintainer: 'yyh <yyh@users.noreply.github.com>',
   },
 }

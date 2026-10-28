@@ -12,8 +12,14 @@ const NPM_MODE = process.env.DSH_NPM === '1'
 /**
  * mac 包是临时签名，electron-updater 换不上去；发布页也不再放 zip / latest-mac.yml，
  * 干脆当不支持，免得每次启动都报查不到更新清单。DSH_UPDATE_FEED 留给本地演练。
+ *
+ * Linux 只有 AppImage 能自更新：electron-updater 靠 APPIMAGE 环境变量找到要替换的那个文件。
+ * deb 装出来的是 /opt 下的普通目录，没有这个变量，硬查会抛 "APPIMAGE env is not defined"，
+ * 所以这里先当不支持——用户从发布页换包，核心那层照旧走 npm。DSH_UPDATE_FEED 同样留给演练。
  */
-const SHELL_UPDATE_SUPPORTED = process.platform !== 'darwin' || Boolean(process.env.DSH_UPDATE_FEED)
+const SHELL_UPDATE_SUPPORTED =
+  (process.platform !== 'darwin' || Boolean(process.env.DSH_UPDATE_FEED)) &&
+  (process.platform !== 'linux' || Boolean(process.env.APPIMAGE) || Boolean(process.env.DSH_UPDATE_FEED))
 
 /** electron-updater 的报错带一大段 HTTP 头/堆栈；页面只留第一句，缺 latest.yml 时给人话。 */
 function friendlyError(error) {
