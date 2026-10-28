@@ -13,6 +13,13 @@
   --control-font-size: 13px;
   --control-radius: 9px;
   --control-padding: 12px;
+  /* 顶栏两种形态共用这一组尺寸：
+     - 默认（浏览器里、外壳没开标签页）：36px 控件 + 18px 上下留白，就是原来那条高顶栏；
+     - .internal-tabs（内部标签页）：控件 30px、留白 5px，整条 40px，像浏览器标签栏那样扁。
+     internal-tabs.js 把 header 的真实高度报给外壳（'layout'），dsh 页面的顶边跟着走，
+     所以两种形态切换时不会盖住页面内容。 */
+  --topbar-control: 36px;
+  --topbar-radius: 12px;
   /* 开关的轨道与圆钮：两档的 .toggle 和更新提醒的三档开关共用，暗色主题只改这里 */
   --switch-off: #cfdcf3;
   --switch-on: var(--accent);
@@ -109,6 +116,8 @@ header {
 }
 .brand { font-weight: 700; letter-spacing: 0.04em; font-size: 20px; line-height: 1; color: var(--accent); }
 .brand-home { display: inline-flex; align-items: baseline; gap: 10px; border: 0; padding: 6px 8px; margin: -6px -8px; background: transparent; font: inherit; cursor: pointer; }
+/* 「回主页」图标只在内部标签页里出现（.internal-tabs 底下的规则），其余形态仍是文字 logo */
+.brand-icon { display: none; }
 .brand-home:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
 .brand-block { display: flex; align-items: baseline; gap: 10px; }
 .app-ver { color: var(--muted); font-size: 12px; }
@@ -154,15 +163,16 @@ header {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  flex-shrink: 0;
+  width: var(--topbar-control);
+  height: var(--topbar-control);
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent);
   cursor: pointer;
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease, color 180ms ease;
 }
 .gear-btn svg { width: 17px; height: 17px; transition: transform 280ms cubic-bezier(.2, .8, .2, 1); }
 .gear-btn.active svg { transform: rotate(45deg); }
@@ -187,6 +197,7 @@ header {
    拖动同样只能靠 app-region。类由 shell/preload.cjs 加，只在 Windows 的 Electron 里出现。 */
 .electron-window header { -webkit-app-region: drag; }
 .electron-window header :is(button, a, input, select, .select, .internal-tab) { -webkit-app-region: no-drag; }
+/* 窗口按钮：浏览器窗口右上角那种横向长条块，挨着排、没有描边，只有悬停底色。 */
 .win-btn {
   width: 34px;
   height: 30px;
@@ -206,16 +217,46 @@ header {
 .win-btn.close:hover { background: var(--danger); color: #fff; }
 /* 顶栏要用来拖窗口，文字别被拖选 */
 .app-window header { user-select: none; }
-/* 原生标签复用已有菜单栏：不再另加标题栏，配色与 Star、设置和窗口按钮保持同源。 */
-.internal-tabs header { gap: 20px; }
+/* 标签条：浏览器那种紧挨着的一排扁标签——静止没有描边、没有投影，选中标签是一块实底色。 */
+/* 内部标签页（.internal-tabs，由 internal-tabs.js 按外壳状态挂到 <html> 上）就是浏览器标签栏形态：
+   控件 30px + 上下各 5px = 40px 一整条；齿轮、刷新、窗口按钮全部扁平（静止无底色、无描边、无投影，
+   悬停才浮出底色）；文字 logo 让位给一个「回主页」图标按钮。没开标签页时（浏览器里、或外壳一个标签
+   都没开）整条退回上面的高顶栏，两种形态由这一组变量切换。 */
+.internal-tabs { --topbar-control: 30px; --topbar-radius: 8px; }
+.internal-tabs header { padding: 5px 10px; gap: 12px; }
+/* macOS 的红绿灯还在左上角，标签条不能压过去（这条要在 .mac-window 的 96px 之后才生效） */
+.internal-tabs.mac-window header { padding-left: 96px; }
 .internal-tabs .brand-block, .internal-tabs .header-right { flex-shrink: 0; }
-.internal-tabs-area { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
+.internal-tabs .brand, .internal-tabs .app-ver { display: none; }
+.internal-tabs .brand-home {
+  display: grid; place-items: center; width: var(--topbar-control); height: var(--topbar-control);
+  padding: 0; margin: 0; border-radius: var(--topbar-radius); background: transparent; color: var(--muted);
+  transition: background 160ms ease, color 160ms ease;
+}
+.internal-tabs .brand-home:hover { background: var(--accent-soft); color: var(--accent); }
+.internal-tabs .brand-icon { display: grid; place-items: center; }
+.internal-tabs .brand-icon svg { width: 16px; height: 16px; }
+.internal-tabs .self-update { padding: 5px 10px; border-radius: var(--topbar-radius); }
+.internal-tabs .gear-btn {
+  width: var(--topbar-control); height: var(--topbar-control);
+  border: 0; border-radius: var(--topbar-radius); background: transparent; color: var(--muted);
+  transition: background 160ms ease, color 160ms ease;
+}
+.internal-tabs .gear-btn svg { width: 16px; height: 16px; }
+.internal-tabs .gear-btn:hover {
+  background: var(--accent-soft); color: var(--accent);
+  transform: none; box-shadow: none; border-color: transparent;
+}
+.internal-tabs .gear-btn.active { background: var(--accent); color: #fff; }
+.internal-tabs .win-controls { gap: 0; margin-left: 4px; }
+.internal-tabs .win-btn { width: 40px; height: var(--topbar-control); border-radius: 6px; }
+.internal-tabs-area { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; }
 .internal-tabs-area[hidden] { display: none; }
-.internal-tab-list { position: relative; isolation: isolate; display: flex; flex: 1; gap: 5px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.internal-tab-list { position: relative; isolation: isolate; display: flex; flex: 1; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .internal-tab-list::-webkit-scrollbar { display: none; }
 .internal-tab-indicator {
-  position: absolute; top: 0; left: 0; height: 36px; border: 1px solid var(--line); border-radius: 12px;
-  background: var(--card); box-shadow: 0 3px 10px rgba(59, 111, 224, .09); opacity: 0; pointer-events: none;
+  position: absolute; top: 0; left: 0; height: var(--topbar-control); border: 1px solid transparent; border-radius: var(--topbar-radius);
+  background: var(--accent-dim); opacity: 0; pointer-events: none;
   will-change: transform;
   transition: transform 260ms cubic-bezier(.2, 1.3, .32, 1), width 260ms cubic-bezier(.2, 1.3, .32, 1), opacity 160ms ease;
 }
@@ -223,21 +264,22 @@ header {
 .internal-tab-indicator.instant { transition: none; }
 .internal-tab {
   position: relative;
-  display: flex; align-items: center; gap: 5px; flex: 0 1 172px; min-width: 104px; height: 36px;
-  padding: 0 7px 0 11px; border: 1px solid transparent; border-radius: 12px; color: var(--muted);
+  display: flex; align-items: center; gap: 4px; flex: 0 1 160px; min-width: 96px; height: var(--topbar-control);
+  padding: 0 3px 0 9px; border: 1px solid transparent; border-radius: var(--topbar-radius); color: var(--muted);
   transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
 }
 .internal-tab:hover { background: var(--accent-soft); color: var(--accent); }
 .internal-tab.active { background: transparent; color: var(--accent); }
 .internal-tab button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.internal-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 0; height: 100%; font-size: 13px !important; font-weight: 600 !important; }
+.internal-tab-label { display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0; padding: 0; height: 100%; font-size: 12px !important; font-weight: 500 !important; }
 .internal-tab-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.internal-tab-label svg { flex-shrink: 0; width: 15px; height: 15px; }
-.internal-tab-close { display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; padding: 4px; border-radius: 7px; opacity: .5; transition: opacity 140ms ease, background 140ms ease; }
+.internal-tab-label svg { flex-shrink: 0; width: 13px; height: 13px; }
+.internal-tab-close { display: grid; place-items: center; flex-shrink: 0; width: 20px; height: 20px; padding: 3px; border-radius: 5px; opacity: .5; transition: opacity 140ms ease, background 140ms ease; }
 .internal-tab:hover .internal-tab-close, .internal-tab.active .internal-tab-close { opacity: .8; }
 .internal-tab-close:hover { opacity: 1 !important; background: var(--accent-dim); }
-.internal-tab-close svg { width: 13px; height: 13px; }
-.internal-tab-reload { flex-shrink: 0; width: 32px; height: 32px; }
+.internal-tab-close svg { width: 11px; height: 11px; }
+/* 刷新按钮与齿轮同尺寸（都吃 .gear-btn 的 --topbar-control），别在标签条里单独放大 */
+.internal-tab-reload { flex-shrink: 0; }
 .internal-tab.stopped .internal-tab-label { opacity: .6; }
 .internal-tab button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 5px; }
 .internal-tab { touch-action: none; user-select: none; }
@@ -550,6 +592,16 @@ html.reduce-motion .launch-status.is-working::before { animation: none; }
 .launch-modal-fields { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; margin: -2px; padding: 2px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 #launchDialog .home-field > label { font-size: 12px; letter-spacing: 0; }
 .toggle.launch-auto-launch { margin: 0; font-size: 12px; }
+/* 折叠里的自动启动开关：跟上面字段拉开一点，别贴着说明行 */
+.launch-isolation-advanced-fields .launch-auto-launch { margin-top: 2px; }
+/* 目录那一行：输入框 + 「选择…」图标按钮。按钮不许被输入框挤扁，窄屏上也要还在右边 */
+.launch-path-row { display: flex; align-items: center; gap: 8px; }
+.launch-path-row input { min-width: 0; flex: 1; }
+.launch-path-row .icon-btn { flex: 0 0 auto; }
+/* 项目目录的说明只在填了东西时才有意义，空着别占一行高度 */
+#launchWorkdirHint:empty { display: none; }
+/* 复制来源两行叠着放：目录 + Profile，选起来不用横着找 */
+#launchCopyAdvancedPanel .launch-isolation-advanced-fields { display: grid; gap: 8px; }
 /* 更新提醒跟版本下拉同一行：窄到放不下时整块换到下一行，两边的控件才对得齐。
    版本类型给固定宽度，把开关和档名装进一个有边框的控件盒——跟下拉同高同圆角，读起来是一个设置项，
    而不是飘在右上角的两粒零件；剩下的宽度都留给版本。 */
@@ -567,10 +619,16 @@ html.reduce-motion .launch-status.is-working::before { animation: none; }
 .launch-isolation { display: grid; gap: 8px; }
 .launch-isolation[hidden] { display: none; }
 .launch-isolation-title { color: var(--muted); font-size: 12px; font-weight: 500; }
-.launch-isolation-tabs { display: flex; gap: 2px; padding: 4px; border-radius: 12px; background: var(--accent-soft); }
-.launch-isolation-tab { flex: 1 1 0; padding: 8px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease; }
+/* 三档用胶囊分段切：底槽固定在那一圈，当前档的浮块是底槽上的伪元素（data-active 决定滑到哪一档），
+   切档时浮块平移过去，比背景色硬切更像真的开关。tab 本身只改文字颜色，不再各自铺底，否则浮块会被盖住。 */
+.launch-isolation-tabs { position: relative; display: flex; gap: 2px; padding: 4px; border-radius: 12px; background: var(--accent-soft); }
+/* 浮块宽度 = 等分三份：底槽内宽 100% - 两侧 padding 8px - 两道 gap 4px，再除以 3 */
+.launch-isolation-tabs::after { content: ''; position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 12px) / 3); border-radius: 9px; background: var(--card); box-shadow: 0 2px 8px rgba(22, 35, 61, .1); pointer-events: none; transition: transform 240ms cubic-bezier(.22, .61, .36, 1); }
+.launch-isolation-tabs[data-active="home"]::after { transform: translateX(calc(100% + 2px)); }
+.launch-isolation-tabs[data-active="custom"]::after { transform: translateX(calc(200% + 4px)); }
+.launch-isolation-tab { flex: 1 1 0; position: relative; z-index: 1; padding: 8px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: color 160ms ease; }
 .launch-isolation-tab:hover { color: var(--text); }
-.launch-isolation-tab[aria-selected="true"] { background: var(--card); color: var(--accent); font-weight: 600; box-shadow: 0 2px 8px rgba(22, 35, 61, .1); }
+.launch-isolation-tab[aria-selected="true"] { color: var(--accent); font-weight: 600; }
 .launch-isolation-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .launch-custom-fields { display: grid; gap: 14px; }
 .launch-custom-fields[hidden] { display: none; }
@@ -581,11 +639,33 @@ html.reduce-motion .launch-status.is-working::before { animation: none; }
 /* 换档时说明行淡入，文字别硬跳 */
 #launchIsolationHint.isolation-hint-in { animation: launch-isolation-hint-in 200ms cubic-bezier(.22,.61,.36,1) both; }
 @keyframes launch-isolation-hint-in { from { opacity: 0; transform: translateY(-2px); } }
-html.reduce-motion .launch-isolation-tab { transition: none; }
+/* ---- 前两档下面的折叠：默认收起 = 什么都不用填，展开再指定名字/目录 ---- */
+/* 做成一条浅色小横条（跟 tab 底槽同色），比虚线框安静，展开后才在里面长出一块表单；
+   开合由 setLaunchAdvanced 做高度动画，箭头同步转 180°，跟仓库其它折叠的箭头方向一致。 */
+.launch-isolation-advanced { border-radius: 12px; background: var(--accent-soft); overflow: hidden; transition: box-shadow 160ms ease; }
+.launch-isolation-advanced[hidden] { display: none; }
+.launch-isolation-advanced:hover { box-shadow: inset 0 0 0 1px var(--line); }
+.launch-isolation-advanced.is-open { box-shadow: none; }
+.launch-isolation-advanced-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); font-family: inherit; font-size: 12px; font-weight: 500; text-align: left; cursor: pointer; transition: color 160ms ease; }
+.launch-isolation-advanced-toggle:hover { color: var(--text); }
+.launch-isolation-advanced-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 10px; }
+.launch-isolation-advanced-label { flex: 1; min-width: 0; }
+.launch-isolation-advanced-chevron { width: 14px; height: 14px; flex: 0 0 auto; transition: transform 220ms cubic-bezier(.22, .61, .36, 1); }
+.launch-isolation-advanced.is-open .launch-isolation-advanced-chevron { transform: rotate(180deg); }
+.launch-isolation-advanced-panel { overflow: hidden; }
+.launch-isolation-advanced-panel[hidden] { display: none; }
+.launch-isolation-advanced-fields { display: grid; gap: 10px; padding: 0 12px 10px; }
+/* 折叠里的目录下拉也是 createUiSelect 包出来的，而 .ui-select 默认只有 148px 宽（给设置页那种小行用），
+   放在这个网格里会缩成一小截；这里让它跟下面的输入框一样占满。 */
+.launch-isolation-advanced-fields .ui-select { width: 100%; }
+html.reduce-motion .launch-isolation-tabs::after,
+html.reduce-motion .launch-isolation-tab,
+html.reduce-motion .launch-isolation-advanced-chevron { transition: none; }
 html.reduce-motion .launch-custom-fields:not([hidden]),
 html.reduce-motion #launchIsolationHint.isolation-hint-in { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .launch-isolation-tab { transition: none; }
+  .launch-isolation-tabs::after,
+  .launch-isolation-tab, .launch-isolation-advanced-chevron { transition: none; }
   .launch-custom-fields:not([hidden]), #launchIsolationHint.isolation-hint-in { animation: none; }
 }
 /* 开关的几何参数挂在包装层上：圆钮和 range 都要读，定义一处就不会两边对不上。
@@ -1390,7 +1470,6 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 #pluginPanel .plugin-overview-top .ghost { margin-top: 0; }
 .plugin-home-bar { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .plugin-home-bar .ui-select { flex: 0 1 280px; width: min(100%, 280px); min-width: 0; margin-left: auto; }
-.plugin-home-hint { margin: -8px 0 24px; overflow-wrap: anywhere; }
 #pluginHomesDialog .ask-card { --dialog-width: 520px; }
 #pluginHomesDialog .dialog-heading { margin-bottom: 12px; }
 .plugin-homes-list { display: grid; gap: 10px; min-width: 0; }
@@ -1416,7 +1495,6 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 #pluginHomesAdd.plugin-home-action { color: var(--text); background: var(--accent-soft); }
 #pluginHomesAdd.plugin-home-action:hover:not(:disabled) { background: var(--accent-dim); }
 #launchPluginsDialog .plugin-home-bar { display: none; }
-#launchPluginsDialog .plugin-home-hint { display: none; }
 @media (max-width: 480px) {
   #pluginPanel .plugin-overview-top .profile-add { margin-left: auto; }
   .plugin-overview-top .plugin-home-bar { order: 1; flex-basis: 100%; }
@@ -1480,6 +1558,14 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
   to { opacity: 1; transform: none; }
 }
 .pack-more-meta { padding: 6px 10px 2px; border-top: 1px solid var(--line); margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+/* Profile 备份与回退：列表限高滚动，每行时间 + 涉及文件 + 回退按钮 */
+.backup-list { display: grid; gap: 8px; max-height: min(46vh, 360px); overflow-y: auto; padding: 2px 0; }
+.backup-list .hint { margin: 4px 2px; }
+.backup-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+.backup-row-text { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.backup-time { font-size: 13px; color: var(--text); }
+.backup-files { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.backup-row .ghost { flex: 0 0 auto; height: 32px; padding: 0 12px; border-radius: 999px; font-size: 12px; }
 .pack-source { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .pack-source input { flex: 1 1 auto; min-width: 0; }
 .pack-source .ghost { flex: 0 0 auto; }
@@ -1531,25 +1617,30 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
   .pack-source { flex-wrap: wrap; }
   .pack-source input { flex: 1 1 100%; }
 }
-/* 细滚动条：默认亮灰条在浅色面板上太抢眼，统一成淡蓝灰 */
-.select-panel, .plugin-list, #log, .pane, .settings-nav { scrollbar-width: thin; scrollbar-color: #c3d3ee transparent; }    .select-panel::-webkit-scrollbar, .plugin-list::-webkit-scrollbar, #log::-webkit-scrollbar,
-.pane::-webkit-scrollbar, .settings-nav::-webkit-scrollbar {
+/* 细滚动条：默认亮灰条在浅色面板上太抢眼，统一成淡蓝灰；弹窗里的长表单（添加启动项的字段区、问句列表、备份列表）也收细，别让粗条压住圆角 */
+.select-panel, .plugin-list, #log, .pane, .settings-nav, .launch-modal-fields, .dialog-body, .ask-items, .backup-list { scrollbar-width: thin; scrollbar-color: #c3d3ee transparent; }
+.select-panel::-webkit-scrollbar, .plugin-list::-webkit-scrollbar, #log::-webkit-scrollbar,
+.pane::-webkit-scrollbar, .settings-nav::-webkit-scrollbar, .launch-modal-fields::-webkit-scrollbar,
+.dialog-body::-webkit-scrollbar, .ask-items::-webkit-scrollbar, .backup-list::-webkit-scrollbar {
   width: 8px;
   height: var(--control-height);
 }
 .select-panel::-webkit-scrollbar-track, .plugin-list::-webkit-scrollbar-track, #log::-webkit-scrollbar-track,
-.pane::-webkit-scrollbar-track, .settings-nav::-webkit-scrollbar-track {
+.pane::-webkit-scrollbar-track, .settings-nav::-webkit-scrollbar-track, .launch-modal-fields::-webkit-scrollbar-track,
+.dialog-body::-webkit-scrollbar-track, .ask-items::-webkit-scrollbar-track, .backup-list::-webkit-scrollbar-track {
   background: transparent;
 }
 .select-panel::-webkit-scrollbar-thumb, .plugin-list::-webkit-scrollbar-thumb, #log::-webkit-scrollbar-thumb,
-.pane::-webkit-scrollbar-thumb, .settings-nav::-webkit-scrollbar-thumb {
+.pane::-webkit-scrollbar-thumb, .settings-nav::-webkit-scrollbar-thumb, .launch-modal-fields::-webkit-scrollbar-thumb,
+.dialog-body::-webkit-scrollbar-thumb, .ask-items::-webkit-scrollbar-thumb, .backup-list::-webkit-scrollbar-thumb {
   background: #c3d3ee;
   border-radius: var(--control-radius);
   border: 2px solid transparent;
   background-clip: content-box;
 }
 .select-panel::-webkit-scrollbar-thumb:hover, .plugin-list::-webkit-scrollbar-thumb:hover, #log::-webkit-scrollbar-thumb:hover,
-.pane::-webkit-scrollbar-thumb:hover, .settings-nav::-webkit-scrollbar-thumb:hover {
+.pane::-webkit-scrollbar-thumb:hover, .settings-nav::-webkit-scrollbar-thumb:hover, .launch-modal-fields::-webkit-scrollbar-thumb:hover,
+.dialog-body::-webkit-scrollbar-thumb:hover, .ask-items::-webkit-scrollbar-thumb:hover, .backup-list::-webkit-scrollbar-thumb:hover {
   background: #a3bcea;
   background-clip: content-box;
 }

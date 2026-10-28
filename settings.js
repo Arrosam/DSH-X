@@ -185,6 +185,19 @@ export function safeDshHome(dir) {
   return resolve(trimmed)
 }
 
+/**
+ * 项目目录：启动项把 `DSH_HOME` 放进 `<项目>/.dsh` 时，它就是用户的项目根（也当新会话的工作目录）。
+ * 和用户目录分开一个校验，报错才说得清该填哪一个；两者的取值规则一样（绝对路径、去掉首尾空白）。
+ */
+export function safeWorkdir(dir) {
+  if (dir === undefined || dir === null) return ''
+  if (typeof dir !== 'string') throw new Error('项目目录填一个路径，别填别的')
+  const trimmed = dir.trim()
+  if (!trimmed) return ''
+  if (!isAbsolute(trimmed)) throw new Error('请使用绝对路径（例如 D:\\projects\\demo）')
+  return resolve(trimmed)
+}
+
 export function safeDshHomes(value) {
   const homes = new Map()
   for (const item of Array.isArray(value) ? value : []) {
@@ -420,6 +433,10 @@ export function safeLaunchPresets(value) {
     try { icon = safeLaunchIcon(item.icon) } catch { /* 旧设置里的坏图片退回默认图标，保留启动项。 */ }
     let dshHome = ''
     try { dshHome = safeDshHome(item.dshHome) } catch { return [] }
+    // 项目目录跟着启动项走：丢了它就只剩一个平平无奇的独立目录，工作目录也回不到项目根，
+    // 所以和 dshHome 一样，坏值宁可整条丢掉，别留下半截环境。
+    let workdir = ''
+    try { workdir = safeWorkdir(item.workdir) } catch { return [] }
     // 启动项最近用过的两个版本（当前用/上一次用）：清理旧版本时按启动项保留，给回退用。
     const usedVersion = String(item.usedVersion ?? '')
     const prevVersion = String(item.prevVersion ?? '')
@@ -431,7 +448,7 @@ export function safeLaunchPresets(value) {
       ...(updateChannel !== DEFAULT_UPDATE_CHANNEL ? { updateChannel } : {}),
       ...(VERSION_RE.test(usedVersion) ? { usedVersion } : {}),
       ...(VERSION_RE.test(prevVersion) ? { prevVersion } : {}),
-      ...(dshHome ? { dshHome } : {}), ...(icon !== 'terminal' ? { icon } : {}) }]
+      ...(workdir ? { workdir } : {}), ...(dshHome ? { dshHome } : {}), ...(icon !== 'terminal' ? { icon } : {}) }]
   })
   const builtin = presets.find((item) => item.id === DEFAULT_LAUNCH_ID) || { ...DEFAULT_LAUNCH }
   if (builtin.name === '默认启动') builtin.name = 'DSH'

@@ -15,7 +15,7 @@ function editor(getJson = async () => ({ home: 'D:/isolated', profiles: ['web'],
   const calls = []
   const elements = { launchRecover: {}, launchDshHomeTrigger: {} }
   const context = vm.createContext({
-    launchDshHomeEl: { value: '' },
+    launchDshHomeEl: { value: '' }, launchWorkdirEl: { value: '' },
     launchProfileEl: {}, launchProfile: 'web', launchDialogEl: { hidden: false }, launchDialogRevision: 1,
     editingLaunchId: 'work', launchPluginScope: '', editorRecovery: null, recoveryHintEl: {},
     state: { dshHome: 'C:/global', profile: 'web', profiles: ['web'], webProfiles: ['web'], dshHomes: [], dshHomeNames: {},
@@ -71,13 +71,19 @@ test('目录的迟到响应不能覆盖另一次选择，目录检查后按新�
 })
 
 test('目录字段是环境页那套下拉，浏览与恢复两个按钮都不在了', () => {
-  const field = section('<label for="launchDshHome"', '<div class="home-pickers">')
+  const field = section('<label for="launchDshHome"', 'id="launchWorkdirField"')
   assert.match(field, /dsh 用户目录（会话、记忆和插件隔离）/)
   assert.match(field, /<select id="launchDshHome"[^>]*><\/select>/)
   assert.doesNotMatch(field, /launchPickHome|launchResetHome|readonly/)
   assert.doesNotMatch(field, /<p(?:\s|>)|<datalist|浏览…/)
+  // 项目目录是另一件事（选填的项目绑定），单独一块：它有自己的选择按钮和说明，不跟目录下拉混在一起
+  const project = section('id="launchWorkdirField"', '<div class="home-pickers">')
+  assert.match(project, /<input id="launchWorkdir"/)
+  assert.match(project, /id="launchWorkdirPick"/)
   // 原生 select 得接进自绘那套，否则点开的是系统菜单。
-  assert.match(page, /querySelectorAll\('#launchDshHome, #launchProfile, #pluginHome/)
+  assert.match(page, /querySelectorAll\('#launchDshHome[^']*#launchProfile[^']*#pluginHome/)
+  // 复制来源的两个下拉也走自绘那套，否则点开的是系统菜单
+  assert.match(page, /#launchCopyHome, #launchCopyProfile/)
 })
 
 test('下拉末项是管理目录：选中它只开弹窗，不会把占位值当成目录', () => {
@@ -96,7 +102,7 @@ test('环境页目录有增删时，启动项下拉跟着重铺', async () => {
   const { context: c } = editor()
   Object.assign(c, { pluginHomesBusy: false, packBusy: false, pluginUpdating: '', pluginTogglePending: new Map(),
     pluginHome: '', pluginHomesErrorEl: { hidden: true }, paintPluginHomes() {}, pluginTargetHome: () => 'C:/global',
-    resetPluginView() {}, renderPackGrid() {}, renderPackView() {}, loadPlugins() {} })
+    paintLaunchHomeCustom() {}, resetPluginView() {}, renderPackGrid() {}, renderPackView() {}, loadPlugins() {} })
   vm.runInContext(section('    async function changePluginHomeList(', '    pluginHomesAddEl.onclick'), c)
   c.paintLaunchHomes('D:/isolated')
   c.post = async (url) => url === '/api/pick-dir' ? { path: 'E:/新目录' } : { dshHomes: ['D:/isolated', 'E:/新目录'] }

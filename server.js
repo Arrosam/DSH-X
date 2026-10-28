@@ -120,6 +120,7 @@ import {
   safeArgs,
   safeUpdateChannel,
   safeWebBind,
+  safeWorkdir,
   saveSettings,
   VERSION_RE,
 } from './settings.js'
@@ -985,11 +986,15 @@ function liveInstanceList() {
   return instanceList().filter((proc) => proc.status === 'running' || proc.status === 'starting')
 }
 
-/** 整个环境的删除/卸载需要停干净；默认选择并不代表多开中只有这一份在跑。 */
-async function withIdleProfile(profile, operation) {
+/**
+ * 指名某个用户目录里的 Profile 做「整包」操作：该目录里它有实例在跑、
+ * 或者有人正在改它，都先拒绝。默认目录走 withIdleProfile；跨目录复制 Profile 时
+ * 来源那一份要用它按自己的目录锁（见 createProfile）。
+ */
+async function withIdleProfileIn(home, profile, operation) {
   const name = safeProfile(profile)
-  const key = profileKey(name)
-  if (startingProfiles.has(key) || instanceList().some((proc) => proc.profile === name && proc.home === homeDir())) {
+  const key = `${home}\0${name}`
+  if (startingProfiles.has(key) || instanceList().some((proc) => proc.profile === name && fileManager.samePath(proc.home, home))) {
     throw new Error(`profile「${name}」仍有实例在运行或启动，请先停止这个环境的全部实例`)
   }
   if (maintainingProfiles.has(key) || pluginBusy || syncRunning) {
@@ -998,13 +1003,18 @@ async function withIdleProfile(profile, operation) {
   maintainingProfiles.add(key)
   pluginBusy = true
   try {
-    const dir = profileDirOf(name)
+    const dir = join(home, 'profiles', name)
     // 已被外部删掉的环境只清安装记录，不能为了拿锁又创建一份空目录。
     return await (existsSync(dir) ? withProfileLock(dir, operation) : operation())
   } finally {
     pluginBusy = false
     maintainingProfiles.delete(key)
   }
+}
+
+/** 默认目录里的那份：老调用点都走这里，行为不变。 */
+async function withIdleProfile(profile, operation) {
+  return withIdleProfileIn(homeDir(), profile, operation)
 }
 
 /** rm 会连 lock 一起删除；进程内的占用标记补上这段窗口，避免热加载写回已删目录。 */
@@ -1547,16 +1557,31 @@ async function saveLaunchPresetNow(body) {
   if (!name || name.length > 32) throw new Error('启动项名称请填 1-32 个字符')
   const version = safeVersion(body.version)
   const profile = safeProfile(body.profile)
-  const dshHome = safeDshHome(body.dshHome)
+  // 项目环境（issue #72）：数据目录不再另挑，固定是项目根里的 .dsh；这个派生只做一次，
+  // 页面显示的路径和真正落盘的是同一个。两个字段打架时以项目目录为准 —— 用户填了项目，
+  // 就是「这套环境属于这个项目」，容不下第二个数据目录的答案。
+  const workdir = safeWorkdir(body.workdir)
+  const dshHome = workdir ? join(workdir, '.dsh') : safeDshHome(body.dshHome)
   const home = dshHome || defaultHome()
+  // 项目目录本身允许不存在（「新建项目工作目录」是这个功能的一半），但不校验就可能在启动时
+  // 才炸：先建出来并试写一次，打错的盘符当场报错。
+  if (workdir) await ensureWritableDir(workdir)
   if (dshHome && dshHome !== defaultHome()) await ensureWritableDir(dshHome)
-  // 「添加启动项」的隔离方式引导：Profile 隔离/完全隔离只让人填 Profile 名字，不存在就按名字建。
-  // 建在 home 对应的目录作用域里（和 /api/profiles/create 的 x-dsh-home 同一套语义），页面
-  // 不用先建 Profile 再存启动项——两步之间的失败会留下半截环境。
-  if (body.ensureProfile === true && !listProfiles(join(home, 'profiles')).includes(profile)) {
+  // Profile 不存在时按名字建，建在 home 对应的目录作用域里（和 /api/profiles/create 的
+  // x-dsh-home 同一套语义），页面不用先建 Profile 再存启动项——两步之间的失败会留下半截环境。
+  // 指定了复制来源就先复制：同样一步完成目录、Profile、依赖和启动项，用户不必自己搬配置。
+  // 目标里已经有同名 Profile 时不动它 —— 那份是用户后来自己改的，重试保存也不该被覆盖。
+  const missing = () => !listProfiles(join(home, 'profiles')).includes(profile)
+  const copyFrom = body.copyFrom && typeof body.copyFrom === 'object' ? body.copyFrom : null
+  if (copyFrom && missing()) {
+    const fromProfile = safeProfile(copyFrom.profile)
+    // 空的来源目录 = 当前（默认）用户目录，跟页面上的「沿用全局目录」一个意思。
+    const fromHome = safeDshHome(copyFrom.home) || ''
+    await launchScope.run({ home }, () => createProfile(profile, fromProfile, fromHome))
+  } else if (body.ensureProfile === true && missing()) {
     await launchScope.run({ home }, () => createProfile(profile))
   }
-  if (!listProfiles(join(home, 'profiles')).includes(profile)) throw new Error(`profile ${profile} 不存在`)
+  if (missing()) throw new Error(`profile ${profile} 不存在`)
   const portText = String(body.port ?? '').trim()
   const port = portText && portText !== '0' ? safePort(portText) : 0
   // 没带这个字段就沿用原来的通道（同 autoLaunch）：只改别的字段的调用方，比如「更新到新版」时
@@ -1599,6 +1624,7 @@ async function saveLaunchPresetNow(body) {
     // 用过的版本记录跟着启动项走，编辑参数不该抹掉回退历史。
     ...(existingEntry?.usedVersion ? { usedVersion: existingEntry.usedVersion } : {}),
     ...(existingEntry?.prevVersion ? { prevVersion: existingEntry.prevVersion } : {}),
+    ...(workdir ? { workdir } : {}),
     ...(dshHome ? { dshHome } : {}), ...(icon !== 'terminal' ? { icon } : {}) }
   if (index >= 0) presets[index] = entry
   else presets.push(entry)
@@ -2112,6 +2138,116 @@ function profileDir() {
   return profileDirOf(PROFILE_NAME)
 }
 
+// ---- profile 配置层备份（每次启动前快照，出事了能回退） ----
+// 为什么不整目录复制：profile 里的 node_modules 动辄几百 MB，每次启动都复制不现实；
+// 真正会被改坏、回退时值得救的是配置层（补丁层、依赖清单、npmrc），加起来几十 KB。
+// 备份放在数据目录 backups/profiles/<用户目录指纹>/<profile>/<时间戳>/，跟数据一起走；
+// 多个 dsh 用户目录里同名 profile 靠指纹分开，互不覆盖。
+const PROFILE_BACKUP_FILES = ['cordis.patch.yml', 'package.json', 'pnpm-lock.yaml', '.npmrc']
+const PROFILE_BACKUP_KEEP = 10
+const PROFILE_BACKUP_ID = /^\d{8}-\d{6}(?:-\d+)?$/
+
+function homeStamp(home = homeDir()) {
+  return createHash('sha1').update(IS_WINDOWS ? home.toLowerCase() : home).digest('hex').slice(0, 12)
+}
+
+function profileBackupRoot(profile, home = homeDir()) {
+  return join(DATA, 'backups', 'profiles', homeStamp(home), safeProfile(profile))
+}
+
+function profileBackupTimestamp(now = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+}
+
+function readBackupManifest(dir) {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
+    if (!manifest || !Array.isArray(manifest.files)) return null
+    return manifest
+  } catch { return null }
+}
+
+/** 最近的排前面。目录名是时间戳，但 createdAt 才是权威（手改目录名也不会乱序）。 */
+function listProfileBackups(profile, home = homeDir()) {
+  const root = profileBackupRoot(profile, home)
+  if (!existsSync(root)) return []
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && PROFILE_BACKUP_ID.test(entry.name))
+    .map((entry) => ({ id: entry.name, ...readBackupManifest(join(root, entry.name)) }))
+    .filter((item) => item.files && item.createdAt)
+    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))
+}
+
+function profileConfigSnapshot(profileDirPath) {
+  const files = []
+  for (const name of PROFILE_BACKUP_FILES) {
+    const file = join(profileDirPath, name)
+    if (!existsSync(file)) continue
+    try { files.push({ name, content: readFileSync(file) }) } catch { /* 读不了就跳过，别拦启动 */ }
+  }
+  const hash = createHash('sha256')
+  for (const file of files) hash.update(file.name).update('\0').update(file.content)
+  return { files, signature: hash.digest('hex') }
+}
+
+async function rotateProfileBackups(profile, home = homeDir()) {
+  const root = profileBackupRoot(profile, home)
+  for (const stale of listProfileBackups(profile, home).slice(PROFILE_BACKUP_KEEP)) {
+    await rm(join(root, stale.id), { recursive: true, force: true })
+  }
+}
+
+/**
+ * 给 profile 的配置层拍一份快照；内容跟最近一份一样就不重复存（每次启动都会调用它）。
+ * force 用在回退之前：那份「回退前」的备份即使内容没变也要留着，回退本身才可逆。
+ */
+async function snapshotProfileConfig(profile, { force = false } = {}) {
+  const name = safeProfile(profile || PROFILE_NAME)
+  const dir = profileDirOf(name)
+  if (!existsSync(join(dir, 'package.json'))) return null   // 还没初始化，没什么可救
+  const { files, signature } = profileConfigSnapshot(dir)
+  if (!files.length) return null
+  const home = homeDir()
+  const root = profileBackupRoot(name, home)
+  const latest = listProfileBackups(name, home)[0]
+  if (!force && latest?.signature === signature) return null
+  await mkdir(root, { recursive: true })
+  const stamp = profileBackupTimestamp()
+  let id = stamp
+  for (let index = 2; existsSync(join(root, id)); index += 1) id = `${stamp}-${index}`
+  const target = join(root, id)
+  await mkdir(target)
+  for (const file of files) await writeFile(join(target, file.name), file.content)
+  const manifest = { profile: name, home, createdAt: Date.now(), signature, files: files.map((file) => ({ name: file.name, size: file.content.length })) }
+  await writeFile(join(target, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
+  await rotateProfileBackups(name, home)
+  return { id, ...manifest }
+}
+
+/** 回退到某份配置快照：先给当前状态再存一份，所以回退本身也能再退回来。 */
+async function restoreProfileConfig(profile, id) {
+  const name = safeProfile(profile || PROFILE_NAME)
+  if (!PROFILE_BACKUP_ID.test(String(id || ''))) throw new Error('备份编号不对')
+  const home = homeDir()
+  const root = profileBackupRoot(name, home)
+  const source = join(root, String(id))
+  const manifest = readBackupManifest(source)
+  if (!manifest) throw new Error('找不到这份备份')
+  if (!manifest.files.some((file) => file.name === 'package.json')) throw new Error('这份备份里没有 package.json，回退会让 Profile 起不来')
+  if (instanceList().some((proc) => proc.profile === name && ['starting', 'running', 'stopping'].includes(proc.status))) throw new Error('请先停止这个 Profile 的实例再回退')
+  const dir = profileDirOf(name)
+  const saved = await snapshotProfileConfig(name, { force: true })
+  for (const file of PROFILE_BACKUP_FILES) {
+    const target = join(dir, file)
+    const included = manifest.files.some((entry) => entry.name === file)
+    if (included) await writeFile(target, readFileSync(join(source, file)))
+    else if (existsSync(target)) await rm(target, { force: true })
+  }
+  pushLog(`[备份] Profile ${name} 回退到 ${id}${saved ? `（回退前已存一份 ${saved.id}）` : ''}`)
+  return { ok: true, restored: String(id), backup: saved }
+}
+
 /**
  * 当前是否按局域网绑定：设置里选了局域网，或远程访问插件的「局域网访问」开关
  * 开着。两者都是用户明确的局域网意图，任一条成立启动器就不再注入 --host。
@@ -2606,7 +2742,10 @@ function spawnDsh(version, extra, profile = '', options = {}) {
     })
   }
   return spawn(RUNTIME_NODE, dshArgs(version, extra, profile), {
-    cwd: home,
+    // 项目环境（见 launchWorkdir）：子进程在项目根里跑，dsh 的默认工作目录就是 process.cwd()，
+    // 新会话因此落在项目根；数据目录仍是 <项目>/.dsh（DSH_HOME 是绝对路径，不受 cwd 影响）。
+    // 其它情况跟以前一样钉在 DSH_HOME —— 插件命令、修复脚本都靠它。
+    cwd: options.cwd || home,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -4303,6 +4442,27 @@ async function selfCheckPage(url, version) {
   }
 }
 
+/**
+ * 这次启动绑定的项目目录。项目环境是「这套数据目录」的属性，不是某次点击的属性：
+ * 先看这次请求带着哪个启动项，再看有没有哪个启动项把项目目录挂在这个 DSH_HOME 上。
+ * 后者是给手工启动 / 重启 / 自动恢复用的——它们不带启动项 ID，但环境还是那个项目环境。
+ * 目录被用户删掉时不报错：退回老行为照样能起来，只是新会话不在项目根。
+ */
+function launchWorkdir() {
+  const id = launchScope.getStore()?.launchId
+  const presets = safeLaunchPresets(loadSettingsSync().launchPresets)
+  const entry = id
+    ? presets.find((item) => item.id === id)
+    : presets.find((item) => item.workdir && fileManager.samePath(item.dshHome || '', homeDir()))
+  const dir = entry?.workdir || ''
+  if (!dir) return ''
+  if (!existsSync(dir)) {
+    pushLog(`项目目录 ${dir} 不在了，这次启动按普通独立目录处理（新会话不在项目根）`)
+    return ''
+  }
+  return dir
+}
+
 /** 起一个 web 子进程并等到它打印就绪 URL；失败时把子进程输出尾巴留给 AI 当证据。 */
 async function bootOnce(ver, prof, onStarted) {
   const startedAt = performance.now()
@@ -4317,7 +4477,8 @@ async function bootOnce(ver, prof, onStarted) {
     // TIME_WAIT。真起不来时下面那条 catch 会把话说清楚。
     pushLog(`固定端口 ${pinned} 现在被占用，这次启动多半会失败`)
   }
-  pushLog(`启动 ${ver} · profile ${prof}${lanBindActive(WEB_BIND, lanBindToggleOn(homeDir(), prof)) ? ' · Web 绑定 局域网(0.0.0.0，由配置层决定)' : ''}${pinned ? ` · 固定端口 ${pinned}` : ''}${alongside ? '（与已在跑的实例并存）' : ''}`)
+  const workdir = launchWorkdir()
+  pushLog(`启动 ${ver} · profile ${prof}${workdir ? ` · 项目目录 ${workdir}` : ''}${lanBindActive(WEB_BIND, lanBindToggleOn(homeDir(), prof)) ? ' · Web 绑定 局域网(0.0.0.0，由配置层决定)' : ''}${pinned ? ` · 固定端口 ${pinned}` : ''}${alongside ? '（与已在跑的实例并存）' : ''}`)
   if (reused) {
     pushLog(remembered.key === `${ver}@${prof}`
       ? `复用自动端口：${ver}@${prof} → ${reused}`
@@ -4331,7 +4492,7 @@ async function bootOnce(ver, prof, onStarted) {
     home: homeDir(),
     fingerprint: profileFingerprint(homeDir(), prof),
   }
-  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned || reused), prof, { diagnosticContext })
+  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned || reused), prof, { diagnosticContext, cwd: workdir })
   const spawnAt = performance.now()
   const proc = attachProcess(ver, prof, child, diagnosticContext)
   onStarted?.(proc)
@@ -4521,6 +4682,12 @@ async function startWithRepair(version, profile = PROFILE_NAME) {
   // 早于任何一次 add 就有这行，市场里点安装才不会撞上 peer 求交那个坑。
   // 只对当前 profile 做——起别的 profile 不动它的文件，人家可能就是故意留空的
   if (profile === PROFILE_NAME) await ensureProfileNpmrc(profile).catch(() => {})
+  // 启动前给 profile 的配置层留一份快照：插件装崩、补丁写坏时能退回到这次启动前的样子。
+  // 只存配置层（几十 KB），node_modules 不动；内容没变时 snapshotProfileConfig 会跳过。
+  // 快照失败不拦启动——备份是保险，不是启动的前提。
+  await snapshotProfileConfig(profile).catch((error) => {
+    pushLog(`[备份] Profile ${profile} 快照失败：${error instanceof Error ? error.message : error}`)
+  })
   for (;;) {
     try {
       return await startNow(version, profile)
@@ -4793,20 +4960,31 @@ async function renameProfile(profile, nextName) {
   return { ok: true, ...packsPayload(), renamedProfile: name, profile: name, state: await snapshot(), webProfiles: listProfiles().filter((profile) => profileBootsWebIn(home, profile)) }
 }
 
-async function createProfile(profile, source = '') {
+/**
+ * 建 Profile：`source` 给了就把那份配置复制过来（插件清单、开关、MCP、补丁层），
+ * 复制完在目标环境里重装依赖。`sourceHome` 是来源所在的那个用户目录，空 = 当前环境；
+ * 项目环境（issue #72）常从全局目录里已经调好的 Profile 复制，两个目录互不相干。
+ */
+async function createProfile(profile, source = '', sourceHome = '') {
   const name = safeProfile(profile)
   const from = source ? safeProfile(source) : ''
   if (name.startsWith('.') || name.toLowerCase() === 'node_modules' || TEMPLATE_PROFILES.includes(name.toLowerCase()) || CLI_BLOCKED_PROFILES.has(name.toLowerCase())) {
     throw new Error('这个名称是系统保留名称，请换一个 Profile 名称')
   }
-  const root = join(homeDir(), 'profiles')
+  // 目标永远是「当前作用域」这一份；来源可以另指一个用户目录。
+  const home = homeDir()
+  const fromHome = from ? safeDshHome(sourceHome) || home : ''
+  const root = join(home, 'profiles')
   await mkdir(root, { recursive: true })
   if (readdirSync(root).some((entry) => entry.toLowerCase() === name.toLowerCase())) throw new Error(`Profile「${name}」已存在`)
-  const original = from ? profileDirOf(from) : ''
+  const original = from ? join(fromHome, 'profiles', from) : ''
   if (from && !existsSync(join(original, 'package.json'))) throw new Error(`Profile「${from}」尚未初始化，不能复制`)
-  const target = profileDirOf(name)
-  await withIdleProfile(from || name, async () => {
-    if (from) maintainingProfiles.add(profileKey(name))
+  const target = join(home, 'profiles', name)
+  const targetKey = `${home}\0${name}`
+  if (maintainingProfiles.has(targetKey)) throw new Error(`profile「${name}」正在修改，稍后再试`)
+  // 锁的是来源那一份（同目录复制时就是自己）：来源被删/被改到一半，复制出来的是坏环境。
+  await withIdleProfileIn(from ? fromHome : home, from || name, async () => {
+    if (from) maintainingProfiles.add(targetKey)
     const staging = mkdtempSync(join(root, '.dsh-profile-'))
     let created = false
     try {
@@ -4839,13 +5017,15 @@ async function createProfile(profile, source = '') {
       if (['dependencies', 'devDependencies', 'optionalDependencies'].some((key) => Object.keys(manifest[key] || {}).length)) {
         await runProfileInstall(await pluginCommandVersion(name), { profile: name })
       }
-      pushLog(from ? `已复制 Profile「${from}」为「${name}」` : `已创建 Profile「${name}」`)
+      pushLog(from
+        ? `已复制 Profile「${from}」为「${name}」${fromHome === home ? '' : `（来源目录 ${fromHome}）`}`
+        : `已创建 Profile「${name}」`)
     } catch (error) {
       if (created) await rm(target, { recursive: true, force: true })
       throw error
     } finally {
       await rm(staging, { recursive: true, force: true })
-      if (from) maintainingProfiles.delete(profileKey(name))
+      if (from) maintainingProfiles.delete(targetKey)
     }
   })
   await emitState()
@@ -5389,13 +5569,23 @@ async function handleApi(req, res, url) {
     const body = await readJson(req)
     const copying = url.pathname === '/api/profiles/copy'
     if (copying && !body.source) { send(res, 400, { error: '请选择要复制的 Profile' }); return }
-    try { send(res, 200, await createProfile(body.profile, copying ? body.source : '')) }
+    try { send(res, 200, await createProfile(body.profile, copying ? body.source : '', copying ? body.sourceHome : '')) }
     catch (error) { send(res, 400, { error: error instanceof Error ? error.message : String(error) }) }
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/recover') {
     const profile = safeProfile(url.searchParams.get('profile') || PROFILE_NAME)
     send(res, 200, recoveryPayload(profile))
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/profile-backups') {
+    // 参数坏了回 400 而不是 500：这接口会被页面直接拼 query，别让半截名字炸进目录操作。
+    try {
+      const profile = safeProfile(url.searchParams.get('profile') || PROFILE_NAME)
+      const id = url.searchParams.get('id')
+      if (id !== null && !PROFILE_BACKUP_ID.test(id)) throw new Error('备份编号不对')
+      send(res, 200, { profile, home: homeDir(), backups: listProfileBackups(profile) })
+    } catch (error) { send(res, 400, { error: error instanceof Error ? error.message : String(error) }) }
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/plugins/updates') {
@@ -5765,6 +5955,22 @@ async function handleApi(req, res, url) {
       const message = error instanceof Error ? error.message : String(error)
       pushLog(`[恢复] 还原失败：${message}`)
       send(res, 500, { error: message })
+    }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/profile-backups/snapshot') {
+    try {
+      const profile = safeProfile(String(body.profile || ''))
+      send(res, 200, { ok: true, backup: await snapshotProfileConfig(profile, { force: body.force === true }) })
+    } catch (error) { send(res, 400, { error: error instanceof Error ? error.message : String(error) }) }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/profile-backups/restore') {
+    try { send(res, 200, await restoreProfileConfig(body.profile, body.id)) }
+    catch (error) {
+      // 备份不存在给 404，参数/状态不对给 400，页面靠这两个码区分提示。
+      const message = error instanceof Error ? error.message : String(error)
+      send(res, /找不到这份备份/.test(message) ? 404 : 400, { error: message })
     }
     return
   }
