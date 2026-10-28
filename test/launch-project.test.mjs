@@ -8,7 +8,7 @@
  *   3) 子进程真的在项目根里跑（cwd），不然新会话会落在 .dsh 里。
  */
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 import { packumentOf, startChannelServer } from './update-channel-fixture.mjs'
@@ -139,7 +139,7 @@ test('项目环境的子进程在项目根里跑（新会话不进 .dsh）', asy
 
   const cwdFile = join(project, '.dsh', 'cwd')
   assert.ok(existsSync(cwdFile), '子进程没留下工作目录记录，说明它没按项目环境启动')
-  assert.equal(readFileSync(cwdFile, 'utf8').trim(), project, 'cwd 要是项目根，不是 <项目>/.dsh')
+  assert.equal(readFileSync(cwdFile, 'utf8').trim(), realpathSync(project), 'cwd 要是项目根，不是 <项目>/.dsh')
   assert.ok(existsSync(join(project, '.dsh', 'spawned')), '数据目录仍然是 <项目>/.dsh')
   await env.call('/api/stop', { version: '1.0.0', profile: 'work', home: join(project, '.dsh') }, { 'x-dsh-launch-id': id })
 })
@@ -153,7 +153,7 @@ test('手工启动 / 重启（不带启动项 ID）也认得项目环境，仍�
   const headers = { 'x-dsh-home': encodeURIComponent(home) }
   const started = await env.call('/api/start', { version: '1.0.0', profile: 'work' }, headers)
   assert.ok(started.ok, `启动失败：HTTP ${started.status} ${JSON.stringify(started.data)}`)
-  assert.equal(readFileSync(join(home, 'cwd'), 'utf8').trim(), project, '没有启动项 ID 也得按项目根跑')
+  assert.equal(readFileSync(join(home, 'cwd'), 'utf8').trim(), realpathSync(project), '没有启动项 ID 也得按项目根跑')
   await env.call('/api/stop', { version: '1.0.0', profile: 'work', home }, headers)
 })
 
