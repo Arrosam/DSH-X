@@ -142,7 +142,7 @@ DSH-X 是 DeepSeek Harness 的第三方桌面启动器：启动项与多实例�
 
 Windows：[到发布页下载](https://github.com/yyh-001/DSH-X/releases/latest) `DSH-Setup-<版本>.exe` 安装，从桌面打开 **DSH-X**。
 
-macOS：打开 `DSH-X-<版本>-arm64.dmg`（Apple Silicon）或 `DSH-X-<版本>-x64.dmg`（Intel），把 **DSH-X** 拖进「应用程序」。目前使用临时签名、未做公证，首次打开可能需要在系统安全提示中手动允许；mac 的外壳自更新暂不提供，核心仍走 npm 更新。
+macOS：打开 `DSH-X-<版本>-arm64.dmg`（Apple Silicon）或 `DSH-X-<版本>-x64.dmg`（Intel），把 **DSH-X** 拖进「应用程序」。目前使用 ad-hoc 签名、未做公证，首次打开可能需要在系统安全提示中手动允许；如果提示「已损坏」或「无法验证开发者」，右键打开，或执行 `xattr -dr com.apple.quarantine /Applications/DSH-X.app`。mac 的外壳自更新暂不提供，核心仍走 npm 更新。
 
 Linux：下载 `DSH-X-<版本>-x86_64.AppImage`，`chmod +x` 后直接运行；没有 FUSE 时用 `./DSH-X-<版本>-x86_64.AppImage --appimage-extract-and-run`。Debian / Ubuntu 也可以装 `DSH-X-<版本>-amd64.deb`（`sudo apt install ./DSH-X-<版本>-amd64.deb`，装到 `/opt/DSH-X`、带菜单项、`apt remove dsh-x` 卸干净），但 **deb 版没有外壳自更新**，换版本要去发布页重新下载。配置在 `~/.config/DSH`，核心缓存在 `~/.cache/dsh-x`；核心更新两种包都走 npm。
 
