@@ -66,5 +66,5 @@ export const APP_DIR_NAME = 'DSH'
 /** macOS 包的名字和 bundle id：Info.plist、LaunchAgent、自更新都认它们。 */
 export const MAC_APP_NAME = 'DSH-X.app'
 export const MAC_BUNDLE_ID = 'io.github.yyh-001.dsh-x'
-/** 外壳可执行文件名（Windows：Cargo.toml 的 [[bin]] name；macOS：Electron 包的 executableName）。 */
+/** 外壳可执行文件名（两个平台都来自 electron-builder 的 executableName，Windows 上就是 NSIS 的主程序名）。 */
 export const LAUNCHER_NAME = 'DSH'

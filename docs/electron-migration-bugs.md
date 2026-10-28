@@ -1,6 +1,6 @@
 # macOS Electron shell: two old bugs to recheck
 
-The macOS shell has moved from Rust + WKWebView (`launcher/`) to Electron (`shell/`), so internal tabs now run in Chromium. The two bugs below were reported against the old shell. Please recheck them on the new shell, then close or keep tracking them.
+The macOS shell has moved from the old Rust + WKWebView shell to Electron (`shell/`), so internal tabs now run in Chromium. The two bugs below were reported against the old shell. Please recheck them on the new shell, then close or keep tracking them.
 
 ## 1. Arrow keys in an empty composer insert junk characters
 

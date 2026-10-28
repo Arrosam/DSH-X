@@ -8,7 +8,6 @@ DSH-X：DeepSeek Harness（`dsh`）的第三方启动器。仓库叫 DSH-X，`pa
 
 ```
 Windows/macOS 外壳  shell/（Electron）  DSH.exe / DSH-X.app：Chromium 窗口与内部标签页、托盘、菜单栏、单实例；服务跑在同一进程里
-安装引擎  launcher/（Rust）            DSH-Setup.exe：网页安装界面 + 内嵌 Inno 引擎（只负责装，不跑 dsh）
 Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / 整合包 / 同步的全部业务
 管理界面   public/index.html           单页手写 HTML + 原生 JS，无框架、无构建步骤
 注入钩子   compat/  perf/              被注入 dsh 进程，修补运行时行为（见下）
@@ -23,10 +22,10 @@ Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / �
 |---|---|
 | `npm start` | 起管理页（开发入口） |
 | `npm run server` | 只起网页服务，不开浏览器 |
-| `npm test` | 全部用例（`node --test`，41 个文件、300+ 用例，约 16 秒） |
+| `npm test` | 全部用例（`node --test`，300+ 用例，约 16 秒） |
 | `node --test test/packs.test.mjs` | 单个用例文件 |
 | `npm run electron` | 用 Electron 外壳从源码起（Windows / macOS / Linux，先 `npm install`） |
-| `npm run dist` | 打安装包（Windows 需 Rust（安装引擎）+ Inno Setup 6；macOS 需 Xcode CLT；都先 `npm install`） |
+| `npm run dist` | 打安装包（都先 `npm install`；macOS 还要 Xcode CLT） |
 | `node scripts/make-pack.mjs` | 把 `packs/<名字>/` 打成 `.dspack`（产物在 `release/packs/`） |
 
 - **跑测试别把输出接管道**（`| head`、`| tail` 会把输出缓冲成 0 字节，等于白跑）；要留证据就重定向到文件。
@@ -63,11 +62,10 @@ Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / �
 | `plugin-tool.js` | 命令行开关插件（dsh 起不来时的救命工具），有可执行位 |
 | `stdio-unblock.cjs` | stdout/stderr 阻塞模式修补（`--require` 注入用） |
 | `public/` | 管理界面与看板娘素材（`index.html` 是主体） |
-| `scripts/` | 打包（`pack.mjs` / `pack-mac.mjs` / `pack-common.mjs` / `electron-prune.mjs` / `dsh-setup.iss`）、图标（`make-icons.py`）、落地页素材、发版清单与 SBOM |
+| `scripts/` | 打包（`pack.mjs` / `pack-mac.mjs` / `pack-common.mjs` / `electron-prune.mjs`）、图标（`make-icons.py`）、落地页素材、发版清单与 SBOM |
 | `plugins/` `packs/` | 插件源码（发 npm）与随包发的整合包配方（见「关键机制」，**两个目录别合并**） |
 | `skills/` | 给 AI 用的技能源码（随仓库分发，不进安装包）：`dsh-x-selfcheck` 只读自检 DSH-X 环境（环境/管理页/数据目录/DSH_HOME/profile/实例/插件/技能/同步/日志），`node skills/dsh-x-selfcheck/scripts/selfcheck.mjs`，零依赖；用例见 `test/selfcheck-skill.test.mjs` |
 | `compat/` `perf/` | 注入 dsh 进程的钩子：兼容修补与加速 |
-| `launcher/` | Rust 安装引擎（`installer.rs` 读网页安装界面的进度、拉起内嵌 Inno 引擎）；旧的 Rust 外壳（0.1.19 及以前）已删，只留安装器这一个 bin |
 | `shell/` | Windows / macOS / Linux 的 Electron 外壳（`main.mjs` 窗口 / 托盘 / 菜单，`tabs.mjs` 内部标签页，`preload.cjs` 页面桥，`updater.mjs` electron-updater）；`package.json` 是外壳版本，核心版本在根 `package.json` |
 | `test/` | 用例与假服务器 |
 | `docs/` | GitHub Pages 落地页 + 看板娘设计稿（`mascot-design/`） |
@@ -146,7 +144,7 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - 文件管理的实现类不在 `APP_FILES` 里，`copyAppFiles` 把三套都拷进核心包（`FILE_MANAGERS`）；运行时 `filemanager.js` 按平台动态 import 只加载一套。核心包跨平台，所以不能再按平台只带一套；外壳才按平台分开。
 - `APP_FILES`（`scripts/pack-common.mjs`）= 核心源码清单；`copyAppFiles` 把它们平铺拷进核心目录（macOS: `DSH-X.app/Contents/Resources/core/`；Windows: `<安装目录>/resources/core/`；Linux AppImage: `AppDir/resources/core/`），**不打 asar**：dsh 子进程要按真实路径读 `compat/`、`perf/`。核心的 `package.json` 的 `main` 是 `server.js`，由外壳动态 import。
 - 核心目录里还有 `node/`（运行时目录：只有 npm / pnpm 的 JS 包和 `node` / `node.cmd` 包装，**没有 node.exe**——dsh 子进程用 Electron 自带的 Node）、`public/`、`assets/`、`compat/`、`perf/`、`packs/`。
-- **Windows / macOS / Linux 外壳都是 Electron**：`pack.mjs` 先分别组装 `release/shell-stage`（`shell/` + 图标 + `electron-updater` 依赖，版本 = `shell/package.json`）和 `release/core-stage`（`APP_FILES` + `node/`，版本 = 根 `package.json`），再交给 electron-builder（`electron-builder.config.mjs`）出 NSIS/dmg/AppImage；`directories.app` 指 shell-stage，core-stage 走 `extraResources` 放到 `resources/core`。`asar: false` 保持真实文件路径。`pack-mac.mjs`、`electron-prune.mjs`、`launcher/` 的旧 Rust/Inno 安装引擎已经退役，不再参与构建。
+- **Windows / macOS / Linux 外壳都是 Electron**：`pack.mjs` 先分别组装 `release/shell-stage`（`shell/` + 图标 + `electron-updater` 依赖，版本 = `shell/package.json`）和 `release/core-stage`（`APP_FILES` + `node/`，版本 = 根 `package.json`），再交给 electron-builder（`electron-builder.config.mjs`）出 NSIS/dmg/AppImage；`directories.app` 指 shell-stage，core-stage 走 `extraResources` 放到 `resources/core`。`asar: false` 保持真实文件路径。早先的 Rust 安装引擎与 Inno 安装脚本已删，三个平台的安装包全由 electron-builder 出。
 - **Electron 版本钉死 44.7.0，别随手升**：dsh 的 `node-addon-require-builtin` 只给几个 Electron 版本留了预编译（43.0.0 / 44.0.0 / 44.7.0 / 45.0.0-alpha.6），版本对不上时 dsh 一启动就报 `unsupported Electron runtime fingerprint`（见 `dsh: host preparation failed`）。升级 Electron 前先看 dsh 那边的支持列表，改完在打包版里真启动一个实例验证。
 - 三个平台和服务同进程（Electron 外壳），用 `setHost({ onWake, openTab, openWindow, exit, relaunch, shellUpdate })` 直接接管；`relaunch` 供核心更新后重启外壳（`app.relaunch()`，避免单实例锁把新进程顶掉）。旧 Rust 外壳读 stdout 标记行的路径已经退役。
 - dsh / npm / pnpm 子进程一律用 `platform.js` 的 `RUNTIME_NODE`，**别用 `process.execPath` 自己拼**：Electron 里 `RUNTIME_NODE` 就是 Electron 本体，拉子进程时必须同时展开 `RUNTIME_NODE_ENV`（里面是 `ELECTRON_RUN_AS_NODE=1`），否则会当 GUI 打开；`withBundledRuntime` / `orderRuntimePaths` 负责把 `node/` 里的 `node` / `node.cmd` 包装放进 PATH。

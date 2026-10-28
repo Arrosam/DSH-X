@@ -3,7 +3,6 @@ node/
 node_modules/
 release/
 vendor/
-launcher/target/
 *.log
 __pycache__/
 .DS_Store

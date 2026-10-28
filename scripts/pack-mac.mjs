@@ -22,7 +22,7 @@ import { pruneMacElectron } from './electron-prune.mjs'
 /**
  * macOS 打包：release/DSH-X.app + release/DSH-X-mac-<arch>.dmg。
  *
- * 外壳是 Electron（shell/），不再是 launcher/ 的 Rust + WKWebView；Rust 那边现在只剩安装引擎。
+ * 外壳是 Electron（shell/），不再是那个 Rust + WKWebView 的旧外壳；旧外壳与 Rust 安装引擎都已删掉。
  * 包的布局（platform.js 的 appBundle 按它找文件，自更新按它换包）：
  *   DSH-X.app/Contents/MacOS/DSH            Electron 主程序（executableName 改成了 DSH）
  *   DSH-X.app/Contents/Frameworks/…         Electron 框架与 Helper

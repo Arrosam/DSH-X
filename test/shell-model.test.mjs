@@ -1,6 +1,6 @@
 /**
  * Windows / macOS 的 Electron 外壳（shell/）里与 Electron 无关的规则。期望值取自旧 Rust 外壳的同名用例
- * （launcher/tabs.rs、tray.rs 的 tests）：两个外壳对管理服务说的是同一套协议，规则必须一致。
+ * （已随旧外壳一起删除）：两个外壳对管理服务说的是同一套协议，规则必须一致。
  */
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
