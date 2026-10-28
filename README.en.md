@@ -12,6 +12,13 @@
   <a href="README.md">中文</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/yyh-001/DSH-X/releases"><img src="https://img.shields.io/github/v/release/yyh-001/DSH-X" alt="Release" /></a>
+  <a href="https://www.npmjs.com/package/@yyh001/dsh-x"><img src="https://img.shields.io/npm/v/%40yyh001%2Fdsh-x" alt="npm" /></a>
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" />
+</p>
+
 DSH-X is a lightweight third-party desktop launcher for DeepSeek Harness: launch entries, multiple instances, versions, plugins, modpacks, MCP and skills.
 
 > [!IMPORTANT]
@@ -168,3 +175,12 @@ node scripts/release-manifest.mjs verify
 The GitHub Actions `build` workflow builds Windows / macOS / Linux installers and publishes the npm core package and CLI on tags. macOS currently ships dmg only (ad-hoc signing; shell auto-update is disabled); Linux uses AppImage + `latest-linux.yml`.
 
 The release-manifest private key lives in `release/release-key.pem` (git-ignored, **back it up**).
+
+## Contributing
+
+- Development, commit and release conventions: [CONTRIBUTING.en.md](CONTRIBUTING.en.md). Security issues: [SECURITY.md](SECURITY.md) — not a public issue.
+- What changed in each version: [docs/releases](docs/releases).
+
+## License
+
+MIT

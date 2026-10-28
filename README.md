@@ -12,6 +12,13 @@
   <a href="README.en.md">English</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/yyh-001/DSH-X/releases"><img src="https://img.shields.io/github/v/release/yyh-001/DSH-X" alt="Release" /></a>
+  <a href="https://www.npmjs.com/package/@yyh001/dsh-x"><img src="https://img.shields.io/npm/v/%40yyh001%2Fdsh-x" alt="npm" /></a>
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" />
+</p>
+
 DSH-X 是 DeepSeek Harness 的第三方轻量桌面启动器：启动项与多实例，版本、插件、整合包、MCP 和技能管理。
 
 > [!IMPORTANT]
@@ -168,4 +175,13 @@ node scripts/release-manifest.mjs verify
 GitHub Actions 的 `build` 工作流构建 Windows / macOS / Linux 三个平台的安装包，并在 tag 上发布 npm 核心包与 CLI。macOS 目前只出 dmg（临时签名，外壳自更新暂不提供）；Linux 用 AppImage + `latest-linux.yml`。
 
 发布清单的私钥在 `release/release-key.pem`（已被忽略、不进仓库，**务必备份**）。
+
+## 参与
+
+- 开发、提交与发版约定见 [CONTRIBUTING.md](CONTRIBUTING.md)；安全问题见 [SECURITY.md](SECURITY.md)，别开公开 issue。
+- 每个版本改了什么，见 [docs/releases](docs/releases)。
+
+## 许可
+
+MIT
 

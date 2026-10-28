@@ -33,5 +33,14 @@
     "launcher",
     "electron"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yyh-001/DSH-X.git",
+    "directory": "npm-package"
+  },
+  "homepage": "https://github.com/yyh-001/DSH-X#npm",
+  "bugs": {
+    "url": "https://github.com/yyh-001/DSH-X/issues"
+  }
 }

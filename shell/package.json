@@ -3,5 +3,13 @@
   "version": "0.1.22",
   "private": true,
   "type": "module",
-  "main": "main.mjs"
+  "description": "DSH-X 的 Electron 外壳：窗口、托盘、内部标签页、自更新。",
+  "main": "main.mjs",
+  "author": "yyh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yyh-001/DSH-X.git",
+    "directory": "shell"
+  }
 }

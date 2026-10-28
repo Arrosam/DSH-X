@@ -22,6 +22,20 @@
   },
   "author": "yyh",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yyh-001/DSH-X.git"
+  },
+  "homepage": "https://yyh-001.github.io/DSH-X/",
+  "bugs": {
+    "url": "https://github.com/yyh-001/DSH-X/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "launcher",
+    "electron"
+  ],
   "devDependencies": {
     "@electron/packager": "20.3.0",
     "electron": "44.7.0",
