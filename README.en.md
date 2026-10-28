@@ -142,7 +142,7 @@ The release-manifest signature verifies file integrity and is separate from Wind
 
 Windows: download `DSH-Setup-<version>.exe` from the [releases page](https://github.com/yyh-001/DSH-X/releases/latest) and install it, then open **DSH-X** from the desktop.
 
-macOS: open `DSH-X-<version>-arm64.dmg` (Apple Silicon) or `DSH-X-<version>-x64.dmg` (Intel) and drag **DSH-X** into Applications. The package is ad-hoc signed and not notarized, so the first launch may require manual approval through macOS security prompts; shell auto-update is currently unavailable, while core updates still come from npm.
+macOS: open `DSH-X-<version>-arm64.dmg` (Apple Silicon) or `DSH-X-<version>-x64.dmg` (Intel) and drag **DSH-X** into Applications. The package is ad-hoc signed and not notarized, so the first launch may require manual approval through macOS security prompts; if macOS says the app is damaged or cannot verify the developer, right-click Open, or run `xattr -dr com.apple.quarantine /Applications/DSH-X.app`. Shell auto-update is currently unavailable, while core updates still come from npm.
 
 Linux: download `DSH-X-<version>-x86_64.AppImage`, `chmod +x` it and run it. If FUSE is unavailable, use `./DSH-X-<version>-x86_64.AppImage --appimage-extract-and-run`. On Debian / Ubuntu you can also install `DSH-X-<version>-amd64.deb` with `sudo apt install ./DSH-X-<version>-amd64.deb`: it lands in `/opt/DSH-X`, adds a menu entry and uninstalls with `apt remove dsh-x`, but **the deb build has no shell auto-update** — grab the new installer from the releases page. Settings live in `~/.config/DSH` and the core cache in `~/.cache/dsh-x`; core updates use npm for both packages.
 
