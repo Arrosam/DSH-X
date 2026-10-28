@@ -139,13 +139,16 @@ async function buildShellStage() {
   // 托盘 / 窗口图标（shell/main.mjs 的 ICON_FILE 指向 app 根目录的 assets）
   await cp(join(ROOT, 'assets'), join(SHELL_STAGE, 'assets'), { recursive: true })
   await writeFile(join(SHELL_STAGE, 'package.json'), `${JSON.stringify({
-    name: 'dsh-x-shell',
+    // 这个 name 就是 deb 的包名——electron-builder 读的是 app 目录这份 package.json，
+    // 不是仓库根那个，所以 apt remove 后面的名字由这里决定。
+    name: 'dsh-x',
     productName: 'DSH-X',
     version: SHELL_PKG.version,
     private: true,
     type: 'module',
     description: 'DSH-X desktop shell',
     author: 'yyh',
+    license: 'MIT',
     main: 'shell/main.mjs',
     dependencies: { 'electron-updater': '^6.8.11' },
   }, null, 2)}\n`)

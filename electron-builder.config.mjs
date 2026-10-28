@@ -94,4 +94,9 @@ export default {
     // 用 GitHub 的 noreply 地址，不把真实邮箱写进包元信息。
     maintainer: 'yyh <yyh@users.noreply.github.com>',
   },
+  deb: {
+    // 不写就是 Section: default；devel 让它在 apt 里归到开发工具，和 .desktop 的
+    // Categories（linux.category: Development）对上。
+    packageCategory: 'devel',
+  },
 }
