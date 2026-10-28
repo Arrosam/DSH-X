@@ -106,6 +106,8 @@ h1 span { display: block; }
   transition: transform .2s, background .2s, border-color .2s, box-shadow .2s;
 }
 .btn:hover { transform: translateY(-2px); }
+/* .btn 是 inline-flex，[hidden] 的默认 display:none 会被压过去，得显式写一条 */
+.btn[hidden] { display: none; }
 .btn svg { width: 19px; height: 19px; fill: currentColor; }
 .btn-go { background: var(--accent); color: #fff; box-shadow: 0 10px 22px rgba(54, 107, 216, .22); }
 .btn-go:hover { background: var(--accent-hover); box-shadow: 0 12px 25px rgba(54, 107, 216, .28); }
@@ -117,9 +119,19 @@ h1 span { display: block; }
 .dl[hidden] { display: none; }
 .dl svg { width: 14px; height: 14px; fill: currentColor; }
 .dl b { color: var(--text); font-weight: 750; }
-.ver { text-decoration: none; color: var(--muted); }
-.ver:hover { color: var(--accent); }
-.ver:empty { display: none; }
+/* 同一平台的另一种格式：默认藏着，脚本按系统放出对应那条 */
+.cta-alt { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 9px 0 0; color: var(--muted); font-size: 12.5px; }
+.cta-alt[hidden] { display: none; }
+.cta-alt a { color: var(--accent); text-decoration: none; }
+.cta-alt a:hover { text-decoration: underline; }
+.cta-alt a[hidden] { display: none; }
+/* 版本下拉：低调地坐在下载数旁边，和右边那行文字一个重量 */
+.ver { display: inline-flex; align-items: center; }
+.ver[hidden] { display: none; }
+.ver select { appearance: auto; background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 2px 6px; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
+.ver select:hover { color: var(--accent); border-color: rgba(54, 107, 216, .42); }
+.ver-link { text-decoration: none; color: var(--muted); }
+.ver-link:hover { color: var(--accent); }
 .cta-note { margin: 6px 0 0; max-width: 420px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .links { display: flex; flex-wrap: wrap; align-items: center; gap: 11px; margin-top: 37px; }
 .links-label { width: 100%; margin-bottom: 1px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }

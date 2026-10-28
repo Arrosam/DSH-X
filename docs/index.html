@@ -54,12 +54,25 @@
           <span data-zh="下载 Linux 版" data-en="Download for Linux">下载 Linux 版</span>
         </a>
       </div>
+      <!-- 同一平台的另一种格式：默认藏起来，脚本按浏览器系统放出对应那条 -->
+      <p class="cta-alt" id="ctaAlt">
+        <a id="altMacIntel" href="https://github.com/yyh-001/DSH-X/releases/latest" hidden>
+          <span data-zh="Intel 芯片的 Mac？下载 x64 版" data-en="Intel Mac? Get the x64 build">Intel 芯片的 Mac？下载 x64 版</span>
+        </a>
+        <a id="altLinuxDeb" href="https://github.com/yyh-001/DSH-X/releases/latest" hidden>
+          <span data-zh="Debian / Ubuntu？下载 deb" data-en="Debian / Ubuntu? Get the deb">Debian / Ubuntu？下载 deb</span>
+        </a>
+      </p>
       <div class="download-meta">
         <span class="dl" id="dlCount" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5A1 1 0 1 1 7.7 10.3l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
           <span id="dlText"></span>
         </span>
-        <a class="ver" id="ver" href="https://github.com/yyh-001/DSH-X/releases/latest"></a>
+        <!-- 版本下拉：拉完 release 列表才出现，免得先闪一个空框 -->
+        <label class="ver" id="verWrap" hidden>
+          <select id="verSelect" aria-label="版本"></select>
+        </label>
+        <a class="ver-link" id="ver" href="https://github.com/yyh-001/DSH-X/releases/latest" target="_blank" rel="noopener" data-zh="发布说明" data-en="Release notes">发布说明</a>
       </div>
       <p class="cta-note" data-zh="Windows 下载安装包；macOS 下载 dmg（Apple Silicon / Intel 可选）；Linux 下载 AppImage（chmod +x 后运行）或 deb。" data-en="Windows: download the installer. macOS: pick the Apple Silicon or Intel dmg. Linux: download the AppImage (chmod +x, then run) or the deb.">Windows 下载安装包；macOS 下载 dmg（Apple Silicon / Intel 可选）；Linux 下载 AppImage（chmod +x 后运行）或 deb。</p>
       <nav class="links" aria-label="社区链接">
@@ -215,43 +228,90 @@
         renderStars()
       })
       .catch(() => {})
-    // 下载次数：所有 release 里的安装包（Windows 的 exe、macOS dmg、Linux AppImage）
-    const INSTALLER = /^DSH-Setup(?:-.*)?\.exe$|^DSH-X-.*\.(?:dmg|AppImage)$/
-    fetch("https://api.github.com/repos/yyh-001/DSH-X/releases?per_page=100")
+    // 一次拿整份 release 列表，三件事一起做：下载次数、版本下拉、按系统挑主按钮。
+    // 原来这里请求两次（?per_page=100 数下载量 + /latest 取资产），合成一次省一个 round trip。
+    const INSTALLER = /^DSH-Setup(?:-.*)?\.exe$|^DSH-X-.*\.(?:dmg|AppImage|deb)$/
+    const OS = (() => {
+      const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || ""
+      if (/win/i.test(p)) return "win"
+      if (/mac/i.test(p)) return "mac"
+      if (/linux|x11/i.test(p)) return "linux"
+      return ""
+    })()
+    const BUTTONS = { win: "download", mac: "downloadMac", linux: "downloadLinux" }
+    if (OS) {
+      // 匹配的那个换成实心，其余降成描边——比三个一样重的按钮少一次找的过程
+      for (const id of Object.values(BUTTONS)) document.getElementById(id).classList.replace("btn-go", "btn-alt")
+      document.getElementById(BUTTONS[OS]).classList.replace("btn-alt", "btn-go")
+      // 同一平台的另一种格式：mac 补 Intel dmg，Linux 补 deb；Windows 只有一个包
+      const alt = OS === "mac" ? "altMacIntel" : OS === "linux" ? "altLinuxDeb" : ""
+      if (alt) {
+        document.getElementById(alt).hidden = false
+        document.getElementById("ctaAlt").hidden = false
+      }
+    }
+
+    const assetOf = {
+      // Windows 优先版本化的正常安装包；DSH-Setup.exe 是给 0.1.18 旧更新器的兼容桥
+      win: (as) => as.find((a) => /^DSH-Setup-\d.*\.exe$/.test(a.name)) || as.find((a) => a.name === "DSH-Setup.exe"),
+      macArm: (as) => as.find((a) => /^DSH-X-.*-arm64\.dmg$/.test(a.name)),
+      macX64: (as) => as.find((a) => /^DSH-X-.*-x64\.dmg$/.test(a.name)),
+      appImage: (as) => as.find((a) => /\.AppImage$/.test(a.name)),
+      deb: (as) => as.find((a) => /\.deb$/.test(a.name)),
+    }
+
+    /** 选中某个 release：三个按钮和两条次选链接都指到它自己的资产上。 */
+    function applyRelease(rel) {
+      const as = rel.assets || []
+      // 老版本没有某个平台的包（0.1.22 之前没有 Linux）：藏起来，
+      // 不能让它留着上一个版本的链接——那会下成别的版本。
+      const setHref = (id, asset) => {
+        const el = document.getElementById(id)
+        if (!el) return
+        if (asset && asset.browser_download_url) {
+          el.href = asset.browser_download_url
+          el.hidden = false
+        } else {
+          el.hidden = true
+        }
+      }
+      setHref("download", assetOf.win(as))
+      // mac 按钮给 Apple Silicon，Intel 那条走次选链接
+      setHref("downloadMac", assetOf.macArm(as) || assetOf.macX64(as))
+      setHref("downloadLinux", assetOf.appImage(as) || assetOf.deb(as))
+      setHref("altMacIntel", assetOf.macX64(as))
+      setHref("altLinuxDeb", assetOf.deb(as))
+      // 两条次选都没了就别留一个空段落占位
+      document.getElementById("ctaAlt").hidden =
+        document.getElementById("altMacIntel").hidden && document.getElementById("altLinuxDeb").hidden
+      const ver = document.getElementById("ver")
+      if (rel.html_url) ver.href = rel.html_url
+    }
+
+    fetch("https://api.github.com/repos/yyh-001/DSH-X/releases?per_page=30")
       .then((r) => r.ok ? r.json() : null)
       .then((list) => {
-        if (!Array.isArray(list)) return
+        if (!Array.isArray(list) || !list.length) return
         const total = list.reduce((sum, rel) => sum + (rel.assets || [])
           .filter((a) => INSTALLER.test(a.name))
           .reduce((n, a) => n + (a.download_count || 0), 0), 0)
-        if (!total) return
-        downloadCount = total
-        renderDownloads()
-      })
-      .catch(() => {})
-
-    fetch("https://api.github.com/repos/yyh-001/DSH-X/releases/latest")
-      .then((r) => r.ok ? r.json() : null)
-      .then((rel) => {
-        if (!rel || !rel.tag_name) return
-        const assets = rel.assets || []
-        // Windows 优先用版本化的正常安装包；DSH-Setup.exe 是给 0.1.18 旧更新器的兼容桥
-        const win = assets.find((a) => /^DSH-Setup-\d/.test(a.name)) || assets.find((a) => a.name === "DSH-Setup.exe")
-        if (win && win.browser_download_url) {
-          document.getElementById("download").href = win.browser_download_url
+        if (total) {
+          downloadCount = total
+          renderDownloads()
         }
-        // 两个 mac 架构都换成这一版 release 的真实资产地址；按钮默认给 Apple Silicon
-        const mac = assets.find((a) => /^DSH-X-.*-arm64\.dmg$/.test(a.name)) || assets.find((a) => a.name === "DSH-X-mac-arm64.dmg")
-        if (mac && mac.browser_download_url) {
-          document.getElementById("downloadMac").href = mac.browser_download_url
-        }
-        const linux = assets.find((a) => /^DSH-X-.*\.AppImage$/.test(a.name))
-        if (linux && linux.browser_download_url) {
-          document.getElementById("downloadLinux").href = linux.browser_download_url
-        }
-        const ver = document.getElementById("ver")
-        ver.textContent = rel.tag_name
-        if (rel.html_url) ver.href = rel.html_url
+        const usable = list.filter((rel) => !rel.draft)
+        if (!usable.length) return
+        const select = document.getElementById("verSelect")
+        select.innerHTML = usable.map((rel) => `<option value="${rel.id}">${rel.tag_name}</option>`).join("")
+        // 默认选最新正式版：列表按时间倒序，第一个非 prerelease 的就是它
+        const latest = usable.find((rel) => !rel.prerelease) || usable[0]
+        select.value = String(latest.id)
+        document.getElementById("verWrap").hidden = false
+        applyRelease(latest)
+        select.addEventListener("change", () => {
+          const picked = usable.find((rel) => String(rel.id) === select.value)
+          if (picked) applyRelease(picked)
+        })
       })
       .catch(() => {})
 
