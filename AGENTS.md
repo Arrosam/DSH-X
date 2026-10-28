@@ -35,9 +35,9 @@ Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / �
 ## 硬规矩
 
 - **改完不要自动 commit、不要自动 `npm run dist`、不要发版。** 改动留在工作区，等用户明确指令；用户习惯自己按功能拆提交。
-- commit message 用**中文**。
+- commit message 用**中文**，格式 `类型: 说明`。类型只有四个，和发版说明的四块一一对应：`feat`（新增功能）/ `perf`（体验优化）/ `fix`（问题修复）/ `chore`（其他变更）。`node scripts/release-notes.mjs` 按前缀拆块生成草稿。
 - README 中英成对改（`README.md` + `README.en.md`）；**改 README 默认是"砍"不是"加"**——用户会周期性说"写得太多"。
-- Release notes 照 dsh 官方风格：一行一条、分 2–4 块、挂 `@贡献者`；不写根因、验证过程、安装说明。QQ 群公告压到 400 字符内（只写用户看得见的变化，下载只留落地页一条链接），存一份到 `release/群公告-<版本>.txt`。
+- Release notes 按 `docs/releases/TEMPLATE.md` 写进 `docs/releases/v<版本>.md`（**入库**，中英同篇、四块固定、一行一条、挂 `@贡献者`）；不写根因、验证过程、安装说明。预发布（rc / alpha）在 GitHub 上勾 Pre-release。QQ 群公告压到 400 字符内（只写用户看得见的变化，下载只留落地页一条链接），存一份到 `release/群公告-<版本>.txt`。
 - 注释写**为什么**（这个仓库的风格：每个不显然的决定都带一段解释，很多是踩坑记录），用中文；不写逐行翻译代码的注释。
 - `release/release-key.pem` 是发版签名私钥：不进仓库、别提交、别把内容打印到日志；动相关流程时提醒用户备份。
 
@@ -62,13 +62,13 @@ Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / �
 | `plugin-tool.js` | 命令行开关插件（dsh 起不来时的救命工具），有可执行位 |
 | `stdio-unblock.cjs` | stdout/stderr 阻塞模式修补（`--require` 注入用） |
 | `public/` | 管理界面与看板娘素材（`index.html` 是主体） |
-| `scripts/` | 打包（`pack.mjs` / `pack-mac.mjs` / `pack-common.mjs` / `electron-prune.mjs`）、图标（`make-icons.py`）、落地页素材、发版清单与 SBOM |
+| `scripts/` | 打包（`pack.mjs` / `pack-mac.mjs` / `pack-common.mjs` / `electron-prune.mjs`）、图标（`make-icons.py`）、落地页素材、发版说明草稿（`release-notes.mjs`，按 commit 前缀拆块）、发版清单与 SBOM |
 | `plugins/` `packs/` | 插件源码（发 npm）与随包发的整合包配方（见「关键机制」，**两个目录别合并**） |
 | `skills/` | 给 AI 用的技能源码（随仓库分发，不进安装包）：`dsh-x-selfcheck` 只读自检 DSH-X 环境（环境/管理页/数据目录/DSH_HOME/profile/实例/插件/技能/同步/日志），`node skills/dsh-x-selfcheck/scripts/selfcheck.mjs`，零依赖；用例见 `test/selfcheck-skill.test.mjs` |
 | `compat/` `perf/` | 注入 dsh 进程的钩子：兼容修补与加速 |
 | `shell/` | Windows / macOS / Linux 的 Electron 外壳（`main.mjs` 窗口 / 托盘 / 菜单，`tabs.mjs` 内部标签页，`preload.cjs` 页面桥，`updater.mjs` electron-updater）；`package.json` 是外壳版本，核心版本在根 `package.json` |
 | `test/` | 用例与假服务器 |
-| `docs/` | GitHub Pages 落地页 + 看板娘设计稿（`mascot-design/`） |
+| `docs/` | GitHub Pages 落地页 + 看板娘设计稿（`mascot-design/`）+ `releases/`（入库的发版说明，格式见 `TEMPLATE.md`） |
 | `assets/` | 图标 master（`icon.png` → `make-icons.py` 出全套） |
 | `data/` `release/` `vendor/` | 运行时数据与产物，gitignored，可重建，**不用整理** |
 
