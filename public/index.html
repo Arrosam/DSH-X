@@ -804,15 +804,6 @@
     </div>
   </div>
   <script src="/log-view.js"></script>
-  <div class="boot-overlay" id="bootOverlay" hidden>
-    <div class="boot-card" role="status" aria-live="polite">
-      <div class="boot-spinner" aria-hidden="true"></div>
-      <p class="boot-title" id="bootTitle"></p>
-      <p class="boot-phase" id="bootPhase"></p>
-      <div class="boot-bar" aria-hidden="true"><span></span></div>
-      <p class="boot-hint" data-i18n="启动完成后会自动打开">启动完成后会自动打开</p>
-    </div>
-  </div>
   <script>
     // ---- 界面双语：字典按中文原文做 key，没翻到的原样显示中文（不会漏、不会崩） ----
     const LANG = '__APP_LANG__'
@@ -1433,8 +1424,6 @@
   "正在启动 dsh": "Starting dsh",
   "正在加载插件": "Loading plugins",
   "正在校验依赖": "Verifying dependencies",
-  "正在启动 {version}": "Starting {version}",
-  "启动完成后会自动打开": "It will open automatically when ready",
   "实际加载来源尚未确认；先核对来源和兼容版本，不要豁免版本检查或批量禁用插件。": "The actual loaded source is unconfirmed. Check its origin and compatible versions; do not bypass version checks or disable plugins in bulk.",
   "配置报告 serviceVersion 缺失；仅核对字段定义文件及引用的环境变量，不代填或改写。": "The configuration reports a missing serviceVersion. Only inspect the field definition file and referenced environment variable; do not fill in or rewrite values.",
   "本次启动未传入 DSH_CLIENT_VERSION；字段是否引用此变量及定义文件，以已核实来源证据为准。": "DSH_CLIENT_VERSION was absent from this launch environment. Whether the field references this variable, and where it is defined, must be established from verified source evidence.",
@@ -1684,9 +1673,6 @@
     const versionValueEl = document.getElementById('versionValue')
     const versionPanelEl = document.getElementById('versionPanel')
     const instancesEl = document.getElementById('instances')
-    const bootOverlayEl = document.getElementById('bootOverlay')
-    const bootTitleEl = document.getElementById('bootTitle')
-    const bootPhaseEl = document.getElementById('bootPhase')
     const instancesListEl = document.getElementById('instancesList')
     const launchProfileEl = document.getElementById('launchProfile')
     const launchDshHomeEl = document.getElementById('launchDshHome')
@@ -1695,6 +1681,8 @@
     const launchIsolationFieldEl = document.getElementById('launchIsolationField')
     const launchIsolationHintEl = document.getElementById('launchIsolationHint')
     const launchCustomFieldsEl = document.getElementById('launchCustomFields')
+    // 项目环境（issue #72）：项目目录 → 数据目录 <项目>/.dsh，子进程在项目根里跑
+    // 从已有 Profile 复制：两档引导共用，来源目录可以是别的用户目录
     const launchUpdateChannelEl = document.getElementById('launchUpdateChannel')
     const launchChannelFieldEl = document.getElementById('launchChannelField')
     const launchUpdateChannelHintEl = document.getElementById('launchUpdateChannelHint')
@@ -3876,22 +3864,28 @@
     }
 
     /**
-     * 启动实例时的全屏加载层：点「启动」后立刻出现（实例还没起好），
-     * 显示版本、阶段和已用秒数，实例就绪后随任务结束自动收起并打开页面。
-     * 首次启动的下载/安装阶段不铺这层，交给已有的安装进度。
+     * 启动进度不再盖住管理页：点「启动」后新开一张 /booting 页，由它自己盯着实例状态、
+     * 就绪后跳进 dsh。管理页这边照常能点别的（多开时也能同时看着两台在起）。
+     * 打开方式复用 /api/open，和点「打开」走同一条路（内嵌标签页 / 应用窗口 / 浏览器）。
      */
-    function paintBootOverlay() {
-      const starting = [...launchActions.values()].find((task) => task.phase === 'start')
-      if (!starting) {
-        bootOverlayEl.hidden = true
-        return
+    function bootPageUrl(version, profile, launchId) {
+      const entry = launchId ? launchEntries().find((item) => item.id === launchId) : null
+      const params = new URLSearchParams({ version: version || '', profile: profile || '' })
+      const home = entry?.dshHome || state.dshHome || ''
+      if (home) params.set('home', home)
+      if (launchId) params.set('launch', launchId)
+      if (entry?.name) params.set('name', entry.name)
+      return `${location.origin}/booting?${params}`
+    }
+
+    /** 打开进度页；打不开也不算失败——启动照发，完成后还有 openInstance 兜底。 */
+    async function openBootPage(version, profile, launchId) {
+      try {
+        await post('/api/open', { url: bootPageUrl(version, profile, launchId) })
+        return true
+      } catch {
+        return false
       }
-      const live = (state.instances || []).find((item) => item.status === 'starting'
-        && (!starting.version || item.version === starting.version)
-        && (!starting.profile || item.profile === starting.profile))
-      bootTitleEl.textContent = t('正在启动 {version}', { version: starting.version || t('自动选择版本') })
-      bootPhaseEl.textContent = [starting.profile, live ? startupPhaseText(live.startupPhase) : '', live ? `${startupElapsed(live)}s` : ''].filter(Boolean).join(' · ')
-      bootOverlayEl.hidden = false
     }
 
     function paintInstances() {
@@ -4645,7 +4639,6 @@
       setPluginProgress(Boolean(pluginProgress))
       paintLaunchHome()
       paintInstances()
-      paintBootOverlay()
       hintEl.textContent = action === 'optimize' || installProgress?.phase === 'optimize' ? t('正在优化依赖…')
         : action === 'install' || action === 'update' || state.installing ? progressHint(t('正在安装'))
         : action === 'uninstall' ? t('正在卸载…') : ''
@@ -4713,6 +4706,9 @@
 
     async function startLaunchInstance(version, profile, presetPort, launchId, task) {
       task.phase = 'start'
+      // 进度页和启动请求并行发：那张页只是展示，不能把真正的启动往后拖一个 await。
+      // 它自己轮询实例状态，dsh 就绪后跳进去；首次启动的安装进度也在那张页上看。
+      const bootPage = openBootPage(version, profile, launchId)
       if (presetPort !== null) await post('/api/instance-port', { version, profile, port: presetPort }, { launchId })
       if (!installedList().includes(version)) {
         task.phase = 'install'
@@ -4727,7 +4723,8 @@
       task.phase = 'start'
       render()
       const data = await post('/api/start', { version, profile }, { launchId })
-      if (data.url) await openInstance(data.url)
+      // 进度页会自己跳进 dsh；只有它没能打开（弹窗拦截、外部浏览器不可用）时才在这里兜底。
+      if (data.url && !(await bootPage)) await openInstance(data.url)
     }
 
     async function startVersion(version, profile = launchProfile, presetPort = null, launchId = '') {
@@ -4959,7 +4956,6 @@
       }
       paintLaunchHome()
       paintInstances()
-      paintBootOverlay()
     }, 1000)
 
     function listenEvents() {

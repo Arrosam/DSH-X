@@ -10,6 +10,7 @@ DSH-X：DeepSeek Harness（`dsh`）的第三方启动器。`package.json` 的 `n
 Windows/macOS 外壳  shell/（Electron）  DSH.exe / DSH-X.app：Chromium 窗口与内部标签页、托盘、菜单栏、单实例；服务跑在同一进程里
 Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / 整合包 / 同步的全部业务
 管理界面   public/index.html           单页手写 HTML + 原生 JS，无框架、无构建步骤
+启动进度页 public/booting.html         点「启动」后新开的窗口：轮询 /api/state 显示阶段与安装进度，dsh 就绪后自己跳进去
 注入钩子   compat/  perf/              被注入 dsh 进程，修补运行时行为（见下）
 ```
 
@@ -61,7 +62,7 @@ Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / �
 | `filemanager-windows.js` / `filemanager-mac.js` / `filemanager-linux.js` | 三套实现类，都随跨平台核心包发，运行时按平台动态 import |
 | `plugin-tool.js` | 命令行开关插件（dsh 起不来时的救命工具），有可执行位 |
 | `stdio-unblock.cjs` | stdout/stderr 阻塞模式修补（`--require` 注入用） |
-| `public/` | 管理界面与看板娘素材（`index.html` 是主体） |
+| `public/` | 管理界面与看板娘素材（`index.html` 是主体；`booting.html` 是启动进度页，由 `/booting` 渲染） |
 | `scripts/` | 打包（`pack.mjs` / `pack-mac.mjs` / `pack-common.mjs` / `electron-prune.mjs`）、图标（`make-icons.py`）、落地页素材、发版说明草稿（`release-notes.mjs`，按 commit 前缀拆块）、发版清单与 SBOM |
 | `plugins/` `packs/` | 插件源码（发 npm）与随包发的整合包配方（见「关键机制」，**两个目录别合并**） |
 | `skills/` | 给 AI 用的技能源码（随仓库分发，不进安装包）：`dsh-x-selfcheck` 只读自检 DSH-X 环境（环境/管理页/数据目录/DSH_HOME/profile/实例/插件/技能/同步/日志），`node skills/dsh-x-selfcheck/scripts/selfcheck.mjs`，零依赖；用例见 `test/selfcheck-skill.test.mjs` |

@@ -5026,6 +5026,22 @@ export function openRoute(mode, shellWindow, internalTabs = false) {
 function openExternal(target, mode = OPEN_MODE) {
   const url = String(target)
   if (openRoute(mode, shellWindowHost(), internalTabsHost()) === 'internal') {
+    // 启动等待页占的正是这个实例的标签位（id 与 internalTabTarget 同一套拼法）：
+    // 页面自己跳到 dsh 之后就是实例页，标签条上不会先多出一个「DSH」再被实例页挤掉。
+    const booting = new URL(url)
+    if (booting.pathname === '/booting') {
+      const version = booting.searchParams.get('version') || ''
+      const profile = booting.searchParams.get('profile') || ''
+      const home = booting.searchParams.get('home') || ''
+      host.openTab({
+        id: JSON.stringify([home, version, profile]),
+        title: booting.searchParams.get('name') || [profile, version].filter(Boolean).join(' · ') || 'DSH',
+        url,
+        status: 'starting',
+        managed: true,
+      })
+      return
+    }
     const instance = instanceList().find((proc) => proc.url && new URL(proc.url).origin === new URL(url).origin)
     const tab = instance ? internalTabTarget(instance, launchNameOf(instance)) : { id: new URL(url).origin, title: 'DSH', url, status: 'running', managed: false }
     // 认证地址只在本机管道或同进程调用中传递；标题和实例身份都不包含 token，也不写入日志或设置。
@@ -6477,6 +6493,14 @@ export async function startServer() {
         } else {
           await handleApi(req, res, url)
         }
+        return
+      }
+      // 启动等待页：点「启动」后由外壳 / 浏览器新开一个页面，它自己盯着实例状态，
+      // 就绪后跳到 dsh。放在静态分支之前是为了跟管理页共用 __APP_*__ 替换（语言、主题一致），
+      // 并且不让它进条件缓存——升级后第一下就得是新页面。
+      if (req.method === 'GET' && (url.pathname === '/booting' || url.pathname === '/booting/')) {
+        const page = await readFile(join(PUBLIC, 'booting.html'), 'utf8')
+        send(res, 200, page.replaceAll('__APP_LANG__', LANG).replaceAll('__APP_THEME__', THEME), 'text/html; charset=utf-8', { 'cache-control': 'no-store' })
         return
       }
       const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)

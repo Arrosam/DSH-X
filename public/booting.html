@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="zh-CN" data-lang="__APP_LANG__" data-theme="__APP_THEME__">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DSH-X</title>
+<link rel="icon" href="/favicon.ico?v=dsh" sizes="any" />
+<link rel="icon" type="image/png" href="/favicon.png?v=dsh" />
+<script>
+  // 配色跟管理页一致：显式 light/dark 说了算，system（以及将来新增的未知值）跟系统走。
+  // 这段必须在样式之前跑，否则深色下会先闪一帧白底。
+  (() => {
+    const root = document.documentElement
+    const systemDark = matchMedia('(prefers-color-scheme: dark)')
+    const apply = () => {
+      const theme = root.dataset.theme
+      root.dataset.colorScheme = theme === 'light' || theme === 'dark' ? theme : (systemDark.matches ? 'dark' : 'light')
+    }
+    apply()
+    systemDark.addEventListener('change', apply)
+  })()
+</script>
+<style>
+  /* 这张页由管理服务直接吐出来（/booting），不引 launcher.css：启动那一刻的目标是
+     立刻画出一张能看的页，不该再等第二个请求把几十 KB 的主样式表拉下来。 */
+  :root {
+    color-scheme: light;
+    --bg: #eceff5;
+    --card: #ffffff;
+    --line: #d8dde8;
+    --text: #1b2434;
+    --muted: #667386;
+    --accent: #3b6cff;
+    --accent-soft: rgba(59, 108, 255, .12);
+    --danger: #d5484d;
+    --track: #e3e7f0;
+  }
+  html[data-color-scheme="dark"] {
+    color-scheme: dark;
+    --bg: #15161a;
+    --card: #22232a;
+    --line: #3a3c45;
+    --text: #eceef3;
+    --muted: #a3a9b6;
+    --accent: #ececee;
+    --accent-soft: rgba(236, 236, 238, .14);
+    --danger: #f2777a;
+    --track: #35373f;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: grid;
+    place-items: center;
+    padding: 28px;
+    background: radial-gradient(ellipse at 50% 0%, var(--accent-soft), transparent 62%), var(--bg);
+    color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: min(440px, 100%);
+    display: grid;
+    gap: 14px;
+    padding: 30px 30px 24px;
+    border-radius: 18px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    box-shadow: 0 22px 60px rgba(15, 20, 35, .16);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-size: 11.5px; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
+  .brand-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .head { display: flex; align-items: center; gap: 12px; }
+  .spinner {
+    flex: none;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    border: 2.5px solid var(--track);
+    border-top-color: var(--accent);
+    animation: spin .9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { margin: 0; font-size: 16.5px; font-weight: 650; letter-spacing: .01em; }
+  .meta { margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .bar { position: relative; height: 4px; border-radius: 999px; background: var(--track); overflow: hidden; }
+  .bar > span { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; background: var(--accent); transition: width .35s ease; }
+  .bar.indeterminate > span { width: 40%; animation: slide 1.25s ease-in-out infinite; }
+  @keyframes slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
+  .phase { margin: 0; min-height: 20px; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .hint { margin: 0; font-size: 12px; color: var(--muted); }
+  /* 阶段点：服务端只给粗粒度阶段，这里把「启动进程 → 加载插件 → 校验依赖 → 打开页面」
+     画成一条能看见在走的线，比一根假进度条诚实。 */
+  .steps { display: flex; align-items: center; gap: 0; margin: 2px 0 0; padding: 0; list-style: none; }
+  .steps li { position: relative; flex: 1; padding-top: 16px; font-size: 11.5px; color: var(--muted); text-align: center; }
+  .steps li::before {
+    content: ""; position: absolute; top: 4px; left: 50%; width: 8px; height: 8px; margin-left: -4px;
+    border-radius: 50%; background: var(--track); transition: background .25s ease, box-shadow .25s ease;
+  }
+  .steps li + li::after { content: ""; position: absolute; top: 7px; right: 50%; width: 100%; height: 2px; background: var(--track); }
+  .steps li[data-state="done"] { color: var(--text); }
+  .steps li[data-state="done"]::before { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .steps li[data-state="next"] { color: var(--text); }
+  .steps li[data-state="next"]::before { background: var(--muted); }
+  .steps li[data-state="done"] + li::after { background: var(--accent); }
+  .steps[hidden] { display: none; }
+  .actions { display: flex; gap: 9px; flex-wrap: wrap; }
+  .actions[hidden], .hint[hidden] { display: none; }
+  button {
+    border: 1px solid var(--line); border-radius: 9px; padding: 8px 16px;
+    background: transparent; color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  button:hover { background: var(--accent-soft); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--card); }
+  html[data-color-scheme="dark"] button.primary { color: #1b1c21; }
+  .error { display: grid; gap: 8px; }
+  .error[hidden] { display: none; }
+  .error-title { margin: 0; font-size: 14.5px; font-weight: 650; color: var(--danger); }
+  .error-text { margin: 0; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none; }
+    .bar.indeterminate > span { animation: none; width: 100%; }
+  }
+</style>
+</head>
+<body>
+  <main class="card" role="status" aria-live="polite">
+    <div class="brand"><span class="brand-dot" aria-hidden="true"></span>DSH-X</div>
+    <div class="head">
+      <div class="spinner" id="spinner" aria-hidden="true"></div>
+      <h1 id="title"></h1>
+    </div>
+    <p class="meta" id="meta"></p>
+    <div class="bar indeterminate" id="bar" aria-hidden="true"><span id="barFill"></span></div>
+    <p class="phase" id="phase"></p>
+    <ol class="steps" id="steps">
+      <li data-step="launching"></li>
+      <li data-step="loading"></li>
+      <li data-step="verifying"></li>
+      <li data-step="ready"></li>
+    </ol>
+    <p class="hint" id="hint"></p>
+    <div class="error" id="error" hidden>
+      <p class="error-title" id="errorTitle"></p>
+      <p class="error-text" id="errorText"></p>
+    </div>
+    <div class="actions" id="actions" hidden>
+      <button type="button" class="primary" id="manager"></button>
+      <button type="button" id="retry"></button>
+    </div>
+  </main>
+<script>
+(() => {
+  const LANG = document.documentElement.dataset.lang === 'en' ? 'en' : 'zh'
+  const STRINGS = {
+    zh: {
+      'booting': '正在启动 {version}',
+      'bootingAuto': '正在启动 dsh',
+      'preparing': '准备启动…',
+      'phase': '{profile} · {phase} · {elapsed}s',
+      'phaseNoProfile': '{phase} · {elapsed}s',
+      'elapsedOnly': '已用 {elapsed}s',
+      'installing': '正在准备依赖',
+      'stepLaunching': '启动进程',
+      'stepLoading': '加载插件',
+      'stepVerifying': '校验依赖',
+      'stepReady': '打开页面',
+      'phLaunching': '正在启动 dsh',
+      'phLoading': '正在加载插件',
+      'phVerifying': '正在校验依赖',
+      'phDownload': '正在下载依赖 {done}/{total}',
+      'phDownloadPct': '正在下载依赖 {pct}%',
+      'phResolve': '正在解析依赖',
+      'phOptimize': '正在优化依赖',
+      'phUnpack': '正在解包 {done}/{total}',
+      'hintOpen': '启动完成后这个页面会自动打开 dsh',
+      'hintSlow': '首次启动要下载依赖，通常会久一点；也可以回管理页看实时日志',
+      'hintOffline': '与管理页的连接断了一下，正在重试…',
+      'opening': '启动完成，正在打开…',
+      'failedTitle': '启动失败',
+      'failedFallback': '实例没能起来，回到管理页可以看到完整诊断。',
+      'toManager': '回到管理页',
+      'retry': '重新打开这张页',
+    },
+    en: {
+      'booting': 'Starting {version}',
+      'bootingAuto': 'Starting dsh',
+      'preparing': 'Preparing…',
+      'phase': '{profile} · {phase} · {elapsed}s',
+      'phaseNoProfile': '{phase} · {elapsed}s',
+      'elapsedOnly': '{elapsed}s elapsed',
+      'installing': 'Preparing dependencies',
+      'stepLaunching': 'Process',
+      'stepLoading': 'Plugins',
+      'stepVerifying': 'Dependencies',
+      'stepReady': 'Open page',
+      'phLaunching': 'Starting dsh',
+      'phLoading': 'Loading plugins',
+      'phVerifying': 'Verifying dependencies',
+      'phDownload': 'Downloading dependencies {done}/{total}',
+      'phDownloadPct': 'Downloading dependencies {pct}%',
+      'phResolve': 'Resolving dependencies',
+      'phOptimize': 'Optimizing dependencies',
+      'phUnpack': 'Unpacking {done}/{total}',
+      'hintOpen': 'This page opens dsh automatically once it is ready',
+      'hintSlow': 'The first start downloads dependencies and takes longer; the launcher page shows the live log',
+      'hintOffline': 'Lost the launcher for a moment, retrying…',
+      'opening': 'Ready — opening…',
+      'failedTitle': 'Start failed',
+      'failedFallback': 'The instance did not come up. The launcher page has the full diagnosis.',
+      'toManager': 'Back to launcher',
+      'retry': 'Reload this page',
+    },
+  }
+  const DICT = STRINGS[LANG]
+  const t = (key, vars) => String(DICT[key] ?? key).replace(/\{(\w+)\}/g, (_, name) => (vars && name in vars ? String(vars[name]) : `{${name}}`))
+  document.title = t('bootingAuto')
+
+  const els = {
+    spinner: document.getElementById('spinner'),
+    title: document.getElementById('title'),
+    meta: document.getElementById('meta'),
+    bar: document.getElementById('bar'),
+    barFill: document.getElementById('barFill'),
+    phase: document.getElementById('phase'),
+    steps: document.getElementById('steps'),
+    hint: document.getElementById('hint'),
+    error: document.getElementById('error'),
+    errorTitle: document.getElementById('errorTitle'),
+    errorText: document.getElementById('errorText'),
+    actions: document.getElementById('actions'),
+    manager: document.getElementById('manager'),
+    retry: document.getElementById('retry'),
+  }
+  els.steps.querySelectorAll('li').forEach((item) => { item.textContent = t(`step${item.dataset.step[0].toUpperCase()}${item.dataset.step.slice(1)}`) })
+  els.manager.textContent = t('toManager')
+  els.retry.textContent = t('retry')
+  els.manager.onclick = () => { location.href = '/' }
+  els.retry.onclick = () => location.reload()
+
+  const params = new URLSearchParams(location.search)
+  const version = params.get('version') || ''
+  const profile = params.get('profile') || ''
+  const home = params.get('home') || ''
+  const samePath = (left, right) => String(left || '').toLowerCase() === String(right || '').toLowerCase()
+  // 页面自己记的起点：实例还没进列表（首次启动要先装依赖）时，秒表从这里走。
+  const pageStart = Date.now()
+  let snapshot = null
+  let opened = false
+  let failed = false
+  let offline = false
+
+  els.title.textContent = version ? t('booting', { version }) : t('bootingAuto')
+  els.meta.textContent = [profile, version].filter(Boolean).join(' · ')
+
+  const waitStartedAt = pageStart
+  const PHASE_TEXT = {
+    launching: 'phLaunching',
+    loading: 'phLoading',
+    verifying: 'phVerifying',
+  }
+  const STEPS = ['launching', 'loading', 'verifying', 'ready']
+
+  /** 按版本 + profile（+ 目录）找本次要等的那个实例；同一个版本可能还跑着别的 profile。 */
+  function findInstance() {
+    const rows = Array.isArray(snapshot?.instances) ? snapshot.instances : []
+    return rows.find((row) => row.version === version
+      && (!profile || row.profile === profile)
+      && (!home || samePath(row.home, home))) || null
+  }
+
+  /** 这次启动的失败记录：只认等待开始之后发生的，否则会把上一次的旧错误挂在这一次头上。 */
+  function findFailure() {
+    const failure = snapshot?.failure
+    if (!failure) return null
+    if (failure.version !== version) return null
+    if (profile && failure.profile !== profile) return null
+    if (home && !samePath(failure.home, home)) return null
+    return Number(failure.at) >= waitStartedAt - 2000 ? failure : null
+  }
+
+  function paintSteps(current) {
+    const index = STEPS.indexOf(current)
+    els.steps.hidden = false
+    for (const item of els.steps.children) {
+      const at = STEPS.indexOf(item.dataset.step)
+      // 当前这一步已经点亮（它代表「正在做」），下一格只是提示「还差它」。
+      item.dataset.state = index < 0 ? '' : at <= index ? 'done' : at === index + 1 ? 'next' : ''
+    }
+  }
+
+  function setBar(current) {
+    const total = Number(current?.total) || 0
+    const done = Number(current?.done) || 0
+    if (total > 0) {
+      els.bar.classList.remove('indeterminate')
+      els.barFill.style.width = `${Math.max(2, Math.min(100, Math.round((done / total) * 100)))}%`
+      return false
+    }
+    els.bar.classList.add('indeterminate')
+    els.barFill.style.width = ''
+    return true
+  }
+
+  function showFailure(failure) {
+    failed = true
+    els.spinner.hidden = true
+    els.bar.hidden = true
+    els.steps.hidden = true
+    els.title.textContent = t('failedTitle')
+    els.phase.textContent = ''
+    els.error.hidden = false
+    els.errorTitle.textContent = t('failedTitle')
+    els.errorText.textContent = failure?.message || t('failedFallback')
+    els.hint.hidden = true
+    els.actions.hidden = false
+    els.manager.classList.add('primary')
+    document.title = t('failedTitle')
+  }
+
+  function openDsh(url) {
+    if (opened || !url) return
+    opened = true
+    els.title.textContent = t('opening')
+    els.phase.textContent = ''
+    els.spinner.hidden = true
+    els.bar.classList.remove('indeterminate')
+    els.barFill.style.width = '100%'
+    paintSteps('ready')
+    // replace 而不是 assign：dsh 起来后按后退不该回到这张过渡页。
+    location.replace(url)
+  }
+
+  function render() {
+    if (failed || opened) return
+    const live = findInstance()
+    if (live?.status === 'running' && live.url) {
+      openDsh(live.url)
+      return
+    }
+    if (live?.status === 'starting') {
+      const phase = live.startupPhase || 'launching'
+      setBar(null)
+      paintSteps(phase)
+      els.hint.hidden = false
+      els.hint.textContent = t('hintOpen')
+      els.phase.textContent = `${t(PHASE_TEXT[phase] || 'phLaunching')}`
+      els.meta.textContent = [profile, elapsedText(live.startedAt)].filter(Boolean).join(' · ')
+      return
+    }
+    // 还没进实例列表：首次启动要先把版本/依赖装好，这一段用安装进度说话。
+    const progress = snapshot?.progress
+    if (progress) {
+      const determinate = !setBar(progress)
+      els.steps.hidden = true
+      els.title.textContent = t('installing')
+      let text = t('phResolve')
+      if (progress.phase === 'download') {
+        text = determinate && Number(progress.total) > 0
+          ? t('phDownload', { done: progress.done || 0, total: progress.total })
+          : t('phDownloadPct', { pct: Number(progress.done) || 0 })
+      } else if (progress.phase === 'optimize') text = t('phOptimize')
+      else if (progress.phase === 'unpack') text = t('phUnpack', { done: progress.done || 0, total: progress.total || 0 })
+      els.phase.textContent = text
+      els.meta.textContent = [profile, version].filter(Boolean).join(' · ')
+      els.hint.hidden = false
+      els.hint.textContent = t('hintSlow')
+      return
+    }
+    // 页面比启动请求先打开：这段时间什么都不用报，只说在准备。
+    setBar(null)
+    paintSteps('launching')
+    els.phase.textContent = t('preparing')
+    els.hint.hidden = false
+    els.hint.textContent = t('hintOpen')
+    const failure = findFailure()
+    if (failure) showFailure(failure)
+  }
+
+  function elapsedText(startedAt) {
+    const started = Number(startedAt) || pageStart
+    const seconds = Math.max(0, Math.round((Date.now() - started) / 1000))
+    return t('elapsedOnly', { elapsed: seconds })
+  }
+
+  // 秒表自己走：状态只在事件点推送，等状态推过来再画秒数会一格一格地跳。
+  setInterval(() => {
+    if (failed || opened) return
+    const live = findInstance()
+    const row = live?.status === 'starting' ? live : null
+    const meta = row ? [profile, elapsedText(row.startedAt)].filter(Boolean).join(' · ')
+      : [profile, elapsedText(pageStart)].filter(Boolean).join(' · ')
+    if (els.meta.textContent !== meta) els.meta.textContent = meta
+    if (!row && !snapshot?.progress && els.phase.textContent !== t('preparing')) els.phase.textContent = t('preparing')
+  }, 250)
+
+  async function poll() {
+    if (failed || opened) return
+    try {
+      const response = await fetch('/api/state', { cache: 'no-store' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      snapshot = await response.json()
+      if (offline) {
+        offline = false
+        els.hint.textContent = t('hintOpen')
+      }
+      render()
+    } catch {
+      if (!offline) {
+        offline = true
+        els.hint.hidden = false
+        els.hint.textContent = t('hintOffline')
+      }
+    }
+  }
+
+  // 800ms 一次：服务端的启动阶段是在日志行上推断的，不会每次都推状态，
+  // 轮询比 SSE 更稳地跟住「启动进程 → 加载插件 → 校验依赖」这三级。
+  const timer = setInterval(poll, 800)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) void poll() })
+  window.addEventListener('pagehide', () => clearInterval(timer), { once: true })
+  void poll()
+})()
+</script>
+</body>
+</html>

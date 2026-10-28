@@ -32,6 +32,9 @@ function ui({ installed = ['0.1.0'], instances = [], homes = false } = {}) {
     launchPresetsEl: list, launchHomeMarkup: '', launchAddEl: { hidden: true, disabled: false, focus() {} },
     DEFAULT_LAUNCH_ID: 'a', latestRemoteVersion: () => '0.1.0', launchLatestVersion: () => '0.1.0', compareVersion: () => 0,
     launchIconMarkup: () => '<svg></svg>', escapeHtml: (value) => String(value || ''), t: (value) => value,
+    // 启动前开的那张进度页（/booting）有自己的用例（test/booting-page.test.mjs）；
+    // 这里只管并发锁，不让打开页面多记一条请求。
+    openBootPage: async () => true,
     document: { activeElement: null },
   })
   vm.runInContext(keys + lookup + actions + manage + paint, context)
