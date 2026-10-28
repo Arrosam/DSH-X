@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" />
 </p>
 
-DSH-X is a lightweight third-party desktop launcher for DeepSeek Harness: launch entries, multiple instances, versions, plugins, modpacks, MCP and skills.
+DSH-X is a third-party desktop launcher for DeepSeek Harness: launch entries, multiple instances, versions, plugins, modpacks, MCP and skills.
 
 > [!IMPORTANT]
 > **DSH-X starts DeepSeek Harness's own web page.**  

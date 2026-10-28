@@ -81,6 +81,6 @@ export default {
     executableName: 'DSH',
     artifactName: 'DSH-X-${version}-${arch}.${ext}',
     synopsis: 'DeepSeek Harness launcher',
-    description: 'DeepSeek Harness 轻量桌面启动器',
+    description: 'DeepSeek Harness 桌面启动器',
   },
 }
