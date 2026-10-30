@@ -13,6 +13,12 @@ import { patchProfileBoot } from './startup-resolver.mjs'
 
 const TARGET = 'dsh-client-modules/lib/index.js'
 const PROFILE_BOOT = /\/dsh\/lib\/profile-boot(?:-[^/]+)?\.js(?:\?.*)?$/
+/** Cordis loader：插件体检靠它记录每个 entry 的导入/应用耗时（只观测，不改行为）。 */
+const LOADER = 'cordis-plugin-loader/lib/index.js'
+const LOADER_ENTRY = 'async _init() {'
+const LOADER_FIBER = 'this.fiber = this.ctx.registry.plugin(plugin, this.options.config, this.getOuterStack).ctx.fiber;'
+const LOADER_ENTRY_HOOK = 'async _init() {\n\t\tglobalThis[Symbol.for("dsh-x/plugin-profile")]?.enter(this);'
+const LOADER_FIBER_HOOK = `${LOADER_FIBER}\n\t\tglobalThis[Symbol.for("dsh-x/plugin-profile")]?.imported(this);`
 
 /** 已知的慢实现（用于校验，必须精确匹配才动手）。 */
 const SLOW_NEWLINE = 'function newlineCount(value) {\n\tlet count = 0;\n\tfor (const char of value) if (char === "\\n") count += 1;\n\treturn count;\n}'
@@ -24,13 +30,21 @@ const FAST_MAPPINGS = 'const _lines = newlineCount(source); const mappings = _li
 export function load(url, context, nextLoad) {
   const result = nextLoad(url, context)
   const profileBoot = PROFILE_BOOT.test(url)
-  if (!profileBoot && !url.includes(TARGET)) return result
+  const loader = url.includes(LOADER)
+  if (!profileBoot && !loader && !url.includes(TARGET)) return result
   if (result.format !== 'module' || result.source === undefined) return result
 
   let source = Buffer.isBuffer(result.source) ? result.source.toString('utf8') : String(result.source)
   if (profileBoot) {
     const patched = patchProfileBoot(source)
     return patched === source ? result : { ...result, source: patched }
+  }
+  if (loader) {
+    // 两个锚点都在才注入：上游改了 loader 实现就整段跳过，体检自然没有数据，启动照旧。
+    if (!source.includes(LOADER_ENTRY) || !source.includes(LOADER_FIBER)) return result
+    const patched = source.replace(LOADER_ENTRY, LOADER_ENTRY_HOOK).replace(LOADER_FIBER, LOADER_FIBER_HOOK)
+    if (process.env.DSH_PERF_DEBUG === '1') console.error('[perf] 插件体检钩子: 已注入')
+    return { ...result, source: patched }
   }
   const applied = []
 

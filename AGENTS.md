@@ -115,6 +115,9 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - NODE_OPTIONS 里的路径走 `nodeOptionsPath()`（`server.js`）：反斜杠换正斜杠、含空白才包引号——**引号会吃反斜杠**，所以不能只加引号。**别退回「NODE_PATH 传目录 + 裸文件名」**：Electron 主进程不消费 NODE_PATH，会把应用顶死。
 - dsh 自己的 Node 开关（系统证书库、请求头上限、两个 ESM 补丁钩子）走**命令行参数**，不塞 NODE_OPTIONS：后者会被 dsh 的所有子进程继承，agent 在 shell 里跑的 node 可能是老版本。
 - 改会话事件词汇表（`SESSION_TYPES`）要**两处同步**：主线程的 `compat/session-events.mjs` 与 worker 的 `compat/worker-events.cjs` 各有一份副本。
+- `perf/plugin-profile.mjs` 是**插件体检**：正常启动时用 V8 采样（CPU 1ms / 堆分配 64KB）按包统计启动期开销，稳定后写到 `<APP_DIR>/plugin-profile/<版本>@<profile>.json`；管理页实例行的「明细」读它。
+  它靠 `perf/patch-hooks.mjs` 给 Cordis loader 的两个锚点注入 `enter/imported`（缺一个就整段跳过，启动不受影响）；只给 `bootOnce` 拉起的实例启用，插件命令 / AI 修复不写报告。
+
 
 ### 核心更新（core-npm.js / apply-update.mjs）
 

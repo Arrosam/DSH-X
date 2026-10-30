@@ -776,6 +776,12 @@
       <div class="version-manage-list" id="versionManageList" role="list"></div>
     </div>
   </div>
+  <div class="ask" id="pluginProfileDialog" hidden>
+    <div class="ask-card" role="dialog" aria-modal="true" aria-labelledby="pluginProfileTitle" data-dialog-size="large">
+      <div class="dialog-heading"><div><h2 class="ask-title" id="pluginProfileTitle" data-i18n="启动体检">启动体检</h2><p class="dialog-subtitle" id="pluginProfileSubtitle"></p></div><button class="ghost icon-btn dialog-close" id="pluginProfileClose" type="button" title="关闭" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+      <div class="dialog-body" id="pluginProfileBody"></div>
+    </div>
+  </div>
   <div class="ask" id="pluginHomesDialog" hidden>
     <div class="ask-card" role="dialog" aria-modal="true" aria-labelledby="pluginHomesTitle" data-dialog-size="medium" tabindex="-1">
       <div class="dialog-heading"><h2 class="ask-title" id="pluginHomesTitle" data-i18n="管理目录">管理目录</h2><button class="icon-btn plugin-home-action dialog-close" id="pluginHomesClose" type="button" title="关闭" aria-label="关闭" data-i18n-title="关闭" data-i18n-aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
@@ -1329,6 +1335,22 @@
   "已禁用": "Disabled",
   "禁用": "Disable",
   "启动中": "Starting",
+  "启动耗时 {seconds}s": "Started in {seconds}s",
+  "启动明细": "Startup details",
+  "明细": "Details",
+  "启动体检": "Startup profile",
+  "分配": "Allocated",
+  "启动窗口": "Startup window",
+  "启动期分配": "Allocated during startup",
+  "记录于": "Recorded at",
+  "其他包": "Other packages",
+  "原生热点": "Native hotspots",
+  "这次启动没有采到插件级数据。": "No plugin-level data from this start.",
+  "没有其他包的采样数据。": "No other package samples.",
+  "没有原生采样数据。": "No native samples.",
+  "CPU 是启动窗口内的独占采样时间；分配是采样估算，不等于常驻内存。": "CPU is exclusive sampled time within the startup window; allocation is sampled and is not resident memory.",
+  "这个实例还没有启动记录。正常启动一次后再看：记录是在启动时顺手采集的，不会额外重启。": "No startup record for this instance yet. Start it normally once; the record is collected during startup with no extra restart.",
+  "正在读取启动记录…": "Reading startup record…",
   "停止中": "Stopping",
   "安装中": "Installing",
   "正在启动…": "Starting…",
@@ -1842,6 +1864,9 @@
     const launchSaveEl = document.getElementById('launchSave')
     const launchDialogEl = document.getElementById('launchDialog')
     const versionManageDialogEl = document.getElementById('versionManageDialog')
+    const pluginProfileDialogEl = document.getElementById('pluginProfileDialog')
+    const pluginProfileBodyEl = document.getElementById('pluginProfileBody')
+    const pluginProfileSubtitleEl = document.getElementById('pluginProfileSubtitle')
     const manageVersionsEl = document.getElementById('launchManageVersions')
     const versionInstallSelectEl = document.getElementById('versionInstallSelect')
     const launchFormEl = document.getElementById('launchForm')
@@ -4254,6 +4279,56 @@
       }
     }
 
+    function formatProfileMs(ms) {
+      const value = Number(ms) || 0
+      return value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`
+    }
+    function formatProfileKB(kb) {
+      const value = Number(kb) || 0
+      return value >= 1024 ? `${(value / 1024).toFixed(1)}MB` : `${Math.round(value)}KB`
+    }
+    function profileRow(row, withAlloc) {
+      const cols = withAlloc ? '' : ' data-cols="2"'
+      return `<div class="plugin-profile-row"${cols}><span class="plugin-profile-name" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</span><span class="plugin-profile-value">${formatProfileMs(row.cpuMs)}</span>${withAlloc ? `<span class="plugin-profile-value">${formatProfileKB(row.allocKB)}</span>` : ''}</div>`
+    }
+    function profileHead(withAlloc) {
+      return `<div class="plugin-profile-row head"${withAlloc ? '' : ' data-cols="2"'}><span>${escapeHtml(t('名称'))}</span><span>${escapeHtml(t('CPU'))}</span>${withAlloc ? `<span>${escapeHtml(t('分配'))}</span>` : ''}</div>`
+    }
+    function renderPluginProfile(report) {
+      const packages = Array.isArray(report.packages) ? report.packages : []
+      const plugins = packages.filter((row) => row.plugin).slice(0, 40)
+      const others = packages.filter((row) => !row.plugin).slice(0, 8)
+      const native = Array.isArray(report.native) ? report.native.slice(0, 6) : []
+      const summary = [
+        `${t('启动窗口')} ${formatProfileMs(report.windowMs)}`,
+        `${t('CPU')} ${formatProfileMs(report.cpuMs)}`,
+        `${t('启动期分配')} ${(Number(report.allocMB) || 0).toFixed(1)}MB`,
+        report.at ? `${t('记录于')} ${new Date(report.at).toLocaleTimeString()}` : '',
+      ].filter(Boolean).join(' · ')
+      const group = (title, rows, withAlloc, empty) => `<div class="plugin-profile-group"><h3 class="plugin-profile-title">${escapeHtml(title)}</h3>${profileHead(withAlloc)}${rows.length ? rows.map((row) => profileRow(row, withAlloc)).join('') : `<p class="hint">${escapeHtml(empty)}</p>`}</div>`
+      pluginProfileBodyEl.innerHTML = `<p class="plugin-profile-summary">${escapeHtml(summary)}</p>`
+        + group(t('插件'), plugins, true, t('这次启动没有采到插件级数据。'))
+        + group(t('其他包'), others, true, t('没有其他包的采样数据。'))
+        + group(t('原生热点'), native, false, t('没有原生采样数据。'))
+        + `<p class="hint">${escapeHtml(t('CPU 是启动窗口内的独占采样时间；分配是采样估算，不等于常驻内存。'))}</p>`
+    }
+    async function openPluginProfile(version, profile) {
+      pluginProfileSubtitleEl.textContent = `${version}${profile ? ' / ' + profile : ''}`
+      pluginProfileBodyEl.innerHTML = `<p class="hint">${escapeHtml(t('正在读取启动记录…'))}</p>`
+      showDialog(pluginProfileDialogEl)
+      try {
+        const response = await fetch(`/api/plugin-profile?version=${encodeURIComponent(version)}&profile=${encodeURIComponent(profile)}`, { cache: 'no-store' })
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `HTTP ${response.status}`)
+        const report = await response.json()
+        if (report.missing) {
+          pluginProfileBodyEl.innerHTML = `<p class="hint">${escapeHtml(t('这个实例还没有启动记录。正常启动一次后再看：记录是在启动时顺手采集的，不会额外重启。'))}</p>`
+          return
+        }
+        renderPluginProfile(report)
+      } catch (error) {
+        pluginProfileBodyEl.innerHTML = `<p class="hint">${escapeHtml(error?.message || String(error))}</p>`
+      }
+    }
     function paintInstances() {
       const list = (state.instances || []).filter((item) => !launchEntries().some((entry) =>
         resolveLaunchVersion(entry) === item.version && entry.profile === item.profile && (entry.dshHome || state.dshHome) === (item.home || state.dshHome)))
@@ -4267,7 +4342,8 @@
         const busy = item.status === 'starting' || item.status === 'stopping'
         const stateText = item.status === 'starting'
           ? `${t('启动中')} · ${startupElapsed(item)}s${startupPhaseText(item.startupPhase) ? ' · ' + startupPhaseText(item.startupPhase) : ''}`
-          : item.status === 'stopping' ? t('停止中') : ''
+          : item.status === 'stopping' ? t('停止中')
+            : Number.isFinite(item.startupMs) ? t('启动耗时 {seconds}s', { seconds: (item.startupMs / 1000).toFixed(1) }) : ''
         const url = item.url || ''
         return `<div class="instance-row">
           <span class="instance-main">
@@ -4280,6 +4356,7 @@
             <span class="instance-url" title="${escapeHtml(url)}">${escapeHtml(url)}</span>
           </span>
           <span class="instance-actions">
+            <button class="ghost" type="button" data-report-version="${escapeHtml(item.version)}" data-profile="${escapeHtml(item.profile || '')}" title="${escapeHtml(t('启动明细'))}" aria-label="${escapeHtml(t('启动明细'))}">${escapeHtml(t('明细'))}</button>
             <button class="ghost" type="button" data-open="${escapeHtml(item.version)}" data-profile="${escapeHtml(item.profile || '')}" data-home="${escapeHtml(item.home || state.dshHome)}" ${item.status === 'running' && url ? '' : 'disabled'}>${escapeHtml(t('打开'))}</button>
             <button class="ghost" type="button" data-stop-version="${escapeHtml(item.version)}" data-profile="${escapeHtml(item.profile || '')}" data-home="${escapeHtml(item.home || state.dshHome)}" ${busy ? 'disabled' : ''}>${escapeHtml(t('停止'))}</button>
           </span>
@@ -4291,6 +4368,9 @@
             && (row.profile || '') === el.dataset.profile && (row.home || state.dshHome) === el.dataset.home)
           void openInstance(item?.url)
         }
+      })
+      instancesListEl.querySelectorAll('button[data-report-version]').forEach((el) => {
+        el.onclick = () => { void openPluginProfile(el.dataset.reportVersion, el.dataset.profile) }
       })
       instancesListEl.querySelectorAll('button[data-stop-version]').forEach((el) => {
         el.onclick = async () => {
@@ -7763,6 +7843,8 @@
     trapPackDialog(packDetailDialog, closeMarketDetail)
     trapPackDialog(packInstallDialog, closeInstallDialog)
     trapPackDialog(packExportDialog, closeExportDialog)
+    document.getElementById('pluginProfileClose').onclick = () => { void hideDialog(pluginProfileDialogEl) }
+    trapPackDialog(pluginProfileDialogEl, () => { void hideDialog(pluginProfileDialogEl) })
     trapPackDialog(profileDialogEl, closeProfileDialog)
     trapPackDialog(pluginHomesDialogEl, closePluginHomesDialog)
     marketSearchEl.oninput = marketSortEl.onchange = () => {

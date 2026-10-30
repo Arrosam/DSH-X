@@ -1043,6 +1043,7 @@ function instanceInfo(proc) {
     status: proc.status,
     url: proc.url,
     startedAt: proc.startedAt,
+    startupMs: proc.startupMs ?? null,
     startupPhase: proc.status === 'starting' ? (proc.startupPhase || 'launching') : '',
     diagnosticWarning: publicFailure(proc.diagnosticWarning),
   }
@@ -2866,6 +2867,12 @@ function spawnDsh(version, extra, profile = '', options = {}) {
   // 统一用 RUNTIME_NODE 拉起 dsh（打包后就是 Electron 自带的 Node，见 platform.js）；#61 的诊断
   // 上下文仍要在这之前建好 env。
   const env = dshEnv(version, options)
+  // 插件体检：只有真正拉起实例（bootOnce）时才记录，插件命令 / AI 修复命令不写报告，
+  // 否则会用一次半截运行覆盖掉上一次正常启动的样本。报告按「版本@profile」落盘。
+  if (options.pluginProfile) {
+    env.DSH_X_PLUGIN_PROFILE = `${version}@${profile || PROFILE_NAME}`
+    env.DSH_X_PLUGIN_PROFILE_DIR = join(APP_DIR, 'plugin-profile')
+  }
   if (options.diagnosticContext) {
     env.DSH_X_DIAGNOSTIC_ATTEMPT = options.diagnosticContext.attemptId
     // 取本次实际传入的入口和环境存在性，不扫描另一套安装，也不记录变量值。
@@ -4533,6 +4540,20 @@ export async function checkWebPage(origin, token) {
 }
 
 /**
+ * 插件体检报告：正常启动时由 perf/plugin-profile.mjs 采样写入，这里只负责读。
+ * 记录不存在（还没启动过、或 loader 锚点没命中）时返回 missing，页面据此给出人话。
+ */
+async function pluginProfileReport(version, profile) {
+  const file = join(APP_DIR, 'plugin-profile', `${version}@${profile}.json`)
+  try {
+    const report = JSON.parse(await readFile(file, 'utf8'))
+    return { ...report, file }
+  } catch {
+    return { version, profile, missing: true, packages: [], native: [], entries: [] }
+  }
+}
+
+/**
  * 从 app 页面 HTML 里挑出客户端插件包的地址。
  *
  * dsh 0.1.7 起页面里写的是**相对地址**（`plugins/…`，没有前导斜杠），0.1.6 及以前是
@@ -4628,7 +4649,7 @@ async function bootOnce(ver, prof, onStarted) {
     home: homeDir(),
     fingerprint: profileFingerprint(homeDir(), prof),
   }
-  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned || reused), prof, { diagnosticContext, cwd: workdir })
+  const child = spawnDsh(ver, bootArgs(prof, alongside, pinned || reused), prof, { diagnosticContext, cwd: workdir, pluginProfile: true })
   const spawnAt = performance.now()
   const proc = attachProcess(ver, prof, child, diagnosticContext)
   onStarted?.(proc)
@@ -4638,6 +4659,7 @@ async function bootOnce(ver, prof, onStarted) {
     if (automatic) await rememberAutoPort(ver, prof, result.url)
     // 分清启动器准备、子进程输出就绪地址、管理器确认三段，避免把地址可用误当成会话首屏。
     const readyAt = proc.readyAt || performance.now()
+    proc.startupMs = Math.round(readyAt - spawnAt)
     const confirmedAt = performance.now()
     pushLog(`启动耗时 ${ver}/${prof}：准备 ${Math.round(spawnAt - startedAt)}ms，子进程就绪地址 ${Math.round(readyAt - spawnAt)}ms，确认 ${Math.round(confirmedAt - readyAt)}ms，总计 ${Math.round(confirmedAt - startedAt)}ms`)
     // 钉了端口却没落到上面（额外参数里另有 --port，或 dsh 自己顺延了）：如实说一句，
@@ -5687,6 +5709,17 @@ async function handleApi(req, res, url) {
   }
   if (req.method === 'GET' && url.pathname === '/api/state') {
     send(res, 200, await snapshot())
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/plugin-profile') {
+    // 体检报告按「版本@profile」存在数据目录里；参数非法回 400，别让它拼进文件路径。
+    try {
+      const version = safeVersion(url.searchParams.get('version') || '')
+      const profile = safeProfile(url.searchParams.get('profile') || PROFILE_NAME)
+      send(res, 200, await pluginProfileReport(version, profile))
+    } catch (error) {
+      send(res, 400, { error: error instanceof Error ? error.message : String(error) })
+    }
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/launch-home/profiles') {
