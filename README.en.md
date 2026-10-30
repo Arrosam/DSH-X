@@ -1,53 +1,112 @@
 <p align="center">
+  <a href="https://github.com/yyh-001/DSH-X">
+    <img src="docs/icon-app.png" width="96" alt="DSH-X" />
+  </a>
+</p>
+
+<h1 align="center">DSH-X</h1>
+
+<p align="center">
+  A third-party desktop launcher for <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> —<br />
+  launch entries and multiple instances, version, plugin, modpack, MCP and skill management.
+</p>
+
+<p align="center">
+  <img alt="Windows" src="https://img.shields.io/badge/-Windows-0078D6?style=flat-square" />
+  <img alt="macOS" src="https://img.shields.io/badge/-macOS-000000?style=flat-square&logo=apple&logoColor=white" />
+  <img alt="Linux" src="https://img.shields.io/badge/-Linux-FCC624?style=flat-square&logo=linux&logoColor=black" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/yyh-001/DSH-X/releases">
+    <img src="https://img.shields.io/github/v/release/yyh-001/DSH-X?label=Release&color=4D6BFE" alt="Release" />
+  </a>
+  <a href="https://www.npmjs.com/package/@yyh001/dsh-x">
+    <img src="https://img.shields.io/npm/v/%40yyh001%2Fdsh-x?label=npm&color=4D6BFE" alt="npm" />
+  </a>
+  <img src="https://img.shields.io/badge/license-MIT-4D6BFE" alt="License" />
+  <br>
+  <img src="https://img.shields.io/github/downloads/yyh-001/DSH-X/total?label=downloads&color=4D6BFE" alt="Downloads" />
+  <img src="https://img.shields.io/github/stars/yyh-001/DSH-X?label=stars&color=4D6BFE" alt="Stars" />
+  <img src="https://img.shields.io/github/contributors/yyh-001/DSH-X?label=contributors&color=4D6BFE" alt="Contributors" />
+</p>
+
+<p align="center">
+  <samp><a href="https://yyh-001.github.io/DSH-X/">Website</a> · <a href="https://github.com/yyh-001/DSH-X/releases/latest">Download</a> · <a href="docs/releases">Changelog</a> · <a href="CONTRIBUTING.en.md">Contributing</a> · <strong>English</strong> · <a href="README.md">中文</a></samp>
+</p>
+
+<p align="center">
   <img src="docs/hero-en.png" alt="DSH-X" width="880" />
 </p>
 
-<p align="center">
-  <a href="https://yyh-001.github.io/DSH-X/">Website</a>
-  ·
-  <a href="https://github.com/yyh-001/DSH-X/releases/latest">Download</a>
-  ·
-  <a href="https://github.com/yyh-001/DSH-X">Star</a>
-  ·
-  <a href="README.md">中文</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/yyh-001/DSH-X/releases"><img src="https://img.shields.io/github/v/release/yyh-001/DSH-X" alt="Release" /></a>
-  <a href="https://www.npmjs.com/package/@yyh001/dsh-x"><img src="https://img.shields.io/npm/v/%40yyh001%2Fdsh-x" alt="npm" /></a>
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" />
-</p>
-
-DSH-X is a third-party desktop launcher for DeepSeek Harness: launch entries, multiple instances, versions, plugins, modpacks, MCP and skills.
-
 > [!IMPORTANT]
-> **DSH-X starts DeepSeek Harness's own web page.**  
+> **DSH-X starts DeepSeek Harness's own web page.**
 > It only handles version installation, launching and plugin management and never modifies or rewrites DSH's web UI. DSH-X is a community project, not an official DeepSeek product.
 
 ## Features
 
-- **Launch entries and multiple instances**: choose a home directory, profile, version and port per entry; start entries concurrently and add entries while DSH is running.
-- **Version management**: a dedicated manager for detecting new releases, manually installing, removing and assigning versions to launch entries.
-- **Plugins and packs**: install, toggle and update plugins by environment and configure default indexes for the official custom plugin market; browse, search and sort the masonry-style community market, or import and export packs.
-- **MCP and skills**: configure MCP servers and import, manage and toggle skills.
-- **Opening modes**: tabs inside DSH-X, a system browser tab, standalone browser window or desktop window.
-- **Appearance**: light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.
-- **Updates and recovery**: self-update, profile recovery and configurable old-version retention; each launch entry's current and previous versions are kept additionally.
-- **Desktop system switches**: hardware acceleration, preview updates, automatic download and install, task notifications and sound, hide to tray on close, and keep-awake.
-- **Windows / macOS / Linux**: a Windows installer, Apple Silicon / Intel dmgs, plus a Linux AppImage and deb (macOS 13+), with tray / menu bar operation and launch at login, plus bundled npm / pnpm wrappers.
+- 🚀 **Launch entries and multiple instances** — choose a home directory, profile, version and port per entry; start entries concurrently and add entries while DSH is running.
+- 📦 **Version management** — a dedicated manager for detecting new releases, manually installing, removing and assigning versions to launch entries.
+- 🧩 **Plugins and packs** — install, toggle and update plugins by environment and configure default indexes for the official custom plugin market; browse, search and sort the masonry-style community market, or import and export packs.
+- 🛠️ **MCP and skills** — configure MCP servers and import, manage and toggle skills.
+- 🪟 **Opening modes** — tabs inside DSH-X, a system browser tab, a standalone browser window or a desktop window.
+- 🎨 **Appearance** — light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.
+- 🔄 **Updates and recovery** — self-update, profile recovery and configurable old-version retention; each launch entry's current and previous versions are kept additionally.
+- ⚙️ **Desktop system switches** — hardware acceleration, automatic update download (install manually), task notifications and sound, hide to tray on close, and keep-awake.
+- 💻 **Windows / macOS / Linux** — installers for all three platforms, tray / menu bar operation and launch at login, plus bundled npm / pnpm wrappers.
 
-Feedback: **QQ group [993579665](https://qm.qq.com/q/7AD2g70HqS)**
+## Getting started
 
-## Modpacks
+Download the installer for your platform from [Releases](https://github.com/yyh-001/DSH-X/releases/latest):
 
-Packs install a group of plugins and configuration into a selected environment (profile). The Plugins page lists environments, identifies installed packs and lets you toggle individual plugins. Packs use the [DSH-PackForge](https://github.com/DSH-PackForge/DSH-PackForge) `.dspack` format (manifest v5, older versions accepted).
+| Platform | Requirements | Installer |
+| --- | --- | --- |
+| Windows | Windows 10 or later, x64 | `DSH-Setup-<version>.exe` (NSIS) |
+| macOS | macOS 13 or later | `DSH-X-<version>-arm64.dmg` (Apple Silicon) / `DSH-X-<version>-x64.dmg` (Intel) |
+| Linux | x64; AppImage needs FUSE | `DSH-X-<version>-x86_64.AppImage` / `DSH-X-<version>-amd64.deb` |
 
-- **Import**: the community market, a local file, a direct link or GitHub `owner/repo`. The selected environment is the default target; change it before confirming if needed.
-- **Install**: review plugins and file changes before confirming; overwritten files are backed up and failed installs roll back.
-- **Export**: package the current environment's dependencies, patch layer and configuration as a `.dspack`, without `node_modules` or credentials.
+### Windows
 
-The [recommended pack recipe](packs/dsh-x-recommended/manifest.json) includes configuration, memory, sync and Big Fish decoration plugins, all installed from npm. Sync is provided by the optional `dsh-x-sync` plugin. Run `node scripts/make-pack.mjs` to build a `.dspack`, then import it as a local file.
+Download `DSH-Setup-<version>.exe`, install it and open **DSH-X** from the desktop. The installer has no Authenticode signature, so SmartScreen may show an "unknown publisher" prompt — see [Signing and antivirus false positives](#signing-and-antivirus-false-positives).
+
+### macOS
+
+Open the dmg and drag **DSH-X** into Applications. The package is ad-hoc signed and not notarized, so the first launch may require manual approval through macOS security prompts; if macOS says the app is damaged or cannot verify the developer, right-click Open, or run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/DSH-X.app
+```
+
+Shell auto-update is currently unavailable, while core updates still come from npm.
+
+### Linux
+
+Download `DSH-X-<version>-x86_64.AppImage`, `chmod +x` it and run it. If FUSE is unavailable, use `./DSH-X-<version>-x86_64.AppImage --appimage-extract-and-run`.
+
+On Debian / Ubuntu you can also install the deb: it lands in `/opt/DSH-X`, adds a menu entry and uninstalls with `apt remove dsh-x`, but **the deb build has no shell auto-update** — grab the new installer from the releases page:
+
+```sh
+sudo apt install ./DSH-X-<version>-amd64.deb
+```
+
+Settings live in `~/.config/DSH` and the core cache in `~/.cache/dsh-x`; core updates use npm for both packages.
+
+### Verifying a download
+
+The releases page lists a sha256 next to every file — compare it locally:
+
+```sh
+certutil -hashfile DSH-Setup-<version>.exe SHA256        # Windows
+shasum -a 256 DSH-X-<version>-arm64.dmg                  # macOS
+sha256sum DSH-X-<version>-x86_64.AppImage                # Linux
+```
+
+## Usage
+
+- Add or edit a launch entry on the home page, select its environment and version, then start it. Open **Version management** from the launch-entry editor to manually install or remove versions.
+- Settings → General → **How dsh opens** offers internal tabs, a browser or a separate window. Internal tabs require the installed desktop app.
+- The manager defaults to port `3780` and tries the next port if occupied.
+- To reach dsh from another device: Settings → Advanced → **Web binding** → LAN, applied on the next start.
 
 ## Screenshots
 
@@ -58,7 +117,7 @@ The [recommended pack recipe](packs/dsh-x-recommended/manifest.json) includes co
 </p>
 
 <details>
-<summary>Dark theme: management pages (expand to view)</summary>
+<summary>Management pages · Dark theme (expand to view)</summary>
 
 **Environments**
 
@@ -87,7 +146,7 @@ The [recommended pack recipe](packs/dsh-x-recommended/manifest.json) includes co
 </details>
 
 <details>
-<summary>Light theme: home and management pages (expand to view)</summary>
+<summary>Management pages · Light theme (expand to view)</summary>
 
 **Launcher home**
 
@@ -127,6 +186,21 @@ The [recommended pack recipe](packs/dsh-x-recommended/manifest.json) includes co
   <img src="docs/screenshot-tabs.png" alt="DSH-X v0.1.16 with multiple tabs" width="820" />
 </p>
 
+## Modpacks
+
+Packs install a group of plugins and configuration into a selected environment (profile). The Plugins page lists environments, identifies installed packs and lets you toggle individual plugins. Packs use the [DSH-PackForge](https://github.com/DSH-PackForge/DSH-PackForge) `.dspack` format (manifest v5, older versions accepted).
+
+- **Import** — the community market, a local file, a direct link or GitHub `owner/repo`. The selected environment is the default target; change it before confirming if needed.
+- **Install** — review plugins and file changes before confirming; overwritten files are backed up and failed installs roll back.
+- **Export** — package the current environment's dependencies, patch layer and configuration as a `.dspack`, without `node_modules` or credentials.
+
+There are two pack recipes:
+
+- [Recommended pack](packs/dsh-x-recommended/manifest.json) — configuration, memory, sync and Big Fish decoration plugins, all installed from npm (sync via the optional `dsh-x-sync` plugin).
+- [Desktop workbench](packs/dsh-x-workbench/README.md) — brings dsh-tauri desktop's sidebar workbench, worktrees, scheduler, archive and notifications to plain dsh, plus ZCode's `agent-browser` and `electron` skills.
+
+Run `node scripts/make-pack.mjs` to build a `.dspack`, then import it as a local file.
+
 ## Wallpaper
 
 A companion Wallpaper Engine wallpaper — [DSH-X · 大肥鱼桌面终端](https://steamcommunity.com/sharedfiles/filedetails/?id=3814706575): a DSH-X brand intro, the mascot, local time and an audio spectrum, switching between light and dark palettes by time of day. Sources live in [`wallpaper/`](wallpaper/); run `node scripts/export-wallpaper.mjs` to export the Wallpaper Engine project.
@@ -139,25 +213,21 @@ A companion Wallpaper Engine wallpaper — [DSH-X · 大肥鱼桌面终端](http
 
 The release-manifest signature verifies file integrity and is separate from Windows publisher signing. `DSH-Setup-<version>.exe` and the legacy `DSH-Setup.exe` bridge for the 0.1.18 updater currently have no Authenticode signature, so SmartScreen may show an "unknown publisher" prompt. Report antivirus false positives by submitting the installer to [Microsoft](https://www.microsoft.com/en-us/wdsi/filesubmission) or the relevant antivirus vendor.
 
-## Usage
+## Notes
 
-Windows: download `DSH-Setup-<version>.exe` from the [releases page](https://github.com/yyh-001/DSH-X/releases/latest) and install it, then open **DSH-X** from the desktop.
+> [!WARNING]
+> **Upstream is moving fast** — the dsh core and its plugin ecosystem change frequently and may include breaking changes; confirm plugin compatibility before upgrading.
 
-macOS: open `DSH-X-<version>-arm64.dmg` (Apple Silicon) or `DSH-X-<version>-x64.dmg` (Intel) and drag **DSH-X** into Applications. The package is ad-hoc signed and not notarized, so the first launch may require manual approval through macOS security prompts; if macOS says the app is damaged or cannot verify the developer, right-click Open, or run `xattr -dr com.apple.quarantine /Applications/DSH-X.app`. Shell auto-update is currently unavailable, while core updates still come from npm.
-
-Linux: download `DSH-X-<version>-x86_64.AppImage`, `chmod +x` it and run it. If FUSE is unavailable, use `./DSH-X-<version>-x86_64.AppImage --appimage-extract-and-run`. On Debian / Ubuntu you can also install `DSH-X-<version>-amd64.deb` with `sudo apt install ./DSH-X-<version>-amd64.deb`: it lands in `/opt/DSH-X`, adds a menu entry and uninstalls with `apt remove dsh-x`, but **the deb build has no shell auto-update** — grab the new installer from the releases page. Settings live in `~/.config/DSH` and the core cache in `~/.cache/dsh-x`; core updates use npm for both packages.
-
-Add or edit a launch entry on the home page, select its environment and version, then start it. Open **Version management** from the launch-entry editor to manually install or remove versions. Settings → General → **How dsh opens** offers internal tabs, a browser or a separate window. Internal tabs require the installed desktop app.
-
-The manager defaults to port `3780` and tries the next port if occupied. To reach dsh from another device: Settings → Advanced → **Web binding** → LAN, applied on the next start.
-
-Verifying a download (optional): the releases page lists a sha256 next to every file — compare it locally with `certutil -hashfile DSH-Setup-<version>.exe SHA256` (Windows), `shasum -a 256 DSH-X-<version>-arm64.dmg` (macOS) or `sha256sum DSH-X-<version>-x86_64.AppImage` (Linux).
+> [!NOTE]
+> **Security** — dsh can execute local code, and DSH-X only installs and launches it. Use it in trusted environments only.
 
 ## Development
 
 Needs Node.js 22.18+ locally. The launcher itself has no third-party dependencies: `npm start` runs the manager, `npm run server` the server only, and `npm test` the tests. The shell is Electron, so run `npm install` first for `npm run electron` or an installer build.
 
-## Packaging
+Development, commit and release conventions: [CONTRIBUTING.en.md](CONTRIBUTING.en.md).
+
+### Packaging
 
 ```sh
 npm install
@@ -179,9 +249,16 @@ The release-manifest private key lives in `release/release-key.pem` (git-ignored
 
 ## Contributing
 
-- Development, commit and release conventions: [CONTRIBUTING.en.md](CONTRIBUTING.en.md). Security issues: [SECURITY.md](SECURITY.md) — not a public issue.
+- Security issues: [SECURITY.md](SECURITY.md) — not a public issue.
 - What changed in each version: [docs/releases](docs/releases).
+- Feedback: **QQ group [993579665](https://qm.qq.com/q/7AD2g70HqS)**.
+
+## Related projects
+
+- [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) — the upstream dsh agent platform
+- [DSH-PackForge](https://github.com/DSH-PackForge/DSH-PackForge) — `.dspack` format and pack tooling
+- [deepseek-harness-desktop](https://github.com/dsh-tauri/deepseek-harness-desktop) — a Tauri desktop build in the same ecosystem; this repository's pack recipes reference its plugin set
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 yyh
