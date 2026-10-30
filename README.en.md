@@ -243,7 +243,8 @@ The release-manifest private key lives in `release/release-key.pem` (git-ignored
 
 - Security issues: [SECURITY.md](SECURITY.md) — not a public issue.
 - What changed in each version: [docs/releases](docs/releases).
-- Feedback: **QQ group [993579665](https://qm.qq.com/q/7AD2g70HqS)**.
+- Feedback: **QQ group [993579665](https://qm.qq.com/q/7AD2g70HqS)**
+- Plugins group 2 (DeepSeek Harness): [join here](https://qm.qq.com/q/hCjdOJOjSw)
 
 ## Related projects
 

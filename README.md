@@ -243,7 +243,8 @@ GitHub Actions 的 `build` 工作流构建 Windows / macOS / Linux 三个平台�
 
 - 安全问题见 [SECURITY.md](SECURITY.md)，别开公开 issue。
 - 每个版本改了什么，见 [docs/releases](docs/releases)。
-- 交流 / 反馈：**QQ 群 [993579665](https://qm.qq.com/q/7AD2g70HqS)**（[点击加入](https://qm.qq.com/q/7AD2g70HqS)）。
+- 交流 / 反馈：**QQ 群 [993579665](https://qm.qq.com/q/7AD2g70HqS)**（[点击加入](https://qm.qq.com/q/7AD2g70HqS)）
+- 插件 2 群（DeepSeek Harness）：[点击链接加入群聊](https://qm.qq.com/q/hCjdOJOjSw)
 
 ## 相关项目
 
