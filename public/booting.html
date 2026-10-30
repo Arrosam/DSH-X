@@ -85,24 +85,50 @@
   .meta { margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   .bar { position: relative; height: 4px; border-radius: 999px; background: var(--track); overflow: hidden; }
   .bar > span { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; background: var(--accent); transition: width .35s ease; }
-  .bar.indeterminate > span { width: 40%; animation: slide 1.25s ease-in-out infinite; }
-  @keyframes slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
+  /* 不确定进度：一小段带渐隐尾巴的亮条扫过去。一整块方块匀速平移像「卡住的进度条」，
+     有尾巴、有快慢变化才像还在干活（也诚实地表示这段没有真实百分比）。 */
+  .bar.indeterminate > span {
+    width: 46%;
+    background: linear-gradient(90deg, transparent, var(--accent) 52%, var(--accent));
+    animation: slide 1.7s cubic-bezier(.45, .05, .55, .95) infinite;
+  }
+  @keyframes slide { 0% { transform: translateX(-105%); } 100% { transform: translateX(225%); } }
   .phase { margin: 0; min-height: 20px; font-size: 13px; font-variant-numeric: tabular-nums; }
   .hint { margin: 0; font-size: 12px; color: var(--muted); }
   /* 阶段点：服务端只给粗粒度阶段，这里把「启动进程 → 加载插件 → 校验依赖 → 打开页面」
      画成一条能看见在走的线，比一根假进度条诚实。 */
-  .steps { display: flex; align-items: center; gap: 0; margin: 2px 0 0; padding: 0; list-style: none; }
-  .steps li { position: relative; flex: 1; padding-top: 16px; font-size: 11.5px; color: var(--muted); text-align: center; }
+  .steps { position: relative; display: flex; align-items: center; gap: 0; margin: 2px 0 0; padding: 0; list-style: none; }
+  .steps li { position: relative; flex: 1; padding-top: 16px; font-size: 11.5px; color: var(--muted); text-align: center; transition: color .3s ease; }
   .steps li::before {
     content: ""; position: absolute; top: 4px; left: 50%; width: 8px; height: 8px; margin-left: -4px;
     border-radius: 50%; background: var(--track); transition: background .25s ease, box-shadow .25s ease;
   }
-  .steps li + li::after { content: ""; position: absolute; top: 7px; right: 50%; width: 100%; height: 2px; background: var(--track); }
+  /* 连接线从左边长过去：done 的那段用 background-size 过渡，比整段突然变色顺 */
+  .steps li + li::after {
+    content: ""; position: absolute; top: 7px; right: 50%; width: 100%; height: 2px; border-radius: 1px;
+    background: linear-gradient(var(--accent), var(--accent)) left center / 0% 100% no-repeat, var(--track);
+    transition: background-size .4s cubic-bezier(.2, .8, .2, 1);
+  }
+  .steps li[data-state="done"] + li::after { background-size: 100% 100%, auto; }
   .steps li[data-state="done"] { color: var(--text); }
-  .steps li[data-state="done"]::before { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .steps li[data-state="done"]::before { background: var(--accent); }
   .steps li[data-state="next"] { color: var(--text); }
   .steps li[data-state="next"]::before { background: var(--muted); }
-  .steps li[data-state="done"] + li::after { background: var(--accent); }
+  /* 走到哪一格：一颗同色的光标停在当前那一步上，换阶段时是「滑过去」而不是原地跳到下一格。
+     呼吸只改光晕（不碰 transform，免得和滑动的 transition 打架），两端都回到原值、不过冲。 */
+  .step-cursor {
+    position: absolute; top: 4px; width: 8px; height: 8px; margin-left: -4px;
+    border-radius: 50%; background: var(--accent);
+    left: calc((var(--step-index, 0) + .5) * 25%);  /* 4 步等宽，圆心落在每格中间 */
+    transition: left .38s cubic-bezier(.2, .8, .2, 1), opacity .22s ease;
+    animation: cursor-pulse 1.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+  .steps[data-index="-1"] .step-cursor { opacity: 0; animation: none; }
+  @keyframes cursor-pulse {
+    0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); }
+    50% { box-shadow: 0 0 0 6px var(--accent-soft); }
+  }
   .steps[hidden] { display: none; }
   .actions { display: flex; gap: 9px; flex-wrap: wrap; }
   .actions[hidden], .hint[hidden] { display: none; }
@@ -118,9 +144,18 @@
   .error[hidden] { display: none; }
   .error-title { margin: 0; font-size: 14.5px; font-weight: 650; color: var(--danger); }
   .error-text { margin: 0; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; }
+  /* 进场和出现都轻一点：卡片抬 10px 淡入，报错/按钮只淡入 */
+  @media (prefers-reduced-motion: no-preference) {
+    .card { animation: card-in .32s cubic-bezier(.2, .8, .2, 1) both; }
+    .error:not([hidden]), .actions:not([hidden]) { animation: fade-in .22s ease-out both; }
+  }
+  @keyframes card-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) {
     .spinner { animation: none; }
     .bar.indeterminate > span { animation: none; width: 100%; }
+    .step-cursor { animation: none; transition: none; }
+    .steps li + li::after { transition: none; }
   }
 </style>
 </head>
@@ -135,6 +170,7 @@
     <div class="bar indeterminate" id="bar" aria-hidden="true"><span id="barFill"></span></div>
     <p class="phase" id="phase"></p>
     <ol class="steps" id="steps">
+      <span class="step-cursor" aria-hidden="true"></span>
       <li data-step="launching"></li>
       <li data-step="loading"></li>
       <li data-step="verifying"></li>
@@ -283,11 +319,23 @@
   function paintSteps(current) {
     const index = STEPS.indexOf(current)
     els.steps.hidden = false
-    for (const item of els.steps.children) {
+    // 光标滑到第几格（CSS 里 translateX 用这个数算位置；-1 = 还没到第一步，先藏起来）
+    els.steps.dataset.index = String(index)
+    els.steps.style.setProperty('--step-index', String(Math.max(0, index)))
+    for (const item of els.steps.querySelectorAll('li')) {
       const at = STEPS.indexOf(item.dataset.step)
       // 当前这一步已经点亮（它代表「正在做」），下一格只是提示「还差它」。
       item.dataset.state = index < 0 ? '' : at <= index ? 'done' : at === index + 1 ? 'next' : ''
     }
+  }
+
+  /** 阶段文案：换字的时候淡入一下，别硬切（同一句不重复播）。 */
+  function setPhase(text) {
+    if (els.phase.textContent === text) return
+    els.phase.textContent = text
+    if (document.documentElement.dataset.reduceMotion === 'true') return
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    els.phase.animate?.([{ opacity: 0, transform: 'translateY(2px)' }, { opacity: 1, transform: 'none' }], { duration: 180, easing: 'ease-out' })
   }
 
   function setBar(current) {
@@ -345,7 +393,7 @@
       paintSteps(phase)
       els.hint.hidden = false
       els.hint.textContent = t('hintOpen')
-      els.phase.textContent = `${t(PHASE_TEXT[phase] || 'phLaunching')}`
+      setPhase(`${t(PHASE_TEXT[phase] || 'phLaunching')}`)
       els.meta.textContent = [profile, elapsedText(live.startedAt)].filter(Boolean).join(' · ')
       return
     }
@@ -362,7 +410,7 @@
           : t('phDownloadPct', { pct: Number(progress.done) || 0 })
       } else if (progress.phase === 'optimize') text = t('phOptimize')
       else if (progress.phase === 'unpack') text = t('phUnpack', { done: progress.done || 0, total: progress.total || 0 })
-      els.phase.textContent = text
+      setPhase(text)
       els.meta.textContent = [profile, version].filter(Boolean).join(' · ')
       els.hint.hidden = false
       els.hint.textContent = t('hintSlow')
@@ -371,7 +419,7 @@
     // 页面比启动请求先打开：这段时间什么都不用报，只说在准备。
     setBar(null)
     paintSteps('launching')
-    els.phase.textContent = t('preparing')
+    setPhase(t('preparing'))
     els.hint.hidden = false
     els.hint.textContent = t('hintOpen')
     const failure = findFailure()
@@ -392,7 +440,7 @@
     const meta = row ? [profile, elapsedText(row.startedAt)].filter(Boolean).join(' · ')
       : [profile, elapsedText(pageStart)].filter(Boolean).join(' · ')
     if (els.meta.textContent !== meta) els.meta.textContent = meta
-    if (!row && !snapshot?.progress && els.phase.textContent !== t('preparing')) els.phase.textContent = t('preparing')
+    if (!row && !snapshot?.progress) setPhase(t('preparing'))
   }, 250)
 
   async function poll() {

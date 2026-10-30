@@ -9,6 +9,8 @@ import { join } from 'node:path'
 import test from 'node:test'
 import {
   isExternalWebUrl,
+  isBootingUrl,
+  followAction,
   isLoopbackUrl,
   launchActionEnabled,
   launchActionRequest,
@@ -21,6 +23,7 @@ import {
   sameOrigin,
   internalMode,
   windowMode,
+  surfaceInk,
 } from '../shell/model.mjs'
 import { runtimeNode, runtimeNodeEnv } from '../platform.js'
 import { resolveDark, stoppedPage } from '../shell/pages.mjs'
@@ -51,6 +54,37 @@ test('本机地址判定：只认回环，userinfo 里的主机名骗不过去',
   assert.ok(sameOrigin('http://127.0.0.1:1/a?b', 'HTTP://127.0.0.1:1/'))
   assert.ok(!sameOrigin('http://127.0.0.1:1/', 'http://127.0.0.1:2/'))
   assert.ok(!sameOrigin('about:blank', 'about:blank'))
+})
+
+test('认出启动进度页：只有 /booting 才算，别的路径与坏地址都不算', () => {
+  assert.ok(isBootingUrl('http://127.0.0.1:3780/booting?version=1.2.3&profile=web'))
+  assert.ok(isBootingUrl('http://127.0.0.1:3780/booting/'))
+  assert.ok(!isBootingUrl('http://127.0.0.1:3780/'))
+  assert.ok(!isBootingUrl('http://127.0.0.1:59536/?token=abc'))
+  assert.ok(!isBootingUrl('http://127.0.0.1:3780/booting-x'))
+  assert.ok(!isBootingUrl(''))
+  assert.ok(!isBootingUrl('not a url'))
+  assert.ok(!isBootingUrl('data:text/html,hi'))
+})
+
+test('进度页在实例还没就绪时不被外壳换成停止页（#booting 活不过一轮轮询的原因）', () => {
+  const booting = { booting: true, loaded: 'http://127.0.0.1:3780/booting?version=1.2.3&profile=web' }
+  const normal = { booting: false, loaded: '' }
+  // 还在起、地址没打印出来：让进度页自己走，别换成停止页
+  assert.equal(followAction(booting, { status: 'starting', url: null }, ''), 'leave')
+  assert.equal(followAction(booting, { status: 'starting', url: '' }, ''), 'leave')
+  // 实例压根还没进列表（首次启动要先装依赖）：同样不动它
+  assert.equal(followAction(booting, undefined, ''), 'leave')
+  // 已经就绪：进度页自己跳进同源地址了，认下地址、不再 loadURL
+  assert.equal(followAction(booting, { status: 'running', url: 'http://127.0.0.1:59536/?token=t' }, 'http://127.0.0.1:59536/'), 'adopt')
+  // 就绪了但页面还没跳（还停在 /booting）：正常按地址 load
+  assert.equal(followAction(booting, { status: 'running', url: 'http://127.0.0.1:59536/?token=t' }, 'http://127.0.0.1:3780/booting'), 'load')
+  // 普通标签不受影响：实例在起（地址为空）照旧换成停止页，这是实例真停了的既有语义
+  assert.equal(followAction(normal, { status: 'starting', url: '' }, ''), 'load')
+  // 地址没变就不动（重启间隙不反复刷新）
+  assert.equal(followAction({ booting: false, loaded: 'http://127.0.0.1:1/?token=t' }, { status: 'running', url: 'http://127.0.0.1:1/?token=t' }, ''), 'leave')
+  // 换了端口要跟着换
+  assert.equal(followAction({ booting: false, loaded: 'http://127.0.0.1:1/?token=t' }, { status: 'running', url: 'http://127.0.0.1:2/?token=t' }, 'http://127.0.0.1:1/'), 'load')
 })
 
 test('标签目标保留认证地址，拒收外部地址', () => {
@@ -154,4 +188,14 @@ test('RUNTIME_NODE_ENV：只有落到 Electron 本体时才补 ELECTRON_RUN_AS_N
   // 旧安装包的 node.exe、或根本不在 Electron 里：什么都不用设
   assert.deepEqual(runtimeNodeEnv('/app/node/node.exe', '/app/DSH.exe', true), {})
   assert.deepEqual(runtimeNodeEnv('/app/DSH.exe', '/app/DSH.exe', false), {})
+})
+
+test('标签字色跟着采到的底色走：亮底深字、暗底浅字', () => {
+  // 暗色主题下 iframe 里的 dsh 页面可以是浅色的，标签底色跟着页面变白时，主题里的浅色字就不够用了
+  assert.equal(surfaceInk('rgb(255, 255, 255)'), '#1b2434')
+  assert.equal(surfaceInk('rgba(248, 251, 255, 0.7)'), '#1b2434')
+  assert.equal(surfaceInk('rgb(24, 24, 27)'), '#f2f4f8')
+  assert.equal(surfaceInk('rgb(39, 39, 43)'), '#f2f4f8')
+  assert.equal(surfaceInk(''), '', '采不到就不给字色，退回主题色')
+  assert.equal(surfaceInk('transparent'), '')
 })

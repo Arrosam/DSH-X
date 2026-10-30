@@ -40,9 +40,9 @@
       })
     })()
   </script>
-  <link rel="stylesheet" href="/launcher.css?v=market-detail-footer-20261007" />
+  <link rel="stylesheet" href="/launcher.css?v=chrome-tabs-20261028" />
   <link rel="stylesheet" href="/mascot.css" />
-  <link rel="stylesheet" href="/theme.css?v=profile-ui-20261002" />
+  <link rel="stylesheet" href="/theme.css?v=chrome-tabs-20261028" />
   <link rel="stylesheet" href="/launcher-boot.css?v=20261007e" />
 </head>
 <body>
@@ -289,7 +289,7 @@
                     <span class="set-desc" data-i18n="默认 Awesome DSH Plugin，点右侧铅笔可编辑。">默认 Awesome DSH Plugin，点右侧铅笔可编辑。</span>
                   </div>
                   <div class="set-control">
-                    <button class="ghost icon-btn" id="pluginMarketSourcesEdit" type="button" title="编辑默认插件源" aria-label="编辑默认插件源" data-i18n-title="编辑默认插件源" data-i18n-aria-label="编辑默认插件源"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg></button>
+                    <button class="ghost icon-btn" id="pluginMarketSourcesEdit" type="button" title="编辑默认插件源" aria-label="编辑默认插件源" data-i18n-title="编辑默认插件源" data-i18n-aria-label="编辑默认插件源"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 4 4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15l-1 6Z"/></svg></button>
                   </div>
                 </div>
 
@@ -5387,6 +5387,9 @@
       if (data.progress) installProgress = data.progress
       if (!data.installing) installProgress = data.progress || null
       if ('pluginProgress' in data) pluginProgress = data.pluginProgress || null
+      // 外观（主题、透明度、减少动效、背景）：设置页可能开在另一个标签页里，
+      // 改完只有那一页自己变了；这里跟着状态推送同步，管窗口的这一页不用刷新。
+      if (data.appearance && typeof data.appearance === 'object') fillSettings(data.appearance)
       paintLaunchProfiles()
       // 新建面板开着时目录/Profile 可能在别处变了（比如刚在「管理目录」里加了目录），补一次候选
       if (!launchDialogEl.hidden) paintLaunchIsolation()

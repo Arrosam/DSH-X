@@ -46,10 +46,45 @@ function originOf(url) {
   return match ? `${match[1].toLowerCase()}://${match[2].toLowerCase()}` : null
 }
 
+/**
+ * 这是不是启动进度页（/booting）。那张页自己轮询实例状态、就绪后 location.replace 跳进去，
+ * 所以它还在标签里的时候，外壳不能按实例列表去重画这个标签。
+ */
+export function isBootingUrl(url) {
+  try {
+    const { pathname } = new URL(String(url))
+    return pathname === '/booting' || pathname === '/booting/'
+  } catch {
+    return false
+  }
+}
+
 /** 两个地址的 scheme://authority 是否相同——认出「这个链接就是 dsh 自己」。 */
 export function sameOrigin(a, b) {
   const left = originOf(a)
   return left !== null && left === originOf(b)
+}
+
+/**
+ * 标签条这一轮要不要动这个标签页（BrowserTabs.follow 的决策，抽出来单独测）。
+ *
+ * 只有一种情况放着不管：标签上开着启动进度页（/booting），而实例还在起、地址还没打印出来
+ * （url 为空）。那张页自己轮询 /api/state、就绪后 location.replace 跳进去；外壳要是按
+ * 「url 为空 = 实例停了」把它换成停止页，进度页就活不过一轮 1.5 秒的轮询。
+ *
+ * @param {{ booting: boolean, loaded: string }} tab 标签当前状态
+ * @param {{ url: string }} next 实例列表里对应的那一项（没有就是 null）
+ * @returns {'leave' | 'adopt' | 'load'}
+ *   leave — 什么都不做，让进度页自己走；
+ *   adopt — 页面已经自己跳到这台实例了，只把 loaded 记下来，不再 loadURL；
+ *   load  — 按 follow 的老规矩重画（换地址 / 换停止页）。
+ */
+export function followAction(tab, next, currentUrl = '') {
+  const url = next && (next.status === 'running' || next.status === 'starting') ? next.url : ''
+  if (!url) return tab.booting ? 'leave' : 'load'
+  // 进度页自己跳进这台实例了（同源）：认下地址。实例地址带 token、页面 303 之后不带，不能逐字比。
+  if (tab.booting && sameOrigin(url, currentUrl)) return 'adopt'
+  return tab.loaded === url ? 'leave' : 'load'
 }
 
 /** 标签页的目标（一个 dsh 实例）。外部地址一律拒收：认证地址只能指向本机。 */
@@ -213,4 +248,16 @@ export function launchLabel(entry, en) {
 export function launchActionRequest(entry, action) {
   if (!launchActionEnabled(entry, action)) return null
   return { id: entry.id, instanceId: entry.instanceId, action, targetId: entry.target?.id || '' }
+}
+
+/**
+ * 采样到的底色对应的标签字色：按相对亮度取深/浅两档，和主题无关。
+ * 亮底（比如浅色主题的 dsh 页面）用深字，暗底用浅字 —— 否则暗色主题下遇到白标签，字就糊了。
+ */
+export function surfaceInk(surface) {
+  const match = /rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)/i.exec(String(surface || ''))
+  if (!match) return ''
+  const linear = (value) => { const v = Number(value) / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }
+  const luminance = 0.2126 * linear(match[1]) + 0.7152 * linear(match[2]) + 0.0722 * linear(match[3])
+  return luminance > 0.45 ? '#1b2434' : '#f2f4f8'
 }

@@ -1,6 +1,6 @@
 import { nativeTheme } from 'electron'
 import { dataUrl, resolveDark, stoppedPage } from './pages.mjs'
-import { reorderBy, sameOrigin } from './model.mjs'
+import { reorderBy, sameOrigin, isBootingUrl, followAction, surfaceInk } from './model.mjs'
 
 /**
  * 「DSH-X 内部标签页」：每个 dsh 实例一块独立的 WebContentsView，叠在管理页（窗口自己的 webContents）
@@ -53,12 +53,16 @@ export class BrowserTabs {
 
   preferences(enabled, lang, theme) {
     const langChanged = this.lang !== lang
+    const themeChanged = this.theme !== theme
     this.enabled = enabled
     this.lang = lang
     this.theme = theme
     // 状态轮询每次都会走到这里；只有配色或语言真的变了才重画停止页，免得反复重载
     this.syncPlaceholder(langChanged)
     this.layout()
+    // 标签底色是下面那块页面的颜色：启动器换主题时重采一次（页面自己换配色只能等下次选中，
+    // 不做定时轮询 —— 每几秒叫醒一次渲染进程，页面就没法进深度节流了）。
+    if (themeChanged) this.resampleSelected()
     this.render(false)
   }
 
@@ -111,6 +115,61 @@ export class BrowserTabs {
     this.retired = []
     if (shown) tab?.view.webContents.focus()
     else this.manager.focus()
+    // 页面刚显示出来才画得准：采一次它的底色，给选中的标签用（标签要和下面那块页面同色才连得起来）。
+    if (tab) this.sampleSurface(tab)
+  }
+
+  /**
+   * 采一次页面顶部的底色，交给管理页画选中的标签。
+   * 取的是**这张标签正下方**那一点（不是页面左上角）：两栏布局的页面（左导航 + 右内容）
+   * 左上角是导航，标签压在内容上，取左上角会差出几个色阶、接缝看得出来。
+   * 页面能画的层不一定是 body，所以从那个点沿父链找第一个不透明的背景色；
+   * 拿不到（页面没就绪、纯透明、被关掉）就留空串，管理页那边退回自己的主题色。
+   */
+  async sampleSurface(tab) {
+    const contents = tab.view.webContents
+    if (!contents || contents.isDestroyed()) return
+    try {
+      // 标签的中心 x 在管理页的 DOM 里：视图和管理页同宽同原点，这个 x 直接就是页面里的 x。
+      const centerX = await this.manager
+        .executeJavaScript(`window.launcherTabCenterX?.(${JSON.stringify(tab.target.id)}) ?? 0`, true)
+        .catch(() => 0)
+      const x = Math.max(4, Math.round(Number(centerX) || 8))
+      const color = await contents.executeJavaScript(
+        `(() => {
+          const opaque = (value) => !!value && value !== 'transparent' && !/rgba\\([^)]*,\\s*0(\\.0+)?\\s*\\)$/.test(value)
+          for (let el = document.elementFromPoint(${x}, 8); el; el = el.parentElement) {
+            const value = getComputedStyle(el).backgroundColor
+            if (opaque(value)) return value
+          }
+          const body = getComputedStyle(document.body).backgroundColor
+          return opaque(body) ? body : ''
+        })()`,
+        true,
+      )
+      const surface = typeof color === 'string' ? color.trim().slice(0, 40) : ''
+      // 标签上的字也跟着底色走：底色亮用深字、暗用浅字（按亮度取，不看主题 —— 底色是下面那块页面给的）。
+      const ink = surfaceInk(surface)
+      if (surface === tab.surface && ink === tab.ink) return
+      tab.ink = ink
+      tab.surface = surface
+      // 只有选中的那个标签要这个颜色；不是当前标签就等它被选中时再重画。
+      if (tab.target.id === this.selected) this.render(false)
+    } catch { /* 页面还没准备好：下次 present 再采 */ }
+  }
+
+  /** 重采当前选中标签的底色（页面配色变了、或者主题切了）。 */
+  resampleSelected() {
+    const tab = this.tabs.find((item) => item.target.id === this.selected)
+    if (tab) void this.sampleSurface(tab)
+  }
+
+  /** 页面加载完再采一次（present 那次可能采到加载屏的颜色）；只关心正选中的那张。 */
+  resample(id) {
+    const tab = this.tabs.find((item) => item.target.id === id)
+    if (!tab || tab.target.id !== this.selected) return
+    // 首屏画出来再采：did-stop-loading 之后应用还会补一帧布局/主题。
+    setTimeout(() => { if (this.tabs.includes(tab) && tab.target.id === this.selected) void this.sampleSurface(tab) }, 300)
   }
 
   open(target) {
@@ -120,9 +179,11 @@ export class BrowserTabs {
       view.setVisible(false)
       view.setBounds(this.tabBounds())
       this.window.contentView.addChildView(view)
-      tab = { target, view, loaded: '', pageTitle: '', visible: false }
+      tab = { target, view, loaded: '', pageTitle: '', visible: false, surface: '', ink: '', booting: false }
       this.tabs.push(tab)
     }
+    // 这个标签是来等启动的：进度页要一直留着，直到实例起来（见 follow）。
+    tab.booting = isBootingUrl(target.url)
     if (tab.loaded !== target.url) {
       this.load(tab, target.url)
       tab.loaded = target.url
@@ -135,6 +196,8 @@ export class BrowserTabs {
 
   /** 导航失败（ERR_ABORTED 之类）由页面自己显示，这里只防未处理的 Promise。 */
   load(tab, url) {
+    // 换了页面，之前采到的底色作废：等它显示出来再采一次。
+    tab.surface = ''
     tab.view.webContents.loadURL(url).catch(() => {})
   }
 
@@ -204,12 +267,25 @@ export class BrowserTabs {
     for (const tab of this.tabs) {
       if (!tab.target.managed) continue
       const next = instances.find((item) => item.id === tab.target.id)
+      const action = followAction(tab, next, tab.view.webContents.getURL())
+      if (action === 'leave') {
+        if (next) tab.target = next
+        continue
+      }
+      if (action === 'adopt') {
+        // 进度页自己跳进去了：认下这个地址，不再 loadURL 一遍。
+        tab.loaded = next.url
+        tab.booting = false
+        tab.target = next
+        continue
+      }
       const url = next && (next.status === 'running' || next.status === 'starting') ? next.url : ''
       if (tab.loaded !== url) {
         // 不在占用的旧端口上反复刷新，以免重启间隙误加载到另一个实例。
         this.load(tab, url || dataUrl(stoppedPage(this.lang, this.dark)))
         tab.loaded = url
         tab.pageTitle = ''
+        tab.booting = false
       }
       if (next) tab.target = next
       else tab.target = { ...tab.target, status: 'stopped' }
@@ -258,6 +334,10 @@ export class BrowserTabs {
       request: this.selectionRequest,
       orderRequest: this.orderRequest,
       enabled: this.active,
+      // 选中那块页面顶部的底色：管理页拿它画选中的标签，标签才和下面的页面连成一片。
+      surface: this.tabs.find((tab) => tab.target.id === this.selected)?.surface || '',
+      // ink 是配套的标签字色（底色亮就给深字）
+      ink: this.tabs.find((tab) => tab.target.id === this.selected)?.ink || '',
       tabs: this.tabs.map((tab) => ({ id: tab.target.id, title: tab.target.title, pageTitle: tab.pageTitle, stopped: !tab.loaded })),
     })
     if (!force && value === this.rendered) return

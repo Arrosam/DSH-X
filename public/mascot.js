@@ -94,7 +94,7 @@
     && !document.documentElement.classList.contains('reduce-motion')
     && !document.documentElement.classList.contains('big-fish-hidden')
     && !document.documentElement.classList.contains('launcher-idle')
-    && !document.body.classList.contains('subpage-open');
+    && !document.body.classList.contains('subpage-open') && !document.documentElement.classList.contains('internal-dsh-active');
   const refreshRect = () => { rect = host.getBoundingClientRect(); };
   new ResizeObserver(refreshRect).observe(host);
   window.addEventListener('resize', refreshRect);

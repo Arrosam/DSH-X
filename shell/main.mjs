@@ -371,6 +371,9 @@ function createTabView(id) {
     shell.openExternal(url)
   })
   contents.on('page-title-updated', (_event, title) => tabs.title(id, title))
+  // 页面画完再采一次底色：present 那次可能还停在加载屏上（采到的是加载页的颜色），
+  // 采完选中的标签才和它下面那块页面同色。
+  contents.on('did-stop-loading', () => tabs.resample(id))
   contents.on('before-input-event', (event, input) => {
     const action = shortcutAction(input, true)
     if (action) {
@@ -601,11 +604,15 @@ function syncTrayMenu() {
   ]))
 }
 
-/** 每隔一会儿问一次状态：托盘文案、标签页、独立窗口都跟着它走。 */
+/** 每隔一会儿取一次状态：托盘文案、标签页、独立窗口都跟着它走。 */
 async function pollTray() {
   try {
-    const res = await fetch(`${managerUrl()}api/tray`, { signal: AbortSignal.timeout(TRAY_REQUEST_TIMEOUT_MS) })
-    applyState(parseTrayState(await res.text()))
+    // 核心就在本进程里：优先直接取，省掉每 1.5s 一次的本机 HTTP + JSON 解析。
+    // 旧核心没有这个导出时退回原接口，核心仍然可以独立于外壳更新。
+    const text = typeof server?.trayStateText === 'function'
+      ? server.trayStateText()
+      : await (await fetch(`${managerUrl()}api/tray`, { signal: AbortSignal.timeout(TRAY_REQUEST_TIMEOUT_MS) })).text()
+    applyState(parseTrayState(text))
   } catch { /* 下一轮再问 */ }
   if (!quitting) setTimeout(pollTray, TRAY_POLL_MS)
 }

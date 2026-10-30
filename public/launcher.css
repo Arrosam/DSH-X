@@ -15,11 +15,17 @@
   --control-padding: 12px;
   /* 顶栏两种形态共用这一组尺寸：
      - 默认（浏览器里、外壳没开标签页）：36px 控件 + 18px 上下留白，就是原来那条高顶栏；
-     - .internal-tabs（内部标签页）：控件 30px、留白 5px，整条 40px，像浏览器标签栏那样扁。
+     - .internal-tabs.has-tabs（内部标签页）：控件 30px、留白 5px，整条 40px，像浏览器标签栏那样扁。
      internal-tabs.js 把 header 的真实高度报给外壳（'layout'），dsh 页面的顶边跟着走，
-     所以两种形态切换时不会盖住页面内容。 */
+     所以两种形态切换时不会盖住页面内容。
+     标签条那层底色（--chrome-strip）只在标签页形态用：比页面底色深一档，选中的标签才显得
+     是从页面里长出来的（标签用 --card 填，和下面内容同一块面）。 */
   --topbar-control: 36px;
   --topbar-radius: 12px;
+  --chrome-strip: #dde5f4;
+  /* 设置页左侧导航的底色：用中性浅灰，不再往蓝里走 —— 偏蓝的底色会跟顶栏那条标签条
+     （--chrome-strip）撞成一片，也太压。灰一档既和白色卡片分得开，也不跟主题色抢。 */
+  --settings-nav-bg: #eef1f7;
   /* 开关的轨道与圆钮：两档的 .toggle 和更新提醒的三档开关共用，暗色主题只改这里 */
   --switch-off: #cfdcf3;
   --switch-on: var(--accent);
@@ -35,6 +41,9 @@ body {
   font: 15px/1.5 "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   display: grid;
   grid-template-rows: auto 1fr;
+  /* 隐式列写死 minmax(0, 1fr)：默认的 auto 会按内容的「最大宽度」把整列撑开，
+     标签条一宽（标签 + 两头按钮超过窗口）整条就跟着变宽，刷新/齿轮/窗口按钮被顶出窗口。 */
+  grid-template-columns: minmax(0, 1fr);
 }
 /* 高清角色独立成层，仅动画 transform / opacity，保留文字区域的对比度。 */
 .backdrop {
@@ -116,7 +125,7 @@ header {
 }
 .brand { font-weight: 700; letter-spacing: 0.04em; font-size: 20px; line-height: 1; color: var(--accent); }
 .brand-home { display: inline-flex; align-items: baseline; gap: 10px; border: 0; padding: 6px 8px; margin: -6px -8px; background: transparent; font: inherit; cursor: pointer; }
-/* 「回主页」图标只在内部标签页里出现（.internal-tabs 底下的规则），其余形态仍是文字 logo */
+/* 「回主页」图标只在内部标签页里出现（.internal-tabs.has-tabs 底下的规则），其余形态仍是文字 logo */
 .brand-icon { display: none; }
 .brand-home:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
 .brand-block { display: flex; align-items: baseline; gap: 10px; }
@@ -158,7 +167,9 @@ header {
   border-color: #b9ccf0;
   box-shadow: 0 3px 10px rgba(59, 111, 224, 0.18);
 }
-/* 设置入口：主页右上角的齿轮，点开就是设置页（原来那排 tab 已经并进去） */
+/* 设置入口：主页右上角的齿轮（原来那排 tab 已经并进去）。外观和内部标签页那排按钮是同一套：
+   静止只有图标（无底色、无描边、无投影），悬停才浮出底色——两种顶栏形态不再各画一种按钮。
+   尺寸/圆角跟 --topbar-control / --topbar-radius 走，所以开标签时自动缩成 30px 的扁按钮。 */
 .gear-btn {
   display: inline-flex;
   align-items: center;
@@ -167,22 +178,18 @@ header {
   width: var(--topbar-control);
   height: var(--topbar-control);
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
+  border: 0;
+  border-radius: var(--topbar-radius);
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease, color 180ms ease;
+  transition: background 160ms ease, color 160ms ease;
 }
-.gear-btn svg { width: 17px; height: 17px; transition: transform 280ms cubic-bezier(.2, .8, .2, 1); }
+.gear-btn svg { width: 16px; height: 16px; transition: transform 280ms cubic-bezier(.2, .8, .2, 1); }
 .gear-btn.active svg { transform: rotate(45deg); }
-.gear-btn:hover {
-  transform: translateY(-1px);
-  border-color: #b9ccf0;
-  box-shadow: 0 3px 10px rgba(59, 111, 224, 0.18);
-}
+.gear-btn:hover { background: var(--accent-soft); color: var(--accent); }
 /* 已经在设置面板时齿轮压成实心，表示"就在这儿" */
-.gear-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.gear-btn.active { background: var(--accent); color: #fff; }
 /* app 窗口模式：原生标题栏被去掉了，这排按钮顶上；浏览器里不显示 */
 .win-controls { display: none; align-items: center; gap: 2px; margin-left: 2px; }
 .app-window .win-controls { display: flex; }
@@ -218,81 +225,147 @@ header {
 /* 顶栏要用来拖窗口，文字别被拖选 */
 .app-window header { user-select: none; }
 /* 标签条：浏览器那种紧挨着的一排扁标签——静止没有描边、没有投影，选中标签是一块实底色。 */
-/* 内部标签页（.internal-tabs，由 internal-tabs.js 按外壳状态挂到 <html> 上）就是浏览器标签栏形态：
-   控件 30px + 上下各 5px = 40px 一整条；齿轮、刷新、窗口按钮全部扁平（静止无底色、无描边、无投影，
-   悬停才浮出底色）；文字 logo 让位给一个「回主页」图标按钮。没开标签页时（浏览器里、或外壳一个标签
-   都没开）整条退回上面的高顶栏，两种形态由这一组变量切换。 */
-.internal-tabs { --topbar-control: 30px; --topbar-radius: 8px; }
-.internal-tabs header { padding: 5px 10px; gap: 12px; }
+/* 内部标签页（.internal-tabs.has-tabs，由 internal-tabs.js 按外壳状态挂到 <html> 上）就是浏览器标签栏形态：
+   齿轮、刷新、窗口按钮全部扁平（静止无底色、无描边、无投影，悬停才浮出底色）；文字 logo 让位给一个
+   「回主页」图标按钮。没开标签页时（浏览器里、或外壳一个标签都没开）整条退回上面的高顶栏，
+   两种形态由这一组变量切换。
+   标签条的尺寸照 Chromium（Edge 同源）的实测参数来，不再凭感觉调：
+   - chrome/browser/ui/tabs/tab_style.cc：上圆角 GetTopCornerRadius=10、底部外扩圆角
+     GetBottomCornerRadius=12、标准宽 kTabWidth=232、分隔线 2×20（左右各 2px 边距、半径 1）；
+   - chrome/browser/ui/layout_constants.cc：kTabHeight=34+1（与工具条的 1px 重叠）、
+     kTabStripPadding=6（条顶留白）、kTabVerticalPadding=6、kTabHorizontalPadding=8。
+   合起来：标签 35px + 顶留白 6px = 41px 一整条。 */
+.internal-tabs.has-tabs {
+  --topbar-control: 30px;
+  --topbar-radius: 8px;
+  /* 高度照 Edge 的窗口实测：标签 40px，顶上留 4px 的空（贴太死会像被窗口边缘切掉），
+     底边压在内容区上沿 —— 整条 44px。 */
+  --tab-height: 40px;
+  --tab-strip-padding: 4px;
+  --tab-radius: 10px;
+  --tab-flare: 12px;
+  --tab-width: 232px;
+  --tab-min-width: 56px;
+  --tab-separator: #cdd9ee;
+}
+/* 下边不留内边距：标签的底边要压在内容区上沿，才能跟下面的页面连成一片（见下面 .internal-tab-list 的注）。
+   选择器带上 html，是为了压过 theme.css 里暗色的 `html[data-color-scheme="dark"] header { background: transparent }`
+   ——两边同为 (0,1,1) 时后加载的那份会赢，标签条的底色就白设了。 */
+/* 标签形态的顶栏用栅格排：左（回主页）auto、中（标签条）minmax(0,1fr)、右（刷新/齿轮/窗口按钮）auto。
+   用 flex 时标签一宽就会把右边那组挤出窗口（它们直接不见了），栅格的中列可以被压缩，两头永远在原位。 */
+html.internal-tabs.has-tabs header {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+  padding: var(--tab-strip-padding) 10px 0; gap: 12px; background: var(--chrome-strip);
+}
 /* macOS 的红绿灯还在左上角，标签条不能压过去（这条要在 .mac-window 的 96px 之后才生效） */
-.internal-tabs.mac-window header { padding-left: 96px; }
-.internal-tabs .brand-block, .internal-tabs .header-right { flex-shrink: 0; }
-.internal-tabs .brand, .internal-tabs .app-ver { display: none; }
-.internal-tabs .brand-home {
+.internal-tabs.has-tabs.mac-window header { padding-left: 96px; }
+/* 两头的控件组：行高是标签的 40px（从条顶那 4px 留白之后起算），补一条和留白等宽的下外边距，
+   30px 的按钮就居中在整条 44px 里（上 7 / 下 7）。 */
+.internal-tabs.has-tabs .brand-block, .internal-tabs.has-tabs .header-right { flex-shrink: 0; margin-bottom: var(--tab-strip-padding); }
+.internal-tabs.has-tabs .brand, .internal-tabs.has-tabs .app-ver { display: none; }
+.internal-tabs.has-tabs .brand-home {
   display: grid; place-items: center; width: var(--topbar-control); height: var(--topbar-control);
-  padding: 0; margin: 0; border-radius: var(--topbar-radius); background: transparent; color: var(--muted);
+  /* 左边这 7px 和上下的留白一样宽：顶栏的 padding-left 是 10px，按钮自己往左收 3px 补平（标签条位置不动）。 */
+  padding: 0; margin: 0 0 0 -3px; border-radius: var(--topbar-radius); background: transparent; color: var(--muted);
   transition: background 160ms ease, color 160ms ease;
 }
-.internal-tabs .brand-home:hover { background: var(--accent-soft); color: var(--accent); }
-.internal-tabs .brand-icon { display: grid; place-items: center; }
-.internal-tabs .brand-icon svg { width: 16px; height: 16px; }
-.internal-tabs .self-update { padding: 5px 10px; border-radius: var(--topbar-radius); }
-.internal-tabs .gear-btn {
-  width: var(--topbar-control); height: var(--topbar-control);
-  border: 0; border-radius: var(--topbar-radius); background: transparent; color: var(--muted);
-  transition: background 160ms ease, color 160ms ease;
-}
-.internal-tabs .gear-btn svg { width: 16px; height: 16px; }
-.internal-tabs .gear-btn:hover {
-  background: var(--accent-soft); color: var(--accent);
-  transform: none; box-shadow: none; border-color: transparent;
-}
-.internal-tabs .gear-btn.active { background: var(--accent); color: #fff; }
-.internal-tabs .win-controls { gap: 0; margin-left: 4px; }
-.internal-tabs .win-btn { width: 40px; height: var(--topbar-control); border-radius: 6px; }
+.internal-tabs.has-tabs .brand-home:hover { background: var(--accent-soft); color: var(--accent); }
+.internal-tabs.has-tabs .brand-icon { display: grid; place-items: center; }
+.internal-tabs.has-tabs .brand-icon svg { width: 16px; height: 16px; }
+.internal-tabs.has-tabs .self-update { padding: 5px 10px; border-radius: var(--topbar-radius); }
+.internal-tabs.has-tabs .win-controls { gap: 0; margin-left: 4px; }
+.internal-tabs.has-tabs .win-btn { width: 40px; height: var(--topbar-control); border-radius: 6px; }
+/* 标签要「长在页面顶上」：整条没有下内边距，标签高 35px（控件 30 + 顶上那 5px 内边距）正好
+   落到内容区上沿（外壳按 header 真实高度给 dsh 页面留位置，内容就从这条线开始）；两侧留出
+   --tab-flare 的空当，让首尾标签那对反向圆角不被 overflow 裁掉。
+   上沿和两头那排按钮对齐（都从顶栏的 5px 内边距起），所以标签比按钮高 5px——浏览器就是这样：
+   标签长得比工具按钮高，底边和下面那块页面连成一片（原来标签又往下让了 5px，上沿比按钮低，
+   看着是陷下去的）。
+   选中标签用页面底色填，看着就是页面向上的延伸——Edge / Chrome 那种和内容融合的样子。 */
+.internal-tabs.has-tabs .internal-tab-list { margin-top: 0; padding: 0 var(--tab-flare); }
+
 .internal-tabs-area { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; }
 .internal-tabs-area[hidden] { display: none; }
-.internal-tab-list { position: relative; isolation: isolate; display: flex; flex: 1; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+/* 标签之间不留缝（Edge / Chromium 的标签是紧挨着的，重叠的是底部那对外扩圆角区域），
+   相邻靠那条 2×20 的小竖线分开。 */
+.internal-tab-list { position: relative; isolation: isolate; display: flex; flex: 1; gap: 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .internal-tab-list::-webkit-scrollbar { display: none; }
-.internal-tab-indicator {
-  position: absolute; top: 0; left: 0; height: var(--topbar-control); border: 1px solid transparent; border-radius: var(--topbar-radius);
-  background: var(--accent-dim); opacity: 0; pointer-events: none;
-  will-change: transform;
-  transition: transform 260ms cubic-bezier(.2, 1.3, .32, 1), width 260ms cubic-bezier(.2, 1.3, .32, 1), opacity 160ms ease;
-}
-.internal-tab-indicator.visible { opacity: 1; }
-.internal-tab-indicator.instant { transition: none; }
 .internal-tab {
   position: relative;
-  display: flex; align-items: center; gap: 4px; flex: 0 1 160px; min-width: 96px; height: var(--topbar-control);
-  padding: 0 3px 0 9px; border: 1px solid transparent; border-radius: var(--topbar-radius); color: var(--muted);
-  transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
+  /* 宽度：平分标签条、最多 --tab-width（Chromium 的 kTabWidth=232）、最少 --tab-min-width；
+     用「flex-basis 0 + grow 1 + max-width」而不是定宽 + shrink —— 定宽时浏览器不一定会压缩，
+     标签一多就会把右边的刷新/齿轮/窗口按钮顶出窗口。 */
+  display: flex; align-items: center; gap: 4px; flex: 1 1 0; max-width: var(--tab-width); min-width: var(--tab-min-width); height: var(--tab-height);
+  /* 上面两角圆；下面两角是外扩圆角（::before/::after 常驻，底色 inherit，见下） */
+  padding: 0 3px 0 9px; border: 1px solid transparent; border-radius: var(--tab-radius) var(--tab-radius) 0 0; color: var(--muted);
+  /* 底色不做过场：悬停/选中要像浏览器那样立刻到位（过渡会让底色和圆角错开一帧） */
+  transition: color 120ms ease, box-shadow 160ms ease;
 }
-.internal-tab:hover { background: var(--accent-soft); color: var(--accent); }
-.internal-tab.active { background: transparent; color: var(--accent); }
+/* 选中/悬停的标签自己画底色和外扩圆角（Chromium 也是逐张标签画形状的，不是拿一块滑块垫在下面），
+   再把自己抬到邻居上面 —— 邻居的边缘被这两块圆角压住，就是浏览器那种「叠层」。
+   --tab-surface 是外壳采样到的页面底色：和下面那块页面同色，接缝才看不出来（采不到退回 --card）。 */
+.internal-tab:hover { background: var(--accent-soft); color: var(--accent); z-index: 1; }
+/* 选中标签的字色跟着采到的底色走（--tab-ink：亮底深字 / 暗底浅字），
+   否则暗色主题下遇到浅色页面给的白色标签，字就糊成一片了。 */
+.internal-tab.active { background: var(--tab-surface, var(--card)); color: var(--tab-ink, var(--accent)); z-index: 2; }
+/* 标签之间那条 2×20 的小竖线（Chromium 的 kSeparatorThickness/Height，左右各 2px 边距）：
+   挂在前一张标签的右边缘，第一个标签没有；悬停/选中、以及紧挨着选中标签的那条都让位。 */
+.internal-tab + .internal-tab {
+  background-image: linear-gradient(var(--tab-separator), var(--tab-separator));
+  background-repeat: no-repeat;
+  background-position: 2px center;
+  background-size: 2px 20px;
+}
+.internal-tab + .internal-tab:hover,
+.internal-tab + .internal-tab.active,
+.internal-tab:hover + .internal-tab,
+.internal-tab.active + .internal-tab { background-image: none; }
 .internal-tab button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .internal-tab-label { display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0; padding: 0; height: 100%; font-size: 12px !important; font-weight: 500 !important; }
 .internal-tab-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .internal-tab-label svg { flex-shrink: 0; width: 13px; height: 13px; }
 .internal-tab-close { display: grid; place-items: center; flex-shrink: 0; width: 20px; height: 20px; padding: 3px; border-radius: 5px; opacity: .5; transition: opacity 140ms ease, background 140ms ease; }
 .internal-tab:hover .internal-tab-close, .internal-tab.active .internal-tab-close { opacity: .8; }
-.internal-tab-close:hover { opacity: 1 !important; background: var(--accent-dim); }
+.internal-tab-close:hover { opacity: 1 !important; background: color-mix(in srgb, currentColor 14%, transparent); }
 .internal-tab-close svg { width: 11px; height: 11px; }
 /* 刷新按钮与齿轮同尺寸（都吃 .gear-btn 的 --topbar-control），别在标签条里单独放大 */
-.internal-tab-reload { flex-shrink: 0; }
+/* 标签条里的刷新按钮和两头那排控件一样高、一样居中：跟 .brand-block/.header-right 补同一条
+   下外边距，否则它贴在行顶、比右边的齿轮高 3px。 */
+.internal-tab-reload { flex-shrink: 0; margin-bottom: var(--tab-strip-padding, 0px); }
 .internal-tab.stopped .internal-tab-label { opacity: .6; }
 .internal-tab button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 5px; }
 .internal-tab { touch-action: none; user-select: none; }
 .internal-tab-label { cursor: grab !important; }
 .internal-tab-list.dragging, .internal-tab-list.dragging * { cursor: grabbing !important; }
-.internal-tab.dragging { z-index: 2; background: var(--card); border-color: var(--line); box-shadow: 0 3px 10px rgba(59, 111, 224, .14); }
+/* 底部那对外扩圆角（Chromium 的 GetBottomCornerRadius=12）：标签底边两侧各补一小块，
+   把朝里的那个角裁成一个 1/4 圆，看着就是标签从下面那块页面里长出来。
+   用矢量路径裁剪（clip-path: path），不是在渐变里"画"出来的形状：抗锯齿和别的圆角一样，
+   图形也和浏览器画的一致。两块常驻、底色继承标签自己的填色 —— 悬停/选中只换颜色，
+   不会多出一层新图层，所以不会出现"底色先出来、圆角晚一帧"的跳变。
+   注：路径里的 12 就是 --tab-flare 的值，改那个变量时这里要一起改。 */
+.internal-tab::before,
+.internal-tab::after {
+  content: ""; position: absolute; bottom: -1px; width: var(--tab-flare); height: var(--tab-flare);
+  pointer-events: none; background-color: inherit;
+  clip-path: path("M12 0A12 12 0 0 1 0 12L12 12Z");
+}
+.internal-tab::before { left: calc(var(--tab-flare) * -1); }
+.internal-tab::after { right: calc(var(--tab-flare) * -1); transform: scaleX(-1); }
+/* 拖动中的标签要跟选中标签同一套形状：上两角圆 + 底部外扩圆角，只是多一层浮起来的阴影，并且压在最上面。
+   描边去掉：--card 比标签条底色亮得多，靠填色加阴影已经能看出是拎起来的那张。 */
+.internal-tab.dragging { z-index: 3; background: var(--card); border-color: transparent; box-shadow: 0 3px 10px rgba(59, 111, 224, .14); }
 /* 内容层接管前仍保留主页画面；交互和辅助阅读由 inert / aria-hidden 禁用，避免切换中露出空白。 */
 .internal-dsh-active main { pointer-events: none; }
+/* 内部标签页盖住内容区时装饰动画没有意义：rAF 循环由 mascot/water 自己停，这里管三条 CSS 动画。
+   标签页关闭（internal-dsh-active 摘掉）后动画从暂停处继续，不需要重排。 */
+.internal-dsh-active .backdrop-character,
+.internal-dsh-active .backdrop::before,
+.internal-dsh-active .backdrop::after { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
-  .internal-tab-indicator, .internal-tab, .internal-tab-close { transition: none; }
+  .internal-tab, .internal-tab-close { transition: none; }
 }
 @media (max-width: 900px) {
-  .internal-tabs header { gap: 14px; }
+  .internal-tabs.has-tabs header { gap: 14px; }
 }
 main { min-height: 0; overflow: hidden; }
 /* 设置页外壳：左侧分组导航 + 右侧面板，四个面板都在这里切（顶栏那排 tab 已取消） */
@@ -309,8 +382,8 @@ main:not(.home) .shell {
   position: relative;
   flex: 0 0 216px;
   padding: 16px 14px 24px;
-  border-right: 1px solid var(--line);
-  background: #f8fbff;
+  /* 和右侧靠底色分开（--settings-nav-bg），不再画中间那条分隔线 */
+  background: var(--settings-nav-bg);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #c3d3ee transparent;
@@ -337,7 +410,6 @@ main:not(.home) .shell {
 /* 控制面板是主界面：回到它的时候把左侧导航收起来，它就是一张干净的主页 */
 main.home .settings-nav { display: none; }
 main:not(.home) .settings-nav { animation: nav-in 280ms cubic-bezier(.22, 1, .36, 1) both; }
-main:not(.home) .settings-nav { background: transparent; }
 @keyframes nav-in {
   from { opacity: 0; transform: translateX(-12px); }
   to { opacity: 1; transform: none; }
@@ -449,8 +521,7 @@ main.home .settings-body { padding-top: 34px; }
     flex-wrap: wrap;
     gap: 6px;
     padding: 10px 12px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    /* 窄窗口导航变成顶上一条横排：同样靠底色分界，不画线 */
   }
   .nav-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .nav-group + .nav-group { margin-top: 0; }
@@ -1001,7 +1072,10 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .set-row.stacked .set-control input[type=text], .set-row.stacked .set-control input[type=password] { flex: 1 1 auto; min-width: 0; }
 .set-control textarea { width: 100%; min-width: 0; resize: vertical; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--text); font: 12px/1.7 ui-monospace, monospace; }
 .set-control textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.set-control .icon-btn { width: 36px; height: 36px; border-radius: 10px; }
+/* 设置行里的图标按钮：尺寸跟这一列的其它控件一样高（--control-height = 36），
+   图标放到 24px —— 通用 .icon-btn svg 是 20px，铅笔那种只占画布 3/4 的图形缩完只剩 15px，看着太小。 */
+.set-control .icon-btn { width: var(--control-height); height: var(--control-height); border-radius: 10px; }
+.set-control .icon-btn svg { width: 24px; height: 24px; }
 .set-row .hint { margin: 9px 0 0; }
 /* 整行可点的开关行：给个悬停反馈，别让人猜哪儿能点 */
 .toggle.set-row {
@@ -1127,6 +1201,16 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .instance-state { flex: 0 0 auto; color: var(--muted); font-size: 11.5px; }
 .instance-url { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .instance-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+/* 启动体检：按包列 CPU/分配，数字右对齐；长包名省略，整行保留 tooltip。 */
+.plugin-profile-summary { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.plugin-profile-group + .plugin-profile-group { margin-top: 4px; }
+.plugin-profile-title { margin: 0 0 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.plugin-profile-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 76px; gap: 10px; align-items: center; padding: 5px 8px; border-radius: 8px; font-size: 12.5px; }
+.plugin-profile-row[data-cols="2"] { grid-template-columns: minmax(0, 1fr) 72px; }
+.plugin-profile-row.head { padding-block: 2px; color: var(--muted); font-size: 11.5px; }
+.plugin-profile-row:not(.head):nth-of-type(even) { background: rgba(127, 127, 127, .07); }
+.plugin-profile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-profile-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 #pane-settings .hint:empty { display: none; }
 #settingsHint:not(:empty) { padding: 5px 10px; background: rgba(255, 255, 255, 0.92); border-radius: 8px; }
 .progress {

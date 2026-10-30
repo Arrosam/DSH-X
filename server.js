@@ -1244,6 +1244,16 @@ async function snapshotDefault() {
       return proc ? { version: proc.version, status: proc.status, url: proc.url } : null
     })(),
     autoFix: autoFixForHome(),
+    // 外观设置：设置页可能开在**另一个标签页**里，改完只有那一页自己换了主题，
+    // 管这个窗口的那一页（标签条、卡片、水面背景）要等整页刷新才跟上。
+    // 把这一组放进状态里，页面收到推送就能自己跟，不用刷新。
+    appearance: {
+      theme: THEME,
+      panelTransparency: PANEL_TRANSPARENCY,
+      reduceMotion: REDUCE_MOTION,
+      hideBackground: HIDE_BACKGROUND,
+      hideBigFish: HIDE_BIG_FISH,
+    },
     health: lastHealth,
     failure: publicFailure(lastFailure),
     diagnosticRepairs: publicFailure({ message: '', diagnosis: diagnosticRepairs.history().map(record => ({ ...record, recorded: recordedChanges(record) })) }).diagnosis,
@@ -1436,6 +1446,30 @@ function resolvePresetVersion(entry, home, config, versions = null) {
     && versionInChannel(plan.channel, item.version))
     .sort((a, b) => cmpVer(parseVer(b.version), parseVer(a.version)))[0]
   return live?.version || plan.installed[0] || ''
+}
+
+/**
+ * 托盘要的状态文本（外壳每 1.5s 取一次）。外壳和核心同进程时直接调用，
+ * 不用再绕一圈本机 HTTP；`/api/tray` 仍然保留，浏览器外壳和旧外壳照旧读它。
+ */
+export function trayStateText() {
+  // 保留旧外壳的标量字段；新外壳按命名启动项操作，不再把单项停止变成停止全部。
+  const running = primaryInstance()
+  const launches = trayLaunches()
+  return [
+    `status=${running?.status || 'stopped'}`,
+    `url=${running?.url || ''}`,
+    `installed=${trayInstalledVersions().length ? 1 : 0}`,
+    `lang=${LANG}`,
+    // 托盘照着它决定「打开 DSH」是叫内嵌窗口还是丢给系统浏览器
+    `openmode=${OPEN_MODE}`,
+    // 本次是不是由原生外壳托管：外壳缺失时窗口模式不成立，托盘据此退回浏览器
+    `shell=${shellWindowHost() ? 1 : 0}`,
+    `theme=${THEME}`,
+    // 原生标签页要跟随所有实例，不能用「最近启动的实例」去覆盖用户正在看的其他页面。
+    `instances=${JSON.stringify(instanceList().map((proc) => internalTabTarget(proc, launches.find((row) => row.proc === proc)?.name)))}`,
+    `launches=${JSON.stringify(launches.map(({ id, instanceId, name, version, profile, status, busy, installed, target }) => ({ id, instanceId, name, version, profile, status, busy, installed, target })))}`,
+  ].join('\n')
 }
 
 /** 删除入口不会停止实例；这类运行项仍要能从托盘找回和单独停止。 */
@@ -4516,7 +4550,7 @@ export async function checkWebPage(origin, token) {
   const base = String(origin).replace(/\/+$/, '')
   const first = await fetch(`${base}/?token=${encodeURIComponent(token)}`, {
     redirect: 'manual',
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(30000), // 刚就绪时 dsh 还在合成客户端插件包，8 秒经常回不来
   })
   const cookie = (first.headers.getSetCookie?.() || []).map((item) => item.split(';')[0]).join('; ')
   const headers = cookie ? { cookie } : {}
@@ -5674,23 +5708,7 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/tray') {
-    // 保留旧外壳的标量字段；新外壳按命名启动项操作，不再把单项停止变成停止全部。
-    const running = primaryInstance()
-    const launches = trayLaunches()
-    send(res, 200, [
-      `status=${running?.status || 'stopped'}`,
-      `url=${running?.url || ''}`,
-      `installed=${trayInstalledVersions().length ? 1 : 0}`,
-      `lang=${LANG}`,
-      // 托盘照着它决定「打开 DSH」是叫内嵌窗口还是丢给系统浏览器
-      `openmode=${OPEN_MODE}`,
-      // 本次是不是由原生外壳托管：外壳缺失时窗口模式不成立，托盘据此退回浏览器
-      `shell=${shellWindowHost() ? 1 : 0}`,
-      `theme=${THEME}`,
-      // 原生标签页要跟随所有实例，不能用「最近启动的实例」去覆盖用户正在看的其他页面。
-      `instances=${JSON.stringify(instanceList().map((proc) => internalTabTarget(proc, launches.find((row) => row.proc === proc)?.name)))}`,
-      `launches=${JSON.stringify(launches.map(({ id, instanceId, name, version, profile, status, busy, installed, target }) => ({ id, instanceId, name, version, profile, status, busy, installed, target })))}`,
-    ].join('\n'), 'text/plain; charset=utf-8')
+    send(res, 200, trayStateText(), 'text/plain; charset=utf-8')
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/changelog') {

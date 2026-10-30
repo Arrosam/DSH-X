@@ -104,3 +104,4 @@ test('/booting：切成英文后页面跟着变', async () => {
   assert.match(html, /data-lang="en"/)
   assert.match(html, /Starting dsh|Booting|Starting \{version\}/)
 })
+

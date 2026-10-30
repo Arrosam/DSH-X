@@ -94,7 +94,7 @@
   const active=()=>!lost&&!document.hidden&&!reduced.matches
     &&!document.documentElement.classList.contains('reduce-motion')
     &&!document.documentElement.classList.contains('launcher-idle')
-    &&!document.documentElement.classList.contains('background-hidden');
+    &&!document.documentElement.classList.contains('background-hidden')&&!document.documentElement.classList.contains('internal-dsh-active');
   function draw(){
     gl.uniform2f(uniforms.resolution,canvas.width,canvas.height);
     gl.uniform1f(uniforms.time,time);
