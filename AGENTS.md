@@ -14,7 +14,7 @@ Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / �
 注入钩子   compat/  perf/              被注入 dsh 进程，修补运行时行为（见下）
 ```
 
-**零第三方运行时依赖**：服务与页面的 import 都是 `node:` 内置或相对路径，没有构建步骤。安装包不依赖用户机器环境：dsh 子进程用 Electron 自带的 Node（打包时只把 npm / pnpm 抄进 `node/`），旧安装包里的 `node/node.exe` 继续兼容。
+**零第三方运行时依赖**：服务与页面的 import 都是 `node:` 内置或相对路径，没有构建步骤。安装包不依赖用户机器环境：dsh 子进程默认用 Electron 自带的 Node（打包时只把 npm / pnpm 抄进 `node/`），旧安装包里的 `node/node.exe` 继续兼容；设置里可以改成系统装的 Node（`settings.json` 的 `nodeRuntime` / `systemNodePath`，`shell/env.mjs` 在 `platform.js` 求值前定好 `DSH_RUNTIME_NODE`，换档要重启启动器）。
 唯一的例外在**打包期**：三个平台的外壳都要 `electron` 与 `electron-builder`（`devDependencies`，打安装包前先 `npm install`）。`shell/` 之外的代码别 import 它们；`npm start` / `npm test` 不需要装。
 
 ## 怎么跑、怎么验

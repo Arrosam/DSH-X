@@ -200,9 +200,9 @@ async function start() {
   // 系统深浅色在运行中变了（控制中心切换）：停止页跟着重画（#58）
   nativeTheme.on('updated', () => tabs?.systemThemeChanged())
 
-  // 打包后 RUNTIME_NODE 永远是 Electron 本体（process.execPath）；只有显式 DSH_RUNTIME_NODE 指歪了才可能落空。
+  // 默认是 Electron 本体（process.execPath）；设置里选了系统 Node 或显式 DSH_RUNTIME_NODE 时可能落空。
   if (!RUNTIME_NODE || (app.isPackaged && !existsSync(RUNTIME_NODE))) {
-    showStartupError('启动器文件不完整', '找不到用来运行 dsh 的 node。', '重新安装一次 DSH-X 即可。')
+    showStartupError('找不到运行 dsh 的 node', `这个路径不存在：${RUNTIME_NODE || '（空）'}`, '在启动器设置里改回「启动器自带」，或重新安装一次 DSH-X。')
     return
   }
 

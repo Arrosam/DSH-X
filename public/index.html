@@ -380,6 +380,19 @@
                     <input id="args" type="text" spellcheck="false" autocomplete="off" placeholder="例如：--log-level debug" />
                   </div>
                 </div>
+                <div class="set-row stacked">
+                  <div class="set-text">
+                    <span class="set-name" data-i18n="运行 dsh 的 Node">运行 dsh 的 Node</span>
+                    <p class="hint" id="nodeRuntimeHint"></p>
+                  </div>
+                  <div class="set-control">
+                    <select id="nodeRuntime">
+                      <option value="bundled" data-i18n="启动器自带">启动器自带</option>
+                      <option value="system" data-i18n="系统 Node">系统 Node</option>
+                    </select>
+                    <input id="systemNodePath" type="text" spellcheck="false" autocomplete="off" data-placeholder-i18n="留空 = 自动从 PATH 查找" hidden />
+                  </div>
+                </div>
               </div>
               <div class="set-label" id="settingsStorageTitle" data-i18n="目录与端口">目录与端口</div>
               <div class="set-group">
@@ -1640,6 +1653,20 @@
   "默认目录": "Default directory",
   "dsh 的数据根目录，换一个目录就是另一套数据。": "Root of dsh's data. A different directory is a separate set of data.",
   "启动与修复": "Startup and recovery",
+  "运行 dsh 的 Node": "Node for running dsh",
+  "启动器自带": "Bundled with launcher",
+  "系统 Node": "System Node",
+  "留空 = 自动从 PATH 查找": "Leave blank to find it from PATH",
+  "正在保存…": "Saving…",
+  "版本未知": "version unknown",
+  "源码运行：dsh 固定用启动它的 Node（{path}，{version}）。": "Running from source: dsh always uses the Node that started it ({path}, {version}).",
+  "现在用系统 Node：{path}（{version}）。": "Using the system Node: {path} ({version}).",
+  "现在用启动器自带的 Node（{version}）。": "Using the launcher's bundled Node ({version}).",
+  "系统里没找到 Node。": "No system Node found.",
+  "重启启动器后改用 {path}（{version}）。": "Restart the launcher to switch to {path} ({version}).",
+  "重启启动器后改回启动器自带的 Node。": "Restart the launcher to switch back to the bundled Node.",
+  "它低于 dsh 要求的 {version}，可能起不来。": "It is below the {version} required by dsh and may fail to start.",
+  "已保存。重启启动器后生效。": "Saved. Takes effect after restarting the launcher.",
   "修复环境": "Repair environment",
   "正在修复环境…": "Repairing environment…",
   "已修复环境 {profile}：停用第三方插件 {count} 个，重启后生效。": "Environment {profile} repaired: {count} third-party plugins disabled. Restart to apply.",
@@ -2132,7 +2159,7 @@
       })
       syncUiSelect(select)
     }
-    for (const select of document.querySelectorAll('#launchDshHome, #launchHomeCustom, #launchProfile, #launchCopyHome, #launchCopyProfile, #pluginHome, #uiLang, #webBind, #downloadSource, #proxyMode, #versionInstallSelect, #openMode, #mcpTransport, #marketSort, #skillRoot, #skillInstallRoot')) createUiSelect(select)
+    for (const select of document.querySelectorAll('#launchDshHome, #launchHomeCustom, #launchProfile, #launchCopyHome, #launchCopyProfile, #pluginHome, #uiLang, #webBind, #downloadSource, #proxyMode, #nodeRuntime, #versionInstallSelect, #openMode, #mcpTransport, #marketSort, #skillRoot, #skillInstallRoot')) createUiSelect(select)
     document.addEventListener('pointerdown', (event) => {
       if (openUiSelect && !openUiSelect.root.contains(event.target) && !openUiSelect.panel.contains(event.target)) closeUiSelect()
       // 环境详情的「更多操作」下拉同理：点外面就合上
@@ -6197,6 +6224,44 @@
     const describeOpenMode = (mode) => mode === 'internal' && !internalTabsAvailable
       ? t('内部标签页需使用新版 DSH-X 桌面端；当前使用浏览器标签页。')
       : ''
+    // ---- 跑 dsh 的 Node ----
+    const nodeRuntimeEl = document.getElementById('nodeRuntime')
+    const systemNodePathEl = document.getElementById('systemNodePath')
+    const nodeRuntimeHint = document.getElementById('nodeRuntimeHint')
+    let savedNodeRuntime = 'bundled'
+    let savedSystemNodePath = ''
+    function showNodeRuntimeSettings(data) {
+      const info = data.nodeRuntimeInfo || {}
+      savedNodeRuntime = data.nodeRuntime === 'system' ? 'system' : 'bundled'
+      savedSystemNodePath = String(data.systemNodePath || '')
+      nodeRuntimeEl.value = savedNodeRuntime
+      systemNodePathEl.value = savedSystemNodePath
+      nodeRuntimeEl.disabled = info.selectable === false
+      systemNodePathEl.hidden = savedNodeRuntime !== 'system'
+      const fmt = (node) => node && node.version ? `v${node.version}` : t('版本未知')
+      const lines = []
+      if (info.selectable === false) {
+        lines.push(t('源码运行：dsh 固定用启动它的 Node（{path}，{version}）。', { path: info.effective?.path || '', version: fmt(info.effective) }))
+      } else {
+        if (info.effective?.kind === 'system') {
+          lines.push(t('现在用系统 Node：{path}（{version}）。', { path: info.effective.path, version: fmt(info.effective) }))
+        } else {
+          lines.push(t('现在用启动器自带的 Node（{version}）。', { version: fmt(info.effective) }))
+        }
+        if (info.configured === 'system') {
+          if (!info.system) lines.push(t('系统里没找到 Node。'))
+          else if (info.pending) lines.push(t('重启启动器后改用 {path}（{version}）。', { path: info.system.path, version: fmt(info.system) }))
+        } else if (info.pending) {
+          lines.push(t('重启启动器后改回启动器自带的 Node。'))
+        }
+        if (info.requirement && ((info.configured === 'system' && info.systemTooOld) || info.effectiveTooOld)) {
+          lines.push(t('它低于 dsh 要求的 {version}，可能起不来。', { version: `v${info.requirement}` }))
+        }
+      }
+      nodeRuntimeHint.textContent = lines.join('')
+      // 自绘下拉不会跟着原生 select.value 走，回填后手动同步一次
+      syncUiSelect(nodeRuntimeEl)
+    }
     const proxyModeEl = document.getElementById('proxyMode')
     const proxyUrlEl = document.getElementById('proxyUrl')
     const proxyHintEl = document.getElementById('proxyHint')
@@ -6292,6 +6357,11 @@
       }
       if ('systemPath' in data) {
         showSystemPathSettings(data)
+      }
+      // 正在编辑这个输入框时别被轮询回写打断；有未保存改动时也先不覆盖
+      if ('nodeRuntime' in data && !pendingSettings.has('nodeRuntime') && !pendingSettings.has('systemNodePath')
+        && document.activeElement !== systemNodePathEl) {
+        showNodeRuntimeSettings(data)
       }
       if ('openMode' in data) {
         internalTabsAvailable = data.openModeInternal === true
@@ -6389,6 +6459,10 @@
           savedSystemPath = data.systemPath === true
           if (!pendingSettings.has('systemPath')) showSystemPathSettings(data)
         }
+        if (('nodeRuntime' in patch || 'systemNodePath' in patch)
+          && !pendingSettings.has('nodeRuntime') && !pendingSettings.has('systemNodePath')) {
+          showNodeRuntimeSettings(data)
+        }
         if ('autoStart' in patch && !pendingSettings.has('autoStart')) {
           autoStartEl.checked = Boolean(data.autoStart)
         }
@@ -6438,6 +6512,8 @@
           settingsHint.textContent = t('已保存。重启启动器后管理页改到 {port} 端口。', { port: data.port })
         } else if ('webBind' in patch) {
           settingsHint.textContent = t('已保存。Web 绑定更改在下次启动 dsh 时生效。')
+        } else if ('nodeRuntime' in patch || 'systemNodePath' in patch) {
+          settingsHint.textContent = data.nodeRuntimeInfo?.pending ? t('已保存。重启启动器后生效。') : ''
         } else if ('openMode' in patch) {
           settingsHint.textContent = t('已保存。下次打开 dsh 就走新的方式。')
         } else if ('dataDir' in patch && data.dataDir && normDir(data.dataDir) !== normDir(patch.dataDir)) {
@@ -6449,6 +6525,14 @@
         if ('systemPath' in patch && !pendingSettings.has('systemPath')) {
           systemPathEl.checked = savedSystemPath
           systemPathHint.textContent = error.message
+        }
+        if (('nodeRuntime' in patch || 'systemNodePath' in patch)
+          && !pendingSettings.has('nodeRuntime') && !pendingSettings.has('systemNodePath')) {
+          nodeRuntimeEl.value = savedNodeRuntime
+          systemNodePathEl.value = savedSystemNodePath
+          systemNodePathEl.hidden = savedNodeRuntime !== 'system'
+          syncUiSelect(nodeRuntimeEl)
+          nodeRuntimeHint.textContent = error.message
         }
         if ('theme' in patch && !pendingSettings.has('theme')) {
           window.setLauncherTheme(savedTheme)
@@ -6484,6 +6568,17 @@
     systemPathEl.onchange = () => {
       queueSetting('systemPath', systemPathEl.checked)
       systemPathHint.textContent = t('正在保存…')
+    }
+    nodeRuntimeEl.onchange = () => {
+      systemNodePathEl.hidden = nodeRuntimeEl.value !== 'system'
+      nodeRuntimeHint.textContent = t('正在保存…')
+      queueSetting('nodeRuntime', nodeRuntimeEl.value)
+    }
+    systemNodePathEl.onchange = () => {
+      const value = systemNodePathEl.value.trim()
+      if (value === savedSystemNodePath) return
+      nodeRuntimeHint.textContent = t('正在保存…')
+      queueSetting('systemNodePath', value)
     }
     openModeEl.onchange = () => {
       openModeHint.textContent = describeOpenMode(openModeEl.value)

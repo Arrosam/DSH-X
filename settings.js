@@ -91,6 +91,27 @@ export function updateSourceForDownload(value) {
 }
 
 /**
+ * 跑 dsh 用哪个 node：bundled = 启动器自带（打包后是 Electron 内嵌的 Node），
+ * system = 用户机器上装的那个。只影响 dsh 子进程，启动器自己始终跑在 Electron 里。
+ * 换档要重启启动器：platform.js 在加载时就把 RUNTIME_NODE 定成了常量。
+ */
+export const NODE_RUNTIMES = ['bundled', 'system']
+export const DEFAULT_NODE_RUNTIME = 'bundled'
+
+export function safeNodeRuntime(value) {
+  const name = String(value ?? '').trim().toLowerCase()
+  return NODE_RUNTIMES.includes(name) ? name : DEFAULT_NODE_RUNTIME
+}
+
+/** 系统 node 的路径；空 = 从 PATH 自动找。存在性在保存时验证，这里只清空白与粘贴带上的引号。 */
+export function safeSystemNodePath(value) {
+  const text = String(value ?? '').trim().replace(/^"(.*)"$/, '$1').trim()
+  if (!text) return ''
+  if (text.length > 4096) throw new Error('node 路径太长')
+  return text
+}
+
+/**
  * 网络代理的三种模式：跟随系统（默认，自己探测系统代理）/ 手动填地址 / 不走代理。
  *
  * 为什么默认「跟随系统」：Node 的全局 fetch 既不看系统代理、也不看 HTTP_PROXY，于是
@@ -258,6 +279,9 @@ export const DEFAULTS = {
   openMode: DEFAULT_OPEN_MODE,
   // dsh 的用户目录（DSH_HOME）。留空 = 默认 ~/.dsh；用户把 .dsh 挪到别的盘时在这里指回去
   dshHome: '',
+  // 跑 dsh 用哪个 node：bundled（启动器自带，默认）/ system（系统装的那个；路径留空就按 PATH 找）
+  nodeRuntime: DEFAULT_NODE_RUNTIME,
+  systemNodePath: '',
   // 单独登记的目录不依赖启动项，删掉最后一个 Profile 后仍能回到这里新建。
   dshHomes: [],
   dshHomeNames: {},
@@ -663,6 +687,8 @@ function mergeStoredSettings(stored) {
   try { merged.pluginMarketSources = safePluginMarketSources(merged.pluginMarketSources) } catch { merged.pluginMarketSources = [] }
   delete merged.seedMemory
   try { merged.keepVersions = safeKeepVersions(merged.keepVersions) } catch { merged.keepVersions = 2 }
+  merged.nodeRuntime = safeNodeRuntime(merged.nodeRuntime)
+  try { merged.systemNodePath = safeSystemNodePath(merged.systemNodePath) } catch { merged.systemNodePath = '' }
   return merged
 }
 
@@ -757,6 +783,8 @@ async function saveSettingsNow(patch) {
   merged.dshHomeNames = safeDshHomeNames(merged.dshHomeNames)
   merged.lang = 'lang' in patch ? safeLang(patch.lang) : safeLang(merged.lang)
   merged.theme = safeTheme(merged.theme)
+  merged.nodeRuntime = 'nodeRuntime' in patch ? safeNodeRuntime(patch.nodeRuntime) : safeNodeRuntime(merged.nodeRuntime)
+  merged.systemNodePath = 'systemNodePath' in patch ? safeSystemNodePath(patch.systemNodePath) : safeSystemNodePath(merged.systemNodePath)
   merged.launchIsolation = safeLaunchIsolation(merged.launchIsolation)
   merged.panelTransparency = safePanelTransparency(merged.panelTransparency)
   merged.reduceMotion = merged.reduceMotion === true

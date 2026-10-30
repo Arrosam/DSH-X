@@ -117,6 +117,8 @@ import {
   safeProfile,
   safeProxyMode,
   safeProxyUrl,
+  safeNodeRuntime,
+  safeSystemNodePath,
   safeArgs,
   safeUpdateChannel,
   safeWebBind,
@@ -1299,6 +1301,10 @@ async function publicSettings() {
     systemBinDir: systemBinDir(),
     systemPathMode: IS_WINDOWS ? 'automatic' : 'manual',
     systemPathCommand: manualPathCommand(systemBinDir()),
+    // 跑 dsh 用哪个 node：设置值 + 现在生效的 + 系统里找到的那个（页面据此画提示行）
+    nodeRuntime: safeNodeRuntime(stored.nodeRuntime),
+    systemNodePath: safeSystemNodePath(stored.systemNodePath),
+    nodeRuntimeInfo: nodeRuntimeView(stored),
     updateSource: updateSourceForDownload(stored.downloadSource),
     updateSources: [
       { id: 'mirror', label: '国内加速（先走镜像，连不上再直连）' },
@@ -1695,6 +1701,15 @@ async function saveManagerSettings(body) {
     throw new Error('正在确认修复或回退，结束后再修改启动设置。')
   }
   let systemPathResult
+  // 系统 node 是路径/命令，保存前先确认真的找得到、而且跑得起来 —— 否则要等下次启动 dsh 才发现选了个空
+  if ('systemNodePath' in body) {
+    const path = safeSystemNodePath(body.systemNodePath)
+    if (path) {
+      const found = findSystemNode(path)
+      if (!found) throw new Error(`找不到这个 node：${path}`)
+      if (!nodeVersionOf(found)) throw new Error(`这个文件不是能用的 node：${found}`)
+    }
+  }
   if (body.dataDir) {
     const dir = safeDataDir(body.dataDir)
     if (dir !== DATA && (instances.size || startingProfiles.size)) throw new Error('请先停止再改版本目录')
@@ -1712,6 +1727,8 @@ async function saveManagerSettings(body) {
     ...('proxyUrl' in body ? { proxyUrl: safeProxyUrl(body.proxyUrl) } : {}),
     ...('openMode' in body ? { openMode: safeOpenMode(body.openMode) } : {}),
     ...('systemPath' in body ? { systemPath: body.systemPath === true } : {}),
+    ...('nodeRuntime' in body ? { nodeRuntime: safeNodeRuntime(body.nodeRuntime) } : {}),
+    ...('systemNodePath' in body ? { systemNodePath: safeSystemNodePath(body.systemNodePath) } : {}),
     ...('dshHome' in body ? { dshHome: safeDshHome(body.dshHome) } : {}),
     ...('webBind' in body ? { webBind: safeWebBind(body.webBind) } : {}),
     ...('lang' in body ? { lang: safeLang(body.lang) } : {}),
@@ -1783,6 +1800,14 @@ async function saveManagerSettings(body) {
       DSH_HOME_DIR = next
       pushLog(`dsh 用户目录改为 ${home}${next ? '' : '（默认位置）'}；重启 dsh 后生效`)
     }
+  }
+  if ('nodeRuntime' in body || 'systemNodePath' in body) {
+    // 刚改过路径：版本缓存作废，页面下一次读设置就能看到新值
+    nodeVersionCache.clear()
+    const view = nodeRuntimeView(stored)
+    pushLog(view.configured === 'system'
+      ? `跑 dsh 的 node 改为系统 Node（${view.system?.path || '没找到'}）；重启启动器后生效`
+      : '跑 dsh 的 node 改回启动器自带的 Node；重启启动器后生效')
   }
   if ('autoCleanVersions' in body) {
     pushLog(stored.autoCleanVersions
@@ -2109,6 +2134,117 @@ export function withBundledRuntime(pathValue, preferredPnpm = '') {
   // 原 PATH 已经完整保留，只补固定位置；再筛整条 PATH 会重复探测每个目录的 pnpm 后缀。
   const parts = [...String(pathValue).split(delimiter).filter(Boolean), ...pnpmCandidates('')]
   return orderRuntimePaths(parts, dir, preferredPnpm).join(delimiter)
+}
+
+/**
+ * 在 PATH（或用户填的路径）里找系统 node。显式路径优先；只填命令名时按 PATH 找。
+ * 返回路径或空串 —— 设置页据此说明「没找到系统 Node」。可注入 env/platform/exists 便于测试。
+ */
+export function findSystemNode(explicit = '', options = {}) {
+  const env = options.env || process.env
+  const platform = options.platform || process.platform
+  const exists = options.exists || existsSync
+  const name = platform === 'win32' ? 'node.exe' : 'node'
+  const pathDelimiter = platform === 'win32' ? ';' : ':'
+  const dirs = String(env.PATH || '').split(pathDelimiter)
+    .map((dir) => dir.trim().replace(/^"(.*)"$/, '$1'))
+    .filter(Boolean)
+  const given = String(explicit || '').trim().replace(/^"(.*)"$/, '$1').trim()
+  if (given) {
+    if (exists(given)) return given
+    // 只填了命令名（没带路径分隔符）：按 PATH 找。Windows 上还要补 PATHEXT 那几种后缀
+    if (!/[\\/]/.test(given)) {
+      const names = platform === 'win32' && !/\.[a-z0-9]+$/i.test(given)
+        ? [given, `${given}.exe`, `${given}.cmd`, `${given}.bat`]
+        : [given]
+      for (const dir of dirs) {
+        for (const name of names) {
+          const file = join(dir, name)
+          if (exists(file)) return file
+        }
+      }
+    }
+    return ''
+  }
+  for (const dir of dirs) {
+    const file = join(dir, name)
+    if (exists(file)) return file
+  }
+  return ''
+}
+
+const nodeVersionCache = new Map()
+
+/** 问一个 node 可执行文件的版本（`v24.9.0` → `24.9.0`）；跑不起来返回空串（失败不缓存，换文件后还能重问）。 */
+export function nodeVersionOf(file) {
+  if (!file) return ''
+  if (nodeVersionCache.has(file)) return nodeVersionCache.get(file)
+  let version = ''
+  try {
+    const out = spawnSync(file, ['--version'], { encoding: 'utf8', timeout: 5000, windowsHide: true })
+    const match = /^v?(\d+\.\d+\.\d+)/.exec(String(out.stdout || '').trim())
+    if (match) version = match[1]
+  } catch { /* 不是 node / 跑不起来 */ }
+  if (version) nodeVersionCache.set(file, version)
+  return version
+}
+
+/** dsh 的 engines.node 只认 `>=x.y.z`（官方包就是这么写的）；别的范围返回空串，不拿它下结论。 */
+export function parseNodeRange(range) {
+  const match = /^>=\s*(\d+\.\d+\.\d+)$/.exec(String(range || '').trim())
+  return match ? match[1] : ''
+}
+
+/**
+ * 已装版本里最高的 Node 要求（dsh 的 package.json engines.node）。系统 node 低于它时设置页要
+ * 提醒：dsh 自己不拦版本，报错会出现在别处，很难看出是 node 太老。
+ */
+function nodeRequirementForInstalled() {
+  let best = ''
+  for (const version of scanInstalled()) {
+    try {
+      const file = join(dirname(binPath(version)), '..', 'package.json')
+      const min = parseNodeRange(JSON.parse(readFileSync(file, 'utf8')).engines?.node)
+      if (min && (!best || cmpVer(parseVer(min), parseVer(best)) > 0)) best = min
+    } catch { /* 读不到就不算 */ }
+  }
+  return best
+}
+
+/**
+ * 设置页「运行 dsh 的 Node」要显示的一切：配置值、现在生效的那个、系统里找到的那个。
+ *
+ * 「生效」在 Electron 里看 RUNTIME_NODE_ENV：只有落到 Electron 本体时才带 ELECTRON_RUN_AS_NODE。
+ * 源码运行（node start.js）时 dsh 就是用启动它的那个 node，这个设置没有意义（selectable=false）。
+ */
+export function nodeRuntimeView(stored) {
+  const configured = safeNodeRuntime(stored.nodeRuntime)
+  const configuredPath = safeSystemNodePath(stored.systemNodePath)
+  const systemPath = findSystemNode(configuredPath)
+  const system = systemPath ? { path: systemPath, version: nodeVersionOf(systemPath) } : null
+  const bundled = { path: process.execPath, version: process.versions.node }
+  const bundledActive = IN_ELECTRON && Boolean(RUNTIME_NODE_ENV.ELECTRON_RUN_AS_NODE)
+  const effective = !IN_ELECTRON
+    ? { kind: 'system', path: process.execPath, version: process.versions.node }
+    : bundledActive
+      ? { kind: 'bundled', path: process.execPath, version: process.versions.node }
+      : { kind: 'system', path: RUNTIME_NODE, version: nodeVersionOf(RUNTIME_NODE) }
+  const requirement = nodeRequirementForInstalled()
+  const pending = IN_ELECTRON && (configured !== effective.kind
+    || (configured === 'system' && system && !fileManager.samePath(effective.path, system.path)))
+  const below = (version) => Boolean(requirement && version && cmpVer(parseVer(version), parseVer(requirement)) < 0)
+  return {
+    selectable: IN_ELECTRON,
+    configured,
+    configuredPath,
+    bundled,
+    system,
+    effective,
+    pending,
+    requirement,
+    systemTooOld: below(system?.version),
+    effectiveTooOld: below(effective.version),
+  }
 }
 
 function assertLauncherIdle() {
@@ -6646,6 +6782,11 @@ export async function startServer() {
   LAN_TOGGLE = lanBindToggleOn(homeDir(), PROFILE_NAME)
   if (CLI_ARGS.length) pushLog(`DSH.exe 传入启动参数：${CLI_ARGS.join(' ')}`)
   const stored = await loadSettings()
+  // 跑 dsh 的 node 不是自带的 Electron 时记一笔：出问题时日志里能看出用的是哪个
+  if (IN_ELECTRON && !RUNTIME_NODE_ENV.ELECTRON_RUN_AS_NODE) {
+    const version = nodeVersionOf(RUNTIME_NODE)
+    pushLog(`跑 dsh 的 node：${RUNTIME_NODE}${version ? `（v${version}）` : ''}`)
+  }
   // 钉死端口的实例表：启动、重启都读它（页面改这张表走 /api/instance-port）
   INSTANCE_PORTS = safeInstancePorts(stored.instancePorts)
   ENVIRONMENT_PORTS = safeEnvironmentPorts(stored.environmentPorts)

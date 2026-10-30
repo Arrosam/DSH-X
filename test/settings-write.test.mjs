@@ -32,3 +32,13 @@ test('保存期间读取不会碰到半截 JSON 而回退默认设置', async ()
   assert.ok((await writes).every((result) => result.status === 'fulfilled'))
   assert.equal((await loadSettings()).args, '--test=19')
 })
+
+test('跑 dsh 的 node：只认两档，路径去掉粘贴带上的引号', async () => {
+  const saved = await saveSettings({ nodeRuntime: 'SYSTEM', systemNodePath: '  "C:\\Program Files\\nodejs\\node.exe"  ' })
+  assert.equal(saved.nodeRuntime, 'system')
+  assert.equal(saved.systemNodePath, 'C:\\Program Files\\nodejs\\node.exe')
+  const dirty = await saveSettings({ nodeRuntime: 'weird', systemNodePath: '' })
+  assert.equal(dirty.nodeRuntime, 'bundled')
+  assert.equal(dirty.systemNodePath, '')
+})
+
