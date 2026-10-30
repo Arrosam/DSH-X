@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { cmpVer, currentRegistry, describeNpmFailure, installSpec, listPackage, optimizeDependencies, parsePnpmProgress, parseVer } from './registry.js'
 import pkg from './package.json' with { type: 'json' }
-import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionChannel, versionInChannel } from './version.js'
+import { VERSION_CHANNEL, VERSION_CHANNELS, channelIncludes, effectiveChannel, versionChannel, versionInChannel } from './version.js'
 import { createLogWriter } from './log-writer.js'
 import { createStartupDiagnosis } from './startup-diagnosis.js'
 import { bindDiagnosis, checkedRepairPlan, profileFingerprint } from './repair-plan.js'
@@ -129,7 +129,7 @@ import {
 // 带代理的 fetch：Node 的全局 fetch 既不看系统代理也不看 HTTP_PROXY，外网请求都走 netFetch
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
 import { APP_DIR, fileManager } from './filemanager.js'
-import { checkCoreUpdate, downloadCoreTarball, extractCoreTarball, stagingExists, stagingStats } from './core-npm.js'
+import { checkCoreUpdate, checkCoreUpdateAny, downloadCoreTarball, extractCoreTarball, stagingExists, stagingStats } from './core-npm.js'
 import { IN_ELECTRON, IS_LINUX, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, NPM_MODE, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
 
 const execFileAsync = promisify(execFile)
@@ -241,6 +241,8 @@ let host = {
   openWindow: (url) => { process.stdout.write(`${OPEN_SIGNAL} ${url}\n`) },
   /** 收尾之后结束服务。外壳同进程时由它决定怎么退（先关窗口、托盘），默认直接退进程。 */
   exit: (code = 0) => process.exit(code),
+  /** 桌面通知（任务完成 / 失败）。浏览器外壳没有这条通道，默认什么都不做。 */
+  notify: () => {},
 }
 const logs = []
 /**
@@ -251,6 +253,8 @@ const logs = []
  * 插件树按 profile 各是各的。同一个组合再点一次启动只会拿回已经在跑的那个。
  */
 const instances = new Map()
+/** 退出 / 换核心时的收尾阶段：这期间实例退出是预期内的，不用发通知。 */
+let shuttingDown = false
 // 删除环境与启动不能穿插：启动准备期间还没 child，也要算作占用这份 profile。
 const startingProfiles = new Set()
 const maintainingProfiles = new Set()
@@ -1344,6 +1348,17 @@ async function publicSettings() {
     reduceMotion: REDUCE_MOTION,
     hideBackground: HIDE_BACKGROUND,
     hideBigFish: HIDE_BIG_FISH,
+    // 桌面端系统开关的当前值。外壳直接读 settings.json（见 shell/prefs.mjs），这里只是给页面回显；
+    // shellPrefs 表明当前外壳懂这组设置（旧外壳不认，页面据此提示更新）。
+    hardwareAcceleration: stored.hardwareAcceleration !== false,
+    acceptPrerelease: stored.acceptPrerelease === true,
+    autoUpdate: stored.autoUpdate === true,
+    taskNotifications: stored.taskNotifications !== false,
+    notificationSound: stored.notificationSound !== false,
+    closeToTray: stored.closeToTray !== false,
+    keepAwake: stored.keepAwake === true,
+    shellPrefs: process.env.DSH_SHELL_PREFS === '1',
+    desktopShell: shellWindowHost(),
     // Web 绑定：设置值 + 插件开关是否压着它（页面要如实说明当前生效的是哪一个）
     webBind: WEB_BIND,
     webBindLan: LAN_TOGGLE,
@@ -1773,6 +1788,13 @@ async function saveManagerSettings(body) {
     ...('reduceMotion' in body ? { reduceMotion: body.reduceMotion === true } : {}),
     ...('hideBackground' in body ? { hideBackground: body.hideBackground === true } : {}),
     ...('hideBigFish' in body ? { hideBigFish: body.hideBigFish === true } : {}),
+    ...('hardwareAcceleration' in body ? { hardwareAcceleration: body.hardwareAcceleration !== false } : {}),
+    ...('acceptPrerelease' in body ? { acceptPrerelease: body.acceptPrerelease === true } : {}),
+    ...('autoUpdate' in body ? { autoUpdate: body.autoUpdate === true } : {}),
+    ...('taskNotifications' in body ? { taskNotifications: body.taskNotifications !== false } : {}),
+    ...('notificationSound' in body ? { notificationSound: body.notificationSound !== false } : {}),
+    ...('closeToTray' in body ? { closeToTray: body.closeToTray !== false } : {}),
+    ...('keepAwake' in body ? { keepAwake: body.keepAwake === true } : {}),
     ...('autoStart' in body ? { autoStart: Boolean(body.autoStart) } : {}),
     ...('pluginMarketSources' in body ? { pluginMarketSources: safePluginMarketSources(body.pluginMarketSources) } : {}),
     ...('autoDisablePlugins' in body ? { autoDisablePlugins: body.autoDisablePlugins !== false } : {}),
@@ -1849,6 +1871,16 @@ async function saveManagerSettings(body) {
       ? '装新版本后自动清理旧版本'
       : '不再自动清理旧版本（已装版本全部保留）')
   }
+  if ('acceptPrerelease' in body) {
+    // 换了更新通道要重新问一次远端，否则页面拿到的还是缓存里正式版的结果
+    selfCache = { at: 0, data: null }
+    appUpdateCache = { at: 0, data: null }
+    pushLog(stored.acceptPrerelease ? '启动器更新改为跟随预览版（RC / Alpha）' : '启动器更新只跟随正式版')
+  }
+  if ('hardwareAcceleration' in body) {
+    pushLog(stored.hardwareAcceleration ? 'Chrome 硬件加速已开启，重启启动器后生效' : 'Chrome 硬件加速已关闭，重启启动器后生效')
+  }
+  if ('keepAwake' in body) pushLog(stored.keepAwake ? '已阻止系统空闲休眠' : '不再阻止系统空闲休眠')
   // profile 立即生效：插件页、启动参数、npmrc 都读这个变量（已经在跑的 dsh 不受影响）
   EXTRA_ARGS = composeExtraArgs(stored.args)
   WEB_BIND = safeWebBind(stored.webBind)
@@ -3011,9 +3043,95 @@ async function checkSelfUpdate({ force = false } = {}) {
 let stagedApp = null
 let pendingAppUpdate = null
 let appUpdateCache = { at: 0, data: null }
+/** 自动更新与页面可能同时操作：下载并到同一份，应用只允许开一次（换了目录进程就退出了）。 */
+let appDownloadInFlight = null
+let appApplyStarted = false
 /** 完整安装包自更新的测试通道：DSH_UPDATE_VERSION 当最新版本。 */
 const TEST_UPDATE_VERSION = String(process.env.DSH_UPDATE_VERSION || '').trim().replace(/^v/i, '')
 const APP_UPDATE_CACHE_MS = 30 * 60 * 1000
+
+/** 下载核心增量包到暂存目录（自动更新与页面共用；并发由 appDownloadInFlight 合并）。 */
+async function downloadAppUpdate() {
+  const data = await checkAppUpdate({ force: true })
+  if (!data.available) {
+    throw new Error(data.reason === 'electron' ? 'Electron 版本不同，需要完整安装包' : '当前没有可用的核心更新')
+  }
+  if (stagedApp && stagedApp.version === data.version && stagingExists(stagedApp.dir)) {
+    return { ok: true, version: stagedApp.version, reused: true }
+  }
+  const tarball = join(tmpdir(), `DSH-X-core-${data.version}-${process.pid}.tgz`)
+  const result = await downloadCoreTarball(pendingAppUpdate.tarball, tarball, {
+    integrity: pendingAppUpdate.integrity,
+    shasum: pendingAppUpdate.shasum,
+    onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'app', done, total }),
+  })
+  const staging = join(tmpdir(), `DSH-X-core-${data.version}-${process.pid}`)
+  try {
+    const pkg = extractCoreTarball(tarball, staging)
+    if (String(pkg.version) !== String(data.version)) throw new Error(`核心包版本不一致：${pkg.version} != ${data.version}`)
+  } finally {
+    rmSync(tarball, { force: true })
+  }
+  stagedApp = { version: data.version, dir: staging }
+  pushLog(`核心更新已就绪：${data.version}（${(result.bytes / 1048576).toFixed(1)} MB），等用户确认后替换`)
+  emit('selfUpdate', { phase: 'app-ready', latest: data.version })
+  return { ok: true, version: data.version }
+}
+
+/**
+ * 换上暂存的核心并重启外壳。调用前由路由确认过「只开一次」；成功时进程很快会退出，
+ * 所以返回值只是给调用方一个响应。
+ */
+async function applyAppUpdate() {
+  if (!stagedApp || !stagingExists(stagedApp.dir)) throw new Error('还没有下载好的应用更新')
+  const stats = stagingStats(stagedApp.dir)
+  if (stats.files < 100) throw new Error('暂存目录不完整，重新下载一次')
+  const activeCore = join(APP_DIR, 'core', 'current')
+  if (fileManager.samePath(ROOT, activeCore)) {
+    // 已经在用户目录：助手等外壳退出 → 备份 → 换入 → 重启 → 等 update-ok，失败回滚
+    const helper = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.mjs`)
+    copyFileSync(join(ROOT, 'apply-update.mjs'), helper)
+    const child = spawn(RUNTIME_NODE, [helper,
+      '--app', ROOT,
+      '--staged', stagedApp.dir,
+      // AppImage 的 process.execPath 是挂载目录里的临时二进制，重启要用 APPIMAGE 本身
+      '--exe', process.env.APPIMAGE || process.execPath,
+      '--pid', String(process.pid),
+      '--backup', `${ROOT}.bak-${APP_VERSION}`,
+      '--marker', join(APP_DIR, 'update-ok'),
+      '--log', join(APP_DIR, 'update.log'),
+    ], {
+      cwd: tmpdir(),
+      env: { ...process.env, ...RUNTIME_NODE_ENV },
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    child.unref()
+    pushLog(`核心更新：替换助手已启动（${stagedApp.version}），启动器即将退出`)
+    setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
+    return { ok: true, version: stagedApp.version }
+  }
+  // 内置基线：复制到用户目录，写 pending 标记；外壳下次启动优先加载 current，
+  // 起不来（外壳里的 recoverBaseline）会删掉 current 回退到基线
+  const pending = join(APP_DIR, 'core', 'pending')
+  const version = stagedApp.version
+  const stagedDir = stagedApp.dir
+  await rm(activeCore, { recursive: true, force: true })
+  await mkdir(dirname(activeCore), { recursive: true })
+  await cp(stagedDir, activeCore, { recursive: true })
+  stagedApp = null
+  try { rmSync(stagedDir, { recursive: true, force: true }) } catch { /* 临时目录清不掉不影响 */ }
+  writeFileSync(pending, JSON.stringify({ version, at: Date.now() }))
+  pushLog(`核心更新：已复制到 ${activeCore}（${version}），重启外壳`)
+  // 不能直接 spawn DSH.exe：当前进程还占着单实例锁，新进程会立刻退出。
+  // 外壳的 host.relaunch 用 app.relaunch()，等本进程退出后才拉起新外壳。
+  setTimeout(() => shutdown().finally(() => {
+    if (typeof host.relaunch === 'function') host.relaunch()
+    else host.exit(0)
+  }), 200)
+  return { ok: true, version }
+}
 
 /** 安装器建的两个快捷方式（用户取消勾选时可能不存在）。 */
 function shortcutLinks() {
@@ -3087,11 +3205,22 @@ async function checkAppUpdate({ force = false } = {}) {
   const latest = APP_VERSION
   let result
   try {
-    result = await checkCoreUpdate({
-      current: APP_VERSION,
-      source: UPDATE_SOURCE,
-      channel: versionChannel(APP_VERSION) || VERSION_CHANNEL.OFFICIAL,
-    })
+    // 接受预览版时把 rc / alpha 也算进来，取其中最高的；否则只跟当前版本所在通道。
+    // 通道选择跟着当前版本走（rc 版只收 rc / alpha），不凭空让正式版用户吃 alpha。
+    const acceptPrerelease = loadSettingsSync().acceptPrerelease === true
+    if (acceptPrerelease) {
+      // 从当前版本所在通道一路看到 Alpha：正式版用户也能收到 rc / alpha。
+      // channelIncludes(候选, 当前) 的含义是「候选通道收不收当前这个版本」，正是这里要的方向。
+      const base = versionChannel(APP_VERSION) || VERSION_CHANNEL.OFFICIAL
+      const channels = VERSION_CHANNELS.filter((channel) => channelIncludes(channel, base))
+      result = await checkCoreUpdateAny({ current: APP_VERSION, source: UPDATE_SOURCE, channels })
+    } else {
+      result = await checkCoreUpdate({
+        current: APP_VERSION,
+        source: UPDATE_SOURCE,
+        channel: versionChannel(APP_VERSION) || VERSION_CHANNEL.OFFICIAL,
+      })
+    }
   } catch (error) {
     return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
   }
@@ -4412,6 +4541,17 @@ async function terminateProcess(proc) {
   return false
 }
 
+/**
+ * 任务通知：实例启动完成 / 启动失败 / 意外退出。文案由外壳按当前语言拼（外壳知道 lang，
+ * 也掌管 Notification 与提示音开关），这里只给结构化事实。
+ */
+function notifyInstance(kind, proc, extra = {}) {
+  if (shuttingDown) return
+  try {
+    host.notify({ kind, name: launchNameOf(proc), version: proc.version, profile: proc.profile, ...extra })
+  } catch { /* 通知失败不能影响实例本身 */ }
+}
+
 function attachProcess(version, profile, child, diagnosticContext) {
   const key = instanceKey(version, profile)
   let ready
@@ -4484,6 +4624,7 @@ function attachProcess(version, profile, child, diagnosticContext) {
       scheduleDiagnosis()
       proc.readyAt = performance.now()
       ready()
+      notifyInstance('started', proc)
       emitState()
     }
   }
@@ -4507,6 +4648,10 @@ function attachProcess(version, profile, child, diagnosticContext) {
     proc.exit = { code, signal }
     ready()
     pushLog(`${tag}已退出 code=${code ?? '-'} signal=${signal ?? '-'}`)
+    // 没拿到就绪地址 = 启动失败；用户主动停止（stopping）不打扰
+    if (proc.status !== 'stopping') {
+      notifyInstance(proc.url ? 'exited' : 'failed', proc, { code, signal })
+    }
     if (instances.get(key)?.child === child) {
       instances.delete(key)
       lastHealth = null
@@ -5903,31 +6048,11 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/self/app-download') {
     // 核心更新：从 npm 下载 tarball → 校验 sha512 → 解到暂存目录；进度复用 selfUpdate 事件
     try {
-      const data = await checkAppUpdate({ force: true })
-      if (!data.available) {
-        throw new Error(data.reason === 'electron' ? 'Electron 版本不同，需要完整安装包' : '当前没有可用的核心更新')
+      // 自动更新与页面可能同时发起：并到同一份下载上，免得两个 tarball 抢同一个暂存目录
+      if (!appDownloadInFlight) {
+        appDownloadInFlight = downloadAppUpdate().finally(() => { appDownloadInFlight = null })
       }
-      if (stagedApp && stagedApp.version === data.version && stagingExists(stagedApp.dir)) {
-        send(res, 200, { ok: true, version: stagedApp.version, reused: true })
-        return
-      }
-      const tarball = join(tmpdir(), `DSH-X-core-${data.version}-${process.pid}.tgz`)
-      const result = await downloadCoreTarball(pendingAppUpdate.tarball, tarball, {
-        integrity: pendingAppUpdate.integrity,
-        shasum: pendingAppUpdate.shasum,
-        onProgress: ({ done, total }) => emit('selfUpdate', { phase: 'download', kind: 'app', done, total }),
-      })
-      const staging = join(tmpdir(), `DSH-X-core-${data.version}-${process.pid}`)
-      try {
-        const pkg = extractCoreTarball(tarball, staging)
-        if (String(pkg.version) !== String(data.version)) throw new Error(`核心包版本不一致：${pkg.version} != ${data.version}`)
-      } finally {
-        rmSync(tarball, { force: true })
-      }
-      stagedApp = { version: data.version, dir: staging }
-      pushLog(`核心更新已就绪：${data.version}（${(result.bytes / 1048576).toFixed(1)} MB），等用户确认后替换`)
-      emit('selfUpdate', { phase: 'app-ready', latest: data.version })
-      send(res, 200, { ok: true, version: data.version })
+      send(res, 200, await appDownloadInFlight)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       pushLog(`核心更新下载失败：${message}`)
@@ -5939,56 +6064,15 @@ async function handleApi(req, res, url) {
     // 核心增量：内置基线 → 复制到用户目录 core/current，重启外壳（外壳优先加载它）；
     // 已经在 core/current → 替换助手等外壳退出后原地换目录，失败回滚。
     try {
-      if (!stagedApp || !stagingExists(stagedApp.dir)) throw new Error('还没有下载好的应用更新')
-      const stats = stagingStats(stagedApp.dir)
-      if (stats.files < 100) throw new Error('暂存目录不完整，重新下载一次')
-      const activeCore = join(APP_DIR, 'core', 'current')
-      if (fileManager.samePath(ROOT, activeCore)) {
-        // 已经在用户目录：助手等外壳退出 → 备份 → 换入 → 重启 → 等 update-ok，失败回滚
-        const helper = join(tmpdir(), `dsh-x-apply-${process.pid}-${randomBytes(4).toString('hex')}.mjs`)
-        copyFileSync(join(ROOT, 'apply-update.mjs'), helper)
-        const child = spawn(RUNTIME_NODE, [helper,
-          '--app', ROOT,
-          '--staged', stagedApp.dir,
-          // AppImage 的 process.execPath 是挂载目录里的临时二进制，重启要用 APPIMAGE 本身
-          '--exe', process.env.APPIMAGE || process.execPath,
-          '--pid', String(process.pid),
-          '--backup', `${ROOT}.bak-${APP_VERSION}`,
-          '--marker', join(APP_DIR, 'update-ok'),
-          '--log', join(APP_DIR, 'update.log'),
-        ], {
-          cwd: tmpdir(),
-          env: { ...process.env, ...RUNTIME_NODE_ENV },
-          detached: true,
-          stdio: 'ignore',
-          windowsHide: true,
-        })
-        child.unref()
-        pushLog(`核心更新：替换助手已启动（${stagedApp.version}），启动器即将退出`)
-        send(res, 200, { ok: true, version: stagedApp.version })
-        setTimeout(() => shutdown().finally(() => host.exit(0)), 200)
+      // 已经开过一次（自动更新和页面同时触发）：重复替换会把刚换好的目录再挪一遍
+      if (appApplyStarted) {
+        send(res, 200, { ok: true, already: true })
         return
       }
-      // 内置基线：复制到用户目录，写 pending 标记；外壳下次启动优先加载 current，
-      // 起不来（外壳里的 recoverBaseline）会删掉 current 回退到基线
-      const pending = join(APP_DIR, 'core', 'pending')
-      const version = stagedApp.version
-      const stagedDir = stagedApp.dir
-      await rm(activeCore, { recursive: true, force: true })
-      await mkdir(dirname(activeCore), { recursive: true })
-      await cp(stagedDir, activeCore, { recursive: true })
-      stagedApp = null
-      try { rmSync(stagedDir, { recursive: true, force: true }) } catch { /* 临时目录清不掉不影响 */ }
-      writeFileSync(pending, JSON.stringify({ version, at: Date.now() }))
-      pushLog(`核心更新：已复制到 ${activeCore}（${version}），重启外壳`)
-      send(res, 200, { ok: true, version })
-      // 不能直接 spawn DSH.exe：当前进程还占着单实例锁，新进程会立刻退出。
-      // 外壳的 host.relaunch 用 app.relaunch()，等本进程退出后才拉起新外壳。
-      setTimeout(() => shutdown().finally(() => {
-        if (typeof host.relaunch === 'function') host.relaunch()
-        else host.exit(0)
-      }), 200)
+      appApplyStarted = true
+      send(res, 200, await applyAppUpdate())
     } catch (error) {
+      appApplyStarted = false
       const message = error instanceof Error ? error.message : String(error)
       pushLog(`核心更新失败：${message}`)
       send(res, 400, { error: message })
@@ -6991,6 +7075,7 @@ export async function startServer() {
 }
 
 export async function stopAll() {
+  shuttingDown = true
   // 退出可能发生在端口探测或设置落盘期间；禁止尚未 spawn 的后台启动在收尾后复活。
   startupGeneration++
   // 退出前也要确认子进程真没了：原来杀完就 clear，taskkill 没生效时 dsh 就成了没有父进程的

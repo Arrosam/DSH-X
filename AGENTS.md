@@ -118,6 +118,14 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - `perf/plugin-profile.mjs` 是**插件体检**：正常启动时用 V8 采样（CPU 1ms / 堆分配 64KB）按包统计启动期开销，稳定后写到 `<APP_DIR>/plugin-profile/<版本>@<profile>.json`；管理页实例行的「明细」读它。
   它靠 `perf/patch-hooks.mjs` 给 Cordis loader 的两个锚点注入 `enter/imported`（缺一个就整段跳过，启动不受影响）；只给 `bootOnce` 拉起的实例启用，插件命令 / AI 修复不写报告。
 
+### 桌面端系统开关（设置页「常规 → 系统」）
+
+- 七个键（`hardwareAcceleration` / `acceptPrerelease` / `autoUpdate` / `taskNotifications` / `notificationSound` / `closeToTray` / `keepAwake`）存在 `settings.json`，**外壳直接读文件**（`shell/prefs.mjs`），不走管理页接口：外壳和核心分开更新，读同一份文件避免协议版本问题。默认值在 `settings.js` 的 `DEFAULTS` 与 `prefs.mjs` 的 `PREF_DEFAULTS` 两处，**必须一致**。
+- `hardwareAcceleration` 在 `app.disableHardwareAcceleration()` 前读，必须在 app ready 之前决定（改完重启启动器才生效）；其余开关由每 1.5s 的托盘轮询按 mtime 重读后实时应用。
+- `DSH_SHELL_PREFS=1` 由 `shell/env.mjs` 写入，`/api/settings` 的 `shellPrefs` 据此告诉页面外壳认不认这组键（旧外壳不认，页面把整组禁用并提示更新）。
+- 任务通知：`server.js` 在实例就绪 / 启动失败 / 意外退出时调 `host.notify`（结构化字段），文案、`Notification`、提示音都在外壳里；本机页面的 `notifications` 权限也按 `taskNotifications` 放行。
+- 自动更新：外壳层走 electron-updater（`updater.configure` 控制预览版通道），核心层由外壳调 `/api/self/app-download` → `/api/self/app-apply`；**只在没有 running / starting 实例时安装**，有实例时发一次提醒并等它们停止。两个下载/应用接口都做了并发护栏（`appDownloadInFlight` / `appApplyStarted`），页面与自动更新同时触发也只会执行一次。
+- 这组功能是**外壳**能力：只改核心不会到达用户，发包时要 bump `shell/package.json` 并重打安装包。
 
 ### 核心更新（core-npm.js / apply-update.mjs）
 

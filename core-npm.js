@@ -85,6 +85,24 @@ export async function checkCoreUpdate({ current, source = 'official', channel = 
   return { available: Boolean(next && cur && cmpVer(next, cur) > 0), current, latest: release.version, release }
 }
 
+/**
+ * 一次元数据查询里看多个通道，取高于当前版本里最高的那个（「接受预览版」开关用）。
+ * 只查一次 registry：三个 dist-tag 在同一份文档里，分三次查纯属浪费。
+ */
+export async function checkCoreUpdateAny({ current, source = 'official', channels = [], signal } = {}) {
+  const metadata = await fetchCoreMetadata({ registry: coreRegistry(source), signal })
+  const cur = parseVer(current)
+  let best = null
+  for (const channel of channels) {
+    const release = resolveCoreRelease(metadata, channel)
+    const next = release ? parseVer(release.version) : null
+    if (!next || !cur || cmpVer(next, cur) <= 0) continue
+    if (!best || cmpVer(next, parseVer(best.version)) > 0) best = release
+  }
+  if (!best) return { available: false, current, latest: '' }
+  return { available: true, current, latest: best.version, release: best }
+}
+
 /** 下载 tarball，边下边算 sha512；有 integrity 就按 npm 的 SRI 校验，否则退回 sha1。 */
 export async function downloadCoreTarball(url, dest, { integrity = '', shasum = '', signal, onProgress, limit = CORE_MAX_BYTES } = {}) {
   if (!url) throw new Error('核心包没有下载地址')

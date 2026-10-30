@@ -269,6 +269,21 @@ export const DEFAULTS = {
   reduceMotion: false,
   hideBackground: false,
   hideBigFish: false,
+  // ---- 桌面端系统开关（Electron 外壳直接读 settings.json，见 shell/prefs.mjs）----
+  // Chromium 硬件加速：关闭能规避显卡/驱动导致的白屏与闪退，代价是动画更吃 CPU，重启生效
+  hardwareAcceleration: true,
+  // 启动器的更新通道（核心 npm 包与外壳都算）：收 rc / alpha，不再只跟正式版
+  acceptPrerelease: false,
+  // 发现更新就自动下载；没有 dsh 实例在跑时直接装上并重启
+  autoUpdate: false,
+  // dsh 实例启动完成 / 启动失败时发桌面通知（外壳实现）
+  taskNotifications: true,
+  // 通知是否带提示音；关掉只影响启动器自己发的通知
+  notificationSound: true,
+  // 关窗口 = 隐藏到托盘（开着才有后台实例可找回）；关掉就是真退出
+  closeToTray: true,
+  // 阻止系统空闲休眠（跑长任务时用）
+  keepAwake: false,
   downloadSource: DEFAULT_SOURCE,
   // 启动器更新的下载源：direct（默认）/ mirror（国内加速）
   updateSource: DEFAULT_UPDATE_SOURCE,
@@ -790,6 +805,14 @@ async function saveSettingsNow(patch) {
   merged.reduceMotion = merged.reduceMotion === true
   merged.hideBackground = merged.hideBackground === true
   merged.hideBigFish = merged.hideBigFish === true
+  // 桌面端系统开关：只认布尔，脏值回默认（true 的两个用 !== false，其余 === true）
+  merged.hardwareAcceleration = merged.hardwareAcceleration !== false
+  merged.acceptPrerelease = merged.acceptPrerelease === true
+  merged.autoUpdate = merged.autoUpdate === true
+  merged.taskNotifications = merged.taskNotifications !== false
+  merged.notificationSound = merged.notificationSound !== false
+  merged.closeToTray = merged.closeToTray !== false
+  merged.keepAwake = merged.keepAwake === true
   // 同 webBind：脏值顺手修回默认（回环），显式改绑定方式时才把错误抛给调用方
   try {
     merged.webBind = safeWebBind(merged.webBind)

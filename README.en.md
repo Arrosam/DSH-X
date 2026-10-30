@@ -34,6 +34,7 @@ DSH-X is a third-party desktop launcher for DeepSeek Harness: launch entries, mu
 - **Opening modes**: tabs inside DSH-X, a system browser tab, standalone browser window or desktop window.
 - **Appearance**: light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.
 - **Updates and recovery**: self-update, profile recovery and configurable old-version retention; each launch entry's current and previous versions are kept additionally.
+- **Desktop system switches**: hardware acceleration, preview updates, automatic download and install, task notifications and sound, hide to tray on close, and keep-awake.
 - **Windows / macOS / Linux**: a Windows installer, Apple Silicon / Intel dmgs, plus a Linux AppImage and deb (macOS 13+), with tray / menu bar operation and launch at login, plus bundled npm / pnpm wrappers.
 
 Feedback: **QQ group [993579665](https://qm.qq.com/q/7AD2g70HqS)**

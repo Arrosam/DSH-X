@@ -15,7 +15,11 @@ const showEnd = html.indexOf('    const openModeEl', showStart)
 const translate = (text, vars = {}) => Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, v), text)
 function ui() {
   assert.notEqual(showStart, -1, '开关旁有持久化结果显示逻辑')
-  const context = { savedSystemPath: false, systemPathEl: {}, systemPathHint: {}, t: translate }
+  const context = {
+    savedSystemPath: false, systemPathEl: {}, systemPathHint: {}, t: translate,
+    // 系统开关（硬件加速 / 更新通道 / 通知 / 托盘）和 PATH 无关：给 flushSettings 一份空桩
+    systemPrefRows: [], savedSystemPrefs: {}, showSystemPrefs() {},
+  }
   vm.runInNewContext(html.slice(showStart, showEnd), context)
   return context
 }

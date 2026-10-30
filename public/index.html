@@ -302,6 +302,61 @@
                 </label>
 
               </div>
+              <!-- 桌面端系统开关：外壳直接读 settings.json（shell/prefs.mjs）。硬件加速要重启，
+                   其余由外壳每 1.5 秒的轮询实时跟上；浏览器里打开管理页时整组不可用。 -->
+              <div class="set-caption" data-i18n="系统">系统</div>
+              <div class="set-group">
+                <label class="toggle set-row">
+                  <span class="set-text">
+                    <span class="set-name" data-i18n="Chrome 硬件加速">Chrome 硬件加速</span>
+                    <span class="set-desc" data-i18n="关闭后可规避部分显卡或驱动导致的白屏、闪退、渲染异常。修改后需重启应用生效。">关闭后可规避部分显卡或驱动导致的白屏、闪退、渲染异常。修改后需重启应用生效。</span>
+                  </span>
+                  <input id="hardwareAcceleration" type="checkbox" />
+                </label>
+                <label class="toggle set-row">
+                  <span class="set-text">
+                    <span class="set-name" data-i18n="接受提前收到预览版更新">接受提前收到预览版更新</span>
+                    <span class="set-desc" data-i18n="开启后跟随 RC / Alpha 通道，更快用上新功能；关闭后只跟正式版。">开启后跟随 RC / Alpha 通道，更快用上新功能；关闭后只跟正式版。</span>
+                  </span>
+                  <input id="acceptPrerelease" type="checkbox" />
+                </label>
+                <label class="toggle set-row">
+                  <span class="set-text">
+                    <span class="set-name" data-i18n="自动下载并安装更新">自动下载并安装更新</span>
+                    <span class="set-desc" data-i18n="检测到更新会自动下载；没有 dsh 实例在跑时安装并重启，有实例时等它们停止后再装。">检测到更新会自动下载；没有 dsh 实例在跑时安装并重启，有实例时等它们停止后再装。</span>
+                  </span>
+                  <input id="autoUpdate" type="checkbox" />
+                </label>
+                <label class="toggle set-row">
+                  <span class="set-text">
+                    <span class="set-name" data-i18n="任务通知">任务通知</span>
+                    <span class="set-desc" data-i18n="dsh 实例启动完成、启动失败或意外退出时发送桌面通知；dsh 与插件的通知请求也按这个开关放行。">dsh 实例启动完成、启动失败或意外退出时发送桌面通知；dsh 与插件的通知请求也按这个开关放行。</span>
+                  </span>
+                  <input id="taskNotifications" type="checkbox" />
+                </label>
+                <label class="toggle set-row">
+                  <span class="set-text">
+                    <span class="set-name" data-i18n="通知声音">通知声音</span>
+                    <span class="set-desc" data-i18n="通知开启后，可单独关闭任务通知的提示音。">通知开启后，可单独关闭任务通知的提示音。</span>
+                  </span>
+                  <input id="notificationSound" type="checkbox" />
+                </label>
+                <label class="toggle set-row">
+                  <span class="set-text">
+                    <span class="set-name" data-i18n="关闭窗口时隐藏到托盘">关闭窗口时隐藏到托盘</span>
+                    <span class="set-desc" data-i18n="开启时点击关闭按钮隐藏窗口，托盘里的退出仍会完全退出应用；关闭时点关闭即退出（正在运行的 dsh 会停止）。Linux 没有系统托盘时总是关闭即退出。">开启时点击关闭按钮隐藏窗口，托盘里的退出仍会完全退出应用；关闭时点关闭即退出（正在运行的 dsh 会停止）。Linux 没有系统托盘时总是关闭即退出。</span>
+                  </span>
+                  <input id="closeToTray" type="checkbox" />
+                </label>
+                <label class="toggle set-row">
+                  <span class="set-text">
+                    <span class="set-name" data-i18n="保持电脑运行">保持电脑运行</span>
+                    <span class="set-desc" data-i18n="阻止系统因空闲进入休眠（仍可手动睡眠 / 合盖休眠）。">阻止系统因空闲进入休眠（仍可手动睡眠 / 合盖休眠）。</span>
+                  </span>
+                  <input id="keepAwake" type="checkbox" />
+                </label>
+              </div>
+              <p class="hint" id="systemPrefsHint" role="status" aria-live="polite"></p>
             </section>
             <section class="set-section" data-category="appearance" aria-labelledby="settingsAppearanceTitle" hidden>
               <div class="set-label" id="settingsAppearanceTitle" data-i18n="外观">外观</div>
@@ -1314,6 +1369,23 @@
   "隐藏水面背景，使用主题纯色底色。": "Hide the water background and use the theme's solid color.",
   "关闭大肥鱼": "Hide the big fish",
   "隐藏主界面左下角的大肥鱼。": "Hide the big fish in the lower-left corner of the home screen.",
+  "系统": "System",
+  "Chrome 硬件加速": "Chrome hardware acceleration",
+  "关闭后可规避部分显卡或驱动导致的白屏、闪退、渲染异常。修改后需重启应用生效。": "Turn off to work around white screens, crashes and rendering glitches caused by some GPUs or drivers. Restart the app to apply.",
+  "接受提前收到预览版更新": "Receive preview updates early",
+  "开启后跟随 RC / Alpha 通道，更快用上新功能；关闭后只跟正式版。": "Follow the RC / Alpha channels for new features sooner. Turn off to follow stable releases only.",
+  "自动下载并安装更新": "Download and install updates automatically",
+  "检测到更新会自动下载；没有 dsh 实例在跑时安装并重启，有实例时等它们停止后再装。": "Updates download automatically. They install and restart the launcher when no dsh instance is running; otherwise they wait until every instance stops.",
+  "任务通知": "Task notifications",
+  "dsh 实例启动完成、启动失败或意外退出时发送桌面通知；dsh 与插件的通知请求也按这个开关放行。": "Show a desktop notification when a dsh instance is ready, fails to start, or exits unexpectedly. Notification requests from dsh and plugins follow this switch too.",
+  "通知声音": "Notification sound",
+  "通知开启后，可单独关闭任务通知的提示音。": "Play a sound with task notifications. Turn off to keep them silent.",
+  "关闭窗口时隐藏到托盘": "Hide to tray when closing the window",
+  "开启时点击关闭按钮隐藏窗口，托盘里的退出仍会完全退出应用；关闭时点关闭即退出（正在运行的 dsh 会停止）。Linux 没有系统托盘时总是关闭即退出。": "When on, the close button hides the window and Quit from the tray still exits fully. When off, closing quits and stops any running dsh instances. Without a system tray on Linux, closing always quits.",
+  "保持电脑运行": "Keep the computer awake",
+  "阻止系统因空闲进入休眠（仍可手动睡眠 / 合盖休眠）。": "Prevent the system from sleeping while idle. Manual sleep and closing the lid still work.",
+  "当前外壳版本还不支持这些开关，更新 DSH-X 后可用。": "This shell version does not support these switches yet. Update DSH-X to use them.",
+  "这些开关在 DSH-X 桌面端里生效；浏览器里打开管理页时不可用。": "These switches only apply in the DSH-X desktop app; they are unavailable when the manager is opened in a browser.",
   "设置启动器的启动方式、界面语言，以及 dsh 的插件与启动配置。": "Choose how the launcher starts and which language it uses, plus dsh's plugin and startup settings.",
   "端口、网络与版本目录。": "Ports, network, and version storage.",
   "当前启动器服务尚未更新，请重启启动器后重试。": "The launcher service has not updated yet. Restart the launcher and try again.",
@@ -6108,6 +6180,19 @@
     }
     const autoDisableEl = document.getElementById('autoDisable')
     const autoCleanEl = document.getElementById('autoCleanVersions')
+    // 桌面端系统开关。外壳直接读 settings.json（shell/prefs.mjs），这里的勾选只是回显与保存；
+    // 没跑在认识这些键的外壳里时整组禁用（见 showSystemPrefsAvailability）。
+    const systemPrefRows = [
+      ['hardwareAcceleration', document.getElementById('hardwareAcceleration')],
+      ['acceptPrerelease', document.getElementById('acceptPrerelease')],
+      ['autoUpdate', document.getElementById('autoUpdate')],
+      ['taskNotifications', document.getElementById('taskNotifications')],
+      ['notificationSound', document.getElementById('notificationSound')],
+      ['closeToTray', document.getElementById('closeToTray')],
+      ['keepAwake', document.getElementById('keepAwake')],
+    ]
+    const systemPrefsHintEl = document.getElementById('systemPrefsHint')
+    const savedSystemPrefs = {}
     let pluginProfile = ''
     const pluginHomeEl = document.getElementById('pluginHome')
     const PLUGIN_HOME_MANAGE = '__manage__'
@@ -6386,6 +6471,27 @@
     }
     showPanelTransparency(savedPanelTransparency)
 
+    /**
+     * 桌面端系统开关：回显 + 可用性。外壳不认这组键（旧外壳）或根本没跑在桌面端时整组禁用，
+     * 并说明是哪种情况——别让用户以为勾上就生效。
+     */
+    function showSystemPrefs(data) {
+      for (const [key, input] of systemPrefRows) {
+        if (!(key in data)) continue
+        savedSystemPrefs[key] = data[key] === true
+        if (!pendingSettings.has(key)) input.checked = savedSystemPrefs[key]
+      }
+      // fillSettings 也会被 /api/state 的外观推送调用（只带主题那几项）：没有能力字段时
+      // 不要动可用性，否则每次状态推送都会把这一组误判成「浏览器里打开」再禁用
+      if (!('desktopShell' in data) && !('shellPrefs' in data)) return
+      const supported = data.desktopShell === true && data.shellPrefs === true
+      for (const [, input] of systemPrefRows) input.disabled = !supported
+      systemPrefsHintEl.textContent = supported ? ''
+        : data.desktopShell === true
+          ? t('当前外壳版本还不支持这些开关，更新 DSH-X 后可用。')
+          : t('这些开关在 DSH-X 桌面端里生效；浏览器里打开管理页时不可用。')
+    }
+
     function fillSettings(data) {
       if ('args' in data) argsEl.value = String(data.args ?? '')
       if ('lang' in data) uiLangEl.value = data.lang === 'en' ? 'en' : 'zh'
@@ -6486,6 +6592,7 @@
       if ('pluginMarketSources' in data) pluginMarketSourcesEl.value = data.pluginMarketSources.join('\n')
       if ('autoDisablePlugins' in data) autoDisableEl.checked = data.autoDisablePlugins !== false
       if ('autoCleanVersions' in data) autoCleanEl.checked = data.autoCleanVersions !== false
+      showSystemPrefs(data)
       syncUiSelects()
     }
 
@@ -6580,6 +6687,7 @@
             apply(savedVisualSettings[key])
           }
         }
+        if (systemPrefRows.some(([key]) => key in patch)) showSystemPrefs(data)
         if ('dataDir' in patch && !pendingSettings.has('dataDir') && document.activeElement !== dataDirEl) {
           dataDirEl.value = String(data.dataDir ?? patch.dataDir)
           dataDirHint.textContent = t('仅用于新安装的版本，已有版本不迁移。', { home: data.dshHome || '~/.dsh' })
@@ -6599,6 +6707,8 @@
           settingsHint.textContent = data.nodeRuntimeInfo?.pending ? t('已保存。重启启动器后生效。') : ''
         } else if ('openMode' in patch) {
           settingsHint.textContent = t('已保存。下次打开 dsh 就走新的方式。')
+        } else if ('hardwareAcceleration' in patch) {
+          settingsHint.textContent = t('已保存。重启启动器后生效。')
         } else if ('dataDir' in patch && data.dataDir && normDir(data.dataDir) !== normDir(patch.dataDir)) {
           settingsHint.textContent = t('已保存。版本目录已改为 {dir}（立即生效）；已安装的版本不会自动迁移，需要就手动复制过去。', { dir: data.dataDir })
         } else {
@@ -6627,6 +6737,11 @@
           input.checked = savedVisualSettings[key]
           apply(savedVisualSettings[key])
         }
+        // 系统开关保存失败：勾选回到最近一次成功保存的值（不做乐观回滚会让人以为已经生效）
+        for (const [key, input] of systemPrefRows) {
+          if (!(key in patch) || pendingSettings.has(key)) continue
+          input.checked = savedSystemPrefs[key] === true
+        }
         settingsHint.textContent = error.message
       } finally {
         settingSaveRunning = false
@@ -6642,6 +6757,9 @@
     autoStartEl.onchange = () => queueSetting('autoStart', autoStartEl.checked)
     autoDisableEl.onchange = () => queueSetting('autoDisablePlugins', autoDisableEl.checked)
     autoCleanEl.onchange = () => queueSetting('autoCleanVersions', autoCleanEl.checked)
+    for (const [key, input] of systemPrefRows) {
+      input.onchange = () => queueSetting(key, input.checked)
+    }
     uiLangEl.onchange = () => queueSetting('lang', uiLangEl.value)
     sourceEl.onchange = () => {
       // 提示行跟着换；设置交给自动保存，切完下一次查版本/下载就走新源

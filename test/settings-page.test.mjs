@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
 const css = readFileSync(new URL('../public/launcher.css', import.meta.url), 'utf8')
+const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
 
 /** 页面里那段没有打包器的内联脚本（改设置页时最容易碰坏它）。 */
 const inlineScripts = () => {
@@ -66,8 +67,18 @@ test('顶栏四个 tab 已取消，设置分类在左侧导航，主页右上角
   )
   assert.ok(!/profileEl/.test(html), 'profile 选择器的脚本也一并撤掉')
   assert.match(html, /section\.hidden = section\.dataset\.category !== nextCategory/, '切换分类只显示对应设置')
+  // 齿轮在设置与主界面之间切面板（设置不再开独立标签页：多一页渲染进程就多一百多兆）
   assert.match(html, /gearEl\.onclick = \(\) => showPane\(currentPane !== 'control' \? 'control' : 'settings', currentSettingsCategory\)/, '齿轮在设置与主界面间切换')
+  assert.doesNotMatch(html, /settings-page|openSettingsTab/, '不再有「设置单独一页」那套')
   assert.match(html, /const paneLoaders = \{[^}]*plugins: loadPlugins[^}]*mcp: loadMcp[^}]*\}/, '进面板时才按需加载')
+})
+
+test('设置页左侧导航靠底色和内容区分开，不画分隔线', () => {
+  const theme = readFileSync(new URL('../public/theme.css', import.meta.url), 'utf8')
+  assert.match(css, /\.settings-nav \{[^}]*background: var\(--settings-nav-bg\)/, '导航有自己的底色')
+  assert.doesNotMatch(css, /\.settings-nav \{[^}]*border-right/, '不再画中间那条线')
+  assert.match(css, /--settings-nav-bg: #/, '亮色有一档导航底色')
+  assert.match(theme, /--settings-nav-bg: #/, '暗色也有一档，别和内容区同色')
 })
 
 test('设置改变后自动提交，目录留空时拒绝提交', () => {
@@ -186,5 +197,33 @@ test('设置页有「复制自检请求」按钮：路径问技能清单，复�
   const dict = new vm.Script(`(${html.match(/const EN = (\{[\s\S]*?\n\})/)[1]})`).runInNewContext()
   for (const key of ['复制自检请求', '让 AI 给环境做体检', '复制自检指令，发给 AI 检查环境。', '用 dsh-x-selfcheck 技能跑一次体检，命令：']) {
     assert.ok(dict[key], `「${key.slice(0, 12)}…」有英文`)
+  }
+})
+
+test('外观跟着状态推送走：设置标签里换主题，管窗口的那一页不用刷新也能跟上', () => {
+  // 外观在 /api/state 里带一份，页面收到推送就同步（原来只有设置页自己变，别的页要整页刷新）
+  assert.match(server, /appearance: \{[\s\S]{0,220}?theme: THEME[\s\S]{0,220}?hideBigFish: HIDE_BIG_FISH/, '状态里带外观：主题/透明度/减少动效/背景')
+  assert.match(html, /if \(data\.appearance && typeof data\.appearance === 'object'\) fillSettings\(data\.appearance\)/, '页面收到状态就同步外观')
+  // 复用 fillSettings 那条已有路径（含 pendingSettings 保护），别另写一份换主题的逻辑
+  assert.match(html, /if \('theme' in data\) \{[\s\S]{0,220}?window\.setLauncherTheme\(savedTheme\)/, 'fillSettings 里换主题那一条还在')
+})
+
+test('常规的系统组有七个桌面端开关，成败都按服务端回值回显', () => {
+  // 键名和 shell/prefs.mjs / settings.js 的 DEFAULTS 是同一组，别在页面里改名
+  const ids = ['hardwareAcceleration', 'acceptPrerelease', 'autoUpdate', 'taskNotifications', 'notificationSound', 'closeToTray', 'keepAwake']
+  for (const id of ids) {
+    assert.match(html, new RegExp(`<input id="${id}" type="checkbox" />`), `${id} 是复选框`)
+    assert.match(html, new RegExp(`\\['${id}', document\\.getElementById\\('${id}'\\)\\]`), `${id} 进 systemPrefRows`)
+  }
+  assert.match(html, /<section class="set-section" data-category="general"[\s\S]*?<div class="set-caption" data-i18n="系统">系统<\/div>/, '系统组在常规里')
+  assert.match(html, /input\.onchange = \(\) => queueSetting\(key, input\.checked\)/, '开关走统一保存链路')
+  assert.match(html, /if \(systemPrefRows\.some\(\(\[key\]\) => key in patch\)\) showSystemPrefs\(data\)/, '保存后用服务端归一化后的值回显')
+  assert.match(html, /input\.checked = savedSystemPrefs\[key\] === true/, '保存失败回滚到最近一次成功的值')
+  // 旧外壳 / 浏览器里整组禁用并说明原因（能力字段只在完整设置里，外观推送不带）
+  assert.match(html, /if \(!\('desktopShell' in data\) && !\('shellPrefs' in data\)\) return/, '外观推送不能把整组误禁用')
+  assert.match(html, /data\.desktopShell === true && data\.shellPrefs === true/, '能力判断用两个字段')
+  const dict = new vm.Script(`(${html.match(/const EN = (\{[\s\S]*?\n\})/)[1]})`).runInNewContext()
+  for (const key of ['系统', 'Chrome 硬件加速', '接受提前收到预览版更新', '自动下载并安装更新', '任务通知', '通知声音', '关闭窗口时隐藏到托盘', '保持电脑运行']) {
+    assert.ok(dict[key], `「${key}」有英文`)
   }
 })

@@ -53,6 +53,10 @@ export function createUpdater({ onBeforeInstall, version } = {}) {
   if (enabled) {
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
+    // 当前外壳自己就是预发布版时必须继续收预发布，否则等于把自己的通道降级了
+    // （和 electron-updater 对 currentVersion 的默认判断一致）
+    const currentIsPrerelease = String(version || app.getVersion()).includes('-')
+    autoUpdater.allowPrerelease = currentIsPrerelease
     if (process.env.DSH_UPDATE_FEED) {
       autoUpdater.setFeedURL({ provider: 'generic', url: process.env.DSH_UPDATE_FEED })
     }
@@ -86,6 +90,24 @@ export function createUpdater({ onBeforeInstall, version } = {}) {
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    /**
+     * 设置页的「接受预览版更新」：allowPrerelease 决定 GitHub provider 会不会看 rc / alpha 的发布。
+     * 通道变了就清掉旧结果（页面别还挂着正式版的结论），由调用方重新 check。
+     */
+    configure({ allowPrerelease } = {}) {
+      if (!enabled) return snapshot()
+      const currentIsPrerelease = String(version || app.getVersion()).includes('-')
+      const next = Boolean(allowPrerelease) || currentIsPrerelease
+      if (next === autoUpdater.allowPrerelease) return snapshot()
+      autoUpdater.allowPrerelease = next
+      if (['idle', 'current', 'available', 'error'].includes(state.status)) {
+        state.status = 'idle'
+        state.latest = ''
+        state.error = ''
+        emit()
+      }
+      return snapshot()
     },
     async check() {
       if (!enabled) return snapshot()

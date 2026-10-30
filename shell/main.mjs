@@ -1,12 +1,13 @@
 // 必须是第一个 import：它在核心（server.js）求值之前补好 PATH 和外壳标记（见 env.mjs）
 import './env.mjs'
-import { BrowserWindow, Menu, Tray, WebContentsView, app, dialog, ipcMain, nativeImage, nativeTheme, session, shell } from 'electron'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { BrowserWindow, Menu, Notification, Tray, WebContentsView, app, dialog, ipcMain, nativeImage, nativeTheme, powerSaveBlocker, session, shell } from 'electron'
+import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BrowserTabs } from './tabs.mjs'
 import { createUpdater } from './updater.mjs'
+import { readPrefs } from './prefs.mjs'
 import { dataUrl, errorPage, idlePage } from './pages.mjs'
 import {
   LAUNCH_ACTIONS,
@@ -107,6 +108,21 @@ let tray = null
 let trayMenuKey = ''
 let state = parseTrayState('')
 let quitting = false
+/** 外壳创建在 start 里，设置再生效也要能改它的通道（见 applyPrefs）。 */
+let updater = null
+
+/**
+ * 设置文件（核心写的）与其中的系统开关。外壳直接读它，不经过管理页接口——外壳和核心
+ * 分开更新，读同一份文件才不会有协议版本问题（见 prefs.mjs）。
+ */
+const PREFS_FILE = join(APP_DIR, 'settings.json')
+let prefs = readPrefs(PREFS_FILE)
+/** settings.json 的 mtime：轮询里只在文件变了才重新读。 */
+let prefsStamp = 0
+
+// 硬件加速必须在 app ready 之前决定（Chromium 启动后再关无效）。
+// 用户用「关掉硬件加速」规避显卡/驱动导致的白屏、闪退，重启启动器才生效。
+if (prefs.hardwareAcceleration === false) app.disableHardwareAcceleration()
 
 /** 外壳版本：源码运行（npm run electron）时 app.getVersion() 是 Electron 的版本，所以自己读 shell/package.json。 */
 const VERSION = JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).version
@@ -160,6 +176,171 @@ function relaunchApp() {
   if (process.env.APPIMAGE) app.relaunch({ execPath: process.env.APPIMAGE })
   else app.relaunch()
   app.exit(0)
+}
+
+// ---- 设置文件里的系统开关（硬件加速在文件顶部处理，其余在这里实时跟随）----
+
+/** 保住系统不进入空闲休眠的 blocker 句柄；null = 没开。 */
+let powerBlocker = null
+
+function syncKeepAwake() {
+  if (prefs.keepAwake && powerBlocker === null) {
+    try { powerBlocker = powerSaveBlocker.start('prevent-app-suspension') } catch { powerBlocker = null }
+  } else if (!prefs.keepAwake && powerBlocker !== null) {
+    try { powerSaveBlocker.stop(powerBlocker) } catch { /* 已经停了 */ }
+    powerBlocker = null
+  }
+}
+
+/** settings.json 变了才重读：轮询每 1.5s 跑一次，不能每次都解析一遍文件。 */
+function refreshPrefs() {
+  let stamp
+  try { stamp = statSync(PREFS_FILE).mtimeMs } catch { return }
+  if (stamp === prefsStamp) return
+  prefsStamp = stamp
+  const next = readPrefs(PREFS_FILE)
+  const changed = Object.keys(next).filter((key) => next[key] !== prefs[key])
+  prefs = next
+  if (!changed.length) return
+  syncKeepAwake()
+  if (updater && changed.includes('acceptPrerelease')) {
+    updater.configure({ allowPrerelease: prefs.acceptPrerelease })
+    void updater.check()
+  }
+  if (changed.includes('autoUpdate') && prefs.autoUpdate) void autoUpdateTick()
+}
+
+/**
+ * 桌面通知（任务完成 / 失败 / 更新就绪）。taskNotifications 关掉就完全不发；
+ * notificationSound 关掉只是静音，不影响通知本身。
+ */
+function notifyUser(title, body) {
+  if (!prefs.taskNotifications || !Notification.isSupported()) return
+  try {
+    const notification = new Notification({ title, body, icon: ICON_FILE, silent: !prefs.notificationSound })
+    notification.on('click', () => showManager())
+    notification.show()
+  } catch { /* 系统没有通知服务（Linux 缺后端等）时安静跳过 */ }
+}
+
+/** 核心（server.js）在实例启动完成 / 失败 / 意外退出时调过来；文案在这里按界面语言拼。 */
+function notifyInstance(event) {
+  const en = state.lang === 'en'
+  const label = event.name || [event.profile, event.version].filter(Boolean).join(' · ') || 'DSH'
+  if (event.kind === 'started') {
+    notifyUser(en ? 'DSH is ready' : 'DSH 已就绪', en ? `${label} is running.` : `${label} 已启动，可以打开界面了。`)
+    return
+  }
+  const code = event.code === undefined || event.code === null ? '' : ` (code ${event.code})`
+  if (event.kind === 'failed') {
+    notifyUser(en ? 'DSH failed to start' : 'DSH 启动失败', en ? `${label} exited during startup${code}.` : `${label} 在启动阶段退出${code}。`)
+    return
+  }
+  if (event.kind === 'exited') {
+    notifyUser(en ? 'DSH exited' : 'DSH 已退出', en ? `${label} stopped unexpectedly${code}.` : `${label} 意外退出${code}。`)
+  }
+}
+
+// ---- 自动下载并安装更新 ----
+// 两层各自更新：核心走 npm（server.js 的 /api/self/app-download|app-apply），外壳走 electron-updater。
+// 共同规则：只在没有 dsh 实例运行时动手（安装要重启启动器，实例会跟着停）；有实例时先提醒一次，
+// 等实例停了再装。
+
+const AUTO_UPDATE_INTERVAL_MS = 60 * 1000
+/** 同一个版本的就绪提醒只发一次。 */
+const autoUpdateNotified = new Set()
+let coreAutoBusy = false
+let coreAutoLastAt = 0
+let shellAutoDownloading = false
+let shellAutoInstalling = false
+
+function liveInstances() {
+  return (state.instances || []).filter((item) => item.status === 'running' || item.status === 'starting')
+}
+
+function notifyUpdateReady(version, layer) {
+  const key = `${layer}:${version}`
+  if (autoUpdateNotified.has(key)) return
+  autoUpdateNotified.add(key)
+  const en = state.lang === 'en'
+  notifyUser(
+    en ? 'Update ready' : '更新已就绪',
+    en ? `${version || 'The new version'} will install after all DSH instances stop.`
+      : `${version || '新版本'} 已下载，等所有 dsh 实例停止后自动安装。`,
+  )
+}
+
+/** 管理服务的本机请求：自动更新用，超时按下载量给。 */
+async function managerRequest(path, { method = 'GET', timeout = 30_000 } = {}) {
+  const res = await fetch(`${managerUrl()}${path}`, {
+    method,
+    body: method === 'POST' ? '{}' : undefined,
+    signal: AbortSignal.timeout(timeout),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+  return data
+}
+
+/** 核心（npm）自动更新：有更新就下（下载不打扰用户），空闲才换；有实例在跑就等下一轮。 */
+async function autoUpdateTick() {
+  if (!prefs.autoUpdate || !server || quitting || coreAutoBusy) return
+  if (!managerBase) return
+  if (Date.now() - coreAutoLastAt < AUTO_UPDATE_INTERVAL_MS - 5000) return
+  coreAutoLastAt = Date.now()
+  coreAutoBusy = true
+  try {
+    const self = await managerRequest('api/self')
+    const target = self.appStaged || (self.app?.available ? self.app.latest : '')
+    if (!target) return
+    if (!self.appStaged) {
+      // 下载期间可能有人点了启动：下载完再确认一次，别在用户干活时重启
+      await managerRequest('api/self/app-download', { method: 'POST', timeout: 180_000 })
+    }
+    if (liveInstances().length) {
+      notifyUpdateReady(target, 'core')
+      return
+    }
+    // 下载期间用户可能把开关关了：这时候别再自作主张重启
+    if (!prefs.autoUpdate) return
+    console.log(`自动更新：安装核心 ${target}`)
+    await managerRequest('api/self/app-apply', { method: 'POST' })
+  } catch (error) {
+    console.log(`自动更新失败：${error?.message || error}`)
+  } finally {
+    coreAutoBusy = false
+  }
+}
+
+/** 外壳（electron-updater）自动更新：下载完且空闲就直接安装。下载由 updater 的订阅触发。 */
+async function downloadShellUpdate() {
+  if (!prefs.autoUpdate || !updater || shellAutoDownloading) return
+  shellAutoDownloading = true
+  try {
+    await updater.download()
+  } catch (error) {
+    console.log(`外壳自动更新下载失败：${error?.message || error}`)
+  } finally {
+    shellAutoDownloading = false
+  }
+}
+
+async function maybeInstallShellUpdate(snapshot = updater?.state()) {
+  if (!prefs.autoUpdate || !updater || quitting || shellAutoInstalling) return
+  if (!snapshot || snapshot.status !== 'ready') return
+  if (liveInstances().length) {
+    notifyUpdateReady(snapshot.latest || snapshot.current, 'shell')
+    return
+  }
+  shellAutoInstalling = true
+  console.log(`自动更新：安装外壳 ${snapshot.latest || snapshot.current || ''}`)
+  try {
+    const started = await updater.install()
+    if (!started) shellAutoInstalling = false
+  } catch (error) {
+    shellAutoInstalling = false
+    console.log(`外壳自动更新失败：${error?.message || error}`)
+  }
 }
 
 // 浏览器数据（cookie、站点权限、缓存）放在每用户目录下，和 Rust 外壳的 DSH/webview 并排；
@@ -234,12 +415,20 @@ async function start() {
   }
   // 核心已经成功启动：新版本通过验收，清掉「待验证」标记
   try { rmSync(join(APP_DIR, 'core', 'pending'), { force: true }) } catch { /* ignore */ }
-  const updater = createUpdater({
+  updater = createUpdater({
     version: VERSION,
     onBeforeInstall: async () => {
       quitting = true
       await server.shutdown()
     },
+  })
+  // 预览版通道要在第一次 check 之前定好；之后设置页改了由 refreshPrefs 再 configure
+  updater.configure({ allowPrerelease: prefs.acceptPrerelease })
+  // 自动更新：发现更新就下载；下载完且没有 dsh 实例在跑时直接安装（有实例就等，见 maybeInstallShellUpdate）
+  updater.subscribe((snapshot) => {
+    if (!prefs.autoUpdate) return
+    if (snapshot.status === 'available') void downloadShellUpdate()
+    else if (snapshot.status === 'ready') void maybeInstallShellUpdate(snapshot)
   })
   server.setHost({
     onWake: async () => showManager(),
@@ -255,10 +444,16 @@ async function start() {
       install: () => updater.install(),
     },
     onShellUpdateState: (listener) => updater.subscribe(listener),
+    // 实例启动完成 / 失败 / 意外退出：核心把事实交给外壳，通知文案和提示音由这里决定
+    notify: (event) => notifyInstance(event),
   })
 
   // 启动时也查一次外壳更新（不阻塞窗口）；页面从 /api/self 的 shell 状态和 SSE 拿结果
   void updater.check()
+  syncKeepAwake()
+  // 自动更新（核心 npm 层）：文件顶部没有实例时会立刻检查/安装；之后每分钟看一眼
+  setTimeout(() => void autoUpdateTick(), 15_000)
+  setInterval(() => void autoUpdateTick(), AUTO_UPDATE_INTERVAL_MS)
 
   createMainWindow()
   createTray()
@@ -293,10 +488,12 @@ function createMainWindow() {
   })
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('close', (event) => {
-    // 关窗口不退出：托盘还在、dsh 照常跑，需要时从托盘或程序坞再叫回来
+    // 关窗口不退出：托盘还在、dsh 照常跑，需要时从托盘或程序坞再叫回来。
+    // 设置里关掉「关闭窗口时隐藏到托盘」、或者托盘根本没建起来时，关窗口就是真退出。
     if (quitting) return
     event.preventDefault()
-    mainWindow.hide()
+    if (prefs.closeToTray && tray) mainWindow.hide()
+    else void quit()
   })
   mainWindow.on('resize', () => tabs?.layout())
   guardManager(mainWindow.webContents)
@@ -401,7 +598,8 @@ function handleManagerMessage(message) {
     // macOS 用系统红绿灯：最小化 / 最大化 / 关闭按钮页面不画（.mac-window 隐藏了），这里照样接住
     case 'minimize': mainWindow.minimize(); return
     case 'maximize': toggleMaximize(mainWindow); return
-    case 'close': mainWindow.hide(); return
+    // 走 close() 让窗口的 close 处理决定「隐藏到托盘还是退出」（Windows 的自绘关闭按钮也走这里）
+    case 'close': mainWindow.close(); return
     // 拖窗口走 CSS 的 -webkit-app-region（public/launcher.css 的 .electron-window header）：Chromium 没有
     // 「从页面里发起一次系统拖动」的接口，页面在 mousedown 时发的 drag 这里无事可做
     case 'drag': return
@@ -564,14 +762,25 @@ function appMenu() {
 /**
  * ⌘W：标签条显示时由管理页 / 标签页的 before-input-event 先接住（关标签）；
  * 走到菜单这里说明没有标签可关，就把当前窗口藏起来。
+ * 主窗口走 close()，让 createMainWindow 的 close 处理统一决定「隐藏还是退出」（关掉托盘开关时是退出）。
  */
 function closeWindow(window) {
-  window?.hide()
+  if (!window) return
+  if (window === mainWindow) window.close()
+  else window.hide()
 }
 
 function createTray() {
   const image = nativeImage.createFromPath(TRAY_ICON_FILE).resize({ width: TRAY_ICON_POINTS, height: TRAY_ICON_POINTS, quality: 'best' })
-  tray = new Tray(image)
+  // Linux 缺 appindicator / 桌面环境没有托盘时 Tray 会抛：别让整个外壳起不来，
+  // 记成没有托盘（关窗口就真退出，见 createMainWindow 的 close）
+  try {
+    tray = new Tray(image)
+  } catch (error) {
+    tray = null
+    console.log(`系统托盘不可用，关窗口将直接退出：${error?.message || error}`)
+    return
+  }
   tray.setToolTip('DSH-X')
   // Windows 托盘点左键叫回管理页（右键才是菜单）；macOS 点菜单栏图标默认弹菜单，不抢。
   if (IS_WINDOWS) tray.on('click', () => showManager())
@@ -606,6 +815,8 @@ function syncTrayMenu() {
 
 /** 每隔一会儿取一次状态：托盘文案、标签页、独立窗口都跟着它走。 */
 async function pollTray() {
+  // 设置页改完就落盘：文件变了才重读，硬件加速之外的开关都实时生效
+  refreshPrefs()
   try {
     // 核心就在本进程里：优先直接取，省掉每 1.5s 一次的本机 HTTP + JSON 解析。
     // 旧核心没有这个导出时退回原接口，核心仍然可以独立于外壳更新。
@@ -620,6 +831,11 @@ async function pollTray() {
 function applyState(next) {
   state = next
   syncTrayMenu()
+  // 自动更新：实例都停了就把已经下好的更新装上；核心层再顺手看一眼有没有新的
+  if (prefs.autoUpdate && !liveInstances().length) {
+    void maybeInstallShellUpdate()
+    void autoUpdateTick()
+  }
   // dsh 重启后地址（端口、token）会变：独立窗口跟着选中的实例换页，不能被后来启动的另一项抢走
   if (dshWindow) {
     if (!dshWindow.instanceId && dshWindow.page) {
@@ -658,7 +874,7 @@ async function trayAction(body) {
 
 /**
  * 权限：dsh 的语音输入要麦克风。只放行本机地址的 media 请求，并用原生对话框问一次；
- * 其余权限（通知、地理位置……）一律拒绝——这些页面都是本机工具，不需要。
+ * 通知按设置里的「任务通知」开关放行；其余权限（地理位置……）一律拒绝——这些页面都是本机工具，不需要。
  */
 function installPermissionHandlers() {
   const ses = session.defaultSession
@@ -668,6 +884,12 @@ function installPermissionHandlers() {
     // 一律拒绝的话 writeText 直接失败，页面只能退回「选中再复制」那条死路
     if (permission === 'clipboard-sanitized-write' && isLoopbackUrl(origin)) {
       callback(true)
+      return
+    }
+    // 通知：dsh 页面 / 插件要发桌面通知时按「任务通知」开关放行。
+    // 关掉时一律拒绝，页面会退回它自己的页面内提示——和浏览器里「不允许通知」一个效果。
+    if (permission === 'notifications' && isLoopbackUrl(origin)) {
+      callback(prefs.taskNotifications)
       return
     }
     if (permission !== MEDIA_PERMISSION || !isLoopbackUrl(origin)) {

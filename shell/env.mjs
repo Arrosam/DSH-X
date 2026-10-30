@@ -88,3 +88,6 @@ if (!process.env.DSH_RUNTIME_NODE) {
 // internalTabsHost）。同进程，所以直接写自己的环境变量。
 process.env.DSH_APP_WINDOW = '1'
 process.env.DSH_INTERNAL_TABS = '1'
+// 这个外壳认设置文件里的系统开关（硬件加速 / 更新通道 / 通知 / 托盘 / 防休眠，见 prefs.mjs）。
+// 旧外壳没有这个标记，管理页据此把那一组开关标成「更新后可用」，而不是假装它们已经生效。
+process.env.DSH_SHELL_PREFS = '1'

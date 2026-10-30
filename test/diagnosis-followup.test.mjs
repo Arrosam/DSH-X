@@ -34,6 +34,8 @@ test('ready后跨块警告按实例发布，普通日志不广播，退出和重
     setTimeout, clearTimeout, DIAGNOSIS_UPDATE_DELAY: 10,
     READY_RE: /dsh web: (http:\/\/\S+)/,
     emitState: () => { broadcasts += 1 }, lastHealth: null,
+    // 实例启动 / 退出的桌面通知（host.notify）另测；这里只跑诊断，不关心通知
+    notifyInstance() {},
   }
   const begin = server.indexOf('function attachProcess(')
   const end = server.indexOf('\n/**', begin)
