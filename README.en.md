@@ -1,10 +1,6 @@
 <p align="center">
-  <a href="https://github.com/yyh-001/DSH-X">
-    <img src="docs/icon-app.png" width="96" alt="DSH-X" />
-  </a>
+  <img src="docs/hero-en.png" alt="DSH-X" width="880" />
 </p>
-
-<h1 align="center">DSH-X</h1>
 
 <p align="center">
   A third-party desktop launcher for <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> —<br />
@@ -33,10 +29,6 @@
 
 <p align="center">
   <samp><a href="https://yyh-001.github.io/DSH-X/">Website</a> · <a href="https://github.com/yyh-001/DSH-X/releases/latest">Download</a> · <a href="docs/releases">Changelog</a> · <a href="CONTRIBUTING.en.md">Contributing</a> · <strong>English</strong> · <a href="README.md">中文</a></samp>
-</p>
-
-<p align="center">
-  <img src="docs/hero-en.png" alt="DSH-X" width="880" />
 </p>
 
 > [!IMPORTANT]

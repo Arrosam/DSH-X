@@ -1,10 +1,6 @@
 <p align="center">
-  <a href="https://github.com/yyh-001/DSH-X">
-    <img src="docs/icon-app.png" width="96" alt="DSH-X" />
-  </a>
+  <img src="docs/hero.png" alt="DSH-X" width="880" />
 </p>
-
-<h1 align="center">DSH-X</h1>
 
 <p align="center">
   <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> 的第三方桌面启动器 ——<br />
@@ -33,10 +29,6 @@
 
 <p align="center">
   <samp><a href="https://yyh-001.github.io/DSH-X/">主页</a> · <a href="https://github.com/yyh-001/DSH-X/releases/latest">下载</a> · <a href="docs/releases">更新日志</a> · <a href="CONTRIBUTING.md">参与贡献</a> · <a href="README.en.md">English</a> · <strong>中文</strong></samp>
-</p>
-
-<p align="center">
-  <img src="docs/hero.png" alt="DSH-X" width="880" />
 </p>
 
 > [!IMPORTANT]
