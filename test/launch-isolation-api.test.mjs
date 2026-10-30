@@ -1,6 +1,6 @@
 /**
  * 启动项保存接口的隔离引导配套：body.ensureProfile 在目标目录里补建缺失的 Profile。
- * 页面「新建启动项」的 Profile 隔离 / 完全隔离两档只填名字和目录，Profile 由服务端在这里一次建好，
+ * 页面「新建启动项」的插件隔离 / 会话隔离两档只填名字和目录，Profile 由服务端在这里一次建好，
  * 免得页面先建 Profile 再存启动项、两步之间失败留下半截环境。
  */
 import assert from 'node:assert/strict'
@@ -15,11 +15,11 @@ test.after(() => env.cleanup())
 const save = (body) => env.call('/api/launch-presets', body)
 const profileManifest = (home, name) => join(home, 'profiles', name, 'package.json')
 
-test('Profile 隔离：ensureProfile 在全局目录补建 Profile，启动项落在默认目录', async () => {
+test('插件隔离：ensureProfile 在全局目录补建 Profile，启动项落在默认目录', async () => {
   const result = await save({ name: '隔离测试', version: 'auto', profile: 'work', dshHome: '', ensureProfile: true })
   assert.ok(result.ok, `保存失败：HTTP ${result.status} ${JSON.stringify(result.data)}`)
   assert.equal(result.data.entry.profile, 'work')
-  assert.equal('dshHome' in result.data.entry, false, 'Profile 隔离用全局目录，不写 dshHome')
+  assert.equal('dshHome' in result.data.entry, false, '插件隔离用全局目录，不写 dshHome')
 
   const manifest = JSON.parse(readFileSync(profileManifest(env.home, 'work'), 'utf8'))
   assert.equal(manifest.name, 'dsh-profile-work')
@@ -30,7 +30,7 @@ test('Profile 隔离：ensureProfile 在全局目录补建 Profile，启动项�
   assert.ok((state.launchPresets || []).some((entry) => entry.id === result.data.entry.id), '启动项要真的存进状态')
 })
 
-test('完全隔离：Profile 建在与启动项相同的独立目录里', async () => {
+test('会话隔离：Profile 建在与启动项相同的独立目录里', async () => {
   const home = join(env.root, 'iso-home')
   const result = await save({ name: '独立目录', version: 'auto', profile: 'work2', dshHome: home, ensureProfile: true })
   assert.ok(result.ok, `保存失败：HTTP ${result.status} ${JSON.stringify(result.data)}`)
@@ -46,7 +46,7 @@ test('不带 ensureProfile 时保持老行为：Profile 不存在就报错，不
   assert.ok(!(state.launchPresets || []).some((entry) => entry.name === '老行为'), '失败的请求不能留下启动项')
 })
 
-test('隔离方式记忆：设置接口存取上次选的档，认不出的值回 Profile 隔离', async () => {
+test('隔离方式记忆：设置接口存取上次选的档，认不出的值回插件隔离', async () => {
   const saved = await env.call('/api/settings', { launchIsolation: 'home' })
   assert.ok(saved.ok, `保存失败：HTTP ${saved.status} ${JSON.stringify(saved.data)}`)
   assert.equal(saved.data.launchIsolation, 'home')

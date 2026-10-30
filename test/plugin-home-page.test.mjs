@@ -7,7 +7,7 @@ const page = readFileSync(new URL('../public/index.html', import.meta.url), 'utf
 const section = (from, to) => page.slice(page.indexOf(from), page.indexOf(to, page.indexOf(from)))
 
 function panel() {
-  const nodes = { pluginHome: {}, pluginHomeHint: {}, pluginHomesDialog: { hidden: true }, pluginHomesList: { querySelectorAll: () => [] }, pluginHomesAdd: {}, pluginHomesError: {}, pluginHomesClose: {} }
+  const nodes = { pluginHome: {}, pluginHomesDialog: { hidden: true }, pluginHomesList: { querySelectorAll: () => [] }, pluginHomesAdd: {}, pluginHomesError: {}, pluginHomesClose: {} }
   const pending = []
   const context = vm.createContext({
     state: { dshHome: 'C:/global', profiles: ['web', 'global-only'], launchPresets: [
