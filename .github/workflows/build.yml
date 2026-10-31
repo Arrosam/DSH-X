@@ -116,7 +116,8 @@ jobs:
 
       - name: 跑测试
         if: steps.probe.outputs.ready == 'yes'
-        run: npm test
+        # arm64 runner 只有 3 核：默认按核数并发会同时拉一堆假 dsh，启动等在 120s 边缘抖动
+        run: npm test -- --test-concurrency=2
 
       - name: 导入固定 macOS 签名证书
         if: steps.probe.outputs.ready == 'yes'
