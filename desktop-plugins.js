@@ -18,6 +18,10 @@
  *
  * `minDsh` 是插件 dsh.compatibility.dsh 的下限；同一版本的预发布（0.2.1-rc.4）算满足。
  */
+/** 插件页里把这三个插件当成一组「整合包」显示时用的 id / 名字（没有真实安装记录）。 */
+export const DESKTOP_ENHANCE_ID = 'dsh-x-desktop-enhance'
+export const DESKTOP_ENHANCE_NAME = '桌面增强'
+
 export const DESKTOP_PLUGINS = Object.freeze([
   { name: 'dsh-x-desktop-notify', spec: '0.1.1', label: '原生通知', minDsh: '0.2.0' },
   { name: 'dsh-x-context-menu', spec: '0.1.1', label: '右键菜单', minDsh: '0.2.0' },

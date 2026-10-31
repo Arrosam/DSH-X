@@ -16,7 +16,7 @@ import pkg from './package.json' with { type: 'json' }
 import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionChannel, versionInChannel } from './version.js'
 import { createLogWriter } from './log-writer.js'
 import { createStartupDiagnosis } from './startup-diagnosis.js'
-import { DESKTOP_PLUGINS, versionAtLeast } from './desktop-plugins.js'
+import { DESKTOP_ENHANCE_ID, DESKTOP_ENHANCE_NAME, DESKTOP_PLUGINS, versionAtLeast } from './desktop-plugins.js'
 import { bindDiagnosis, checkedRepairPlan, profileFingerprint } from './repair-plan.js'
 import { DiagnosticRepairs, verificationSummary } from './repair-actions.js'
 import { recordedChanges } from './repair-evidence.js'
@@ -4128,10 +4128,23 @@ function packsPayload() {
       continue
     }
     const thirdParty = plugins.filter((plugin) => !plugin.official)
-    const records = state.packs.filter((record) => record.profile === profile)
+    const realRecords = state.packs.filter((record) => record.profile === profile)
+    // 桌面增强的三个插件在插件页里也当成一组「整合包」显示；它不是真实安装记录，
+    // 只借 groupPackPlugins 的分组，卸载 / 安装走设置页那一套。
+    const hasDesktop = DESKTOP_PLUGINS.some((one) => plugins.some((plugin) => plugin.name === one.name))
+    const records = hasDesktop
+      ? [...realRecords, {
+        name: DESKTOP_ENHANCE_ID,
+        displayName: DESKTOP_ENHANCE_NAME,
+        version: '',
+        bundles: DESKTOP_PLUGINS.map((plugin) => plugin.name),
+        dependencies: Object.fromEntries(DESKTOP_PLUGINS.map((plugin) => [plugin.name, plugin.spec])),
+        synthetic: true,
+      }]
+      : realRecords
     // 用户新建的空环境也需要在插件页管理；尚未初始化的模板不占列表。
     if (!existsSync(join(profilesRoot, profile, 'package.json')) && !records.length) continue
-    const latest = records.length ? records[records.length - 1] : null
+    const latest = realRecords.length ? realRecords[realRecords.length - 1] : null
     cards.push({
       profile,
       // 卡片标题就是 profile 名（dsh 和插件页的 profile 切换器都这么叫它）
@@ -4183,6 +4196,12 @@ function packPluginSelection(profile, plugins, selector) {
       for (const name of [...(record.bundles || []), ...Object.keys(record.dependencies || {}), ...Object.keys(record.specs || {})]) owned.add(String(name))
     }
     return { names: plugins.filter((plugin) => !plugin.official && !owned.has(plugin.name)).map((plugin) => plugin.name), group: 'other' }
+  }
+  if (selector?.pack === DESKTOP_ENHANCE_ID) {
+    // 桌面增强不是真实安装记录：整组开关就是这三个插件里装了的那些。
+    const names = DESKTOP_PLUGINS.map((plugin) => plugin.name)
+      .filter((name) => byName.has(name) && !byName.get(name).official)
+    return { names, group: 'pack', pack: DESKTOP_ENHANCE_ID }
   }
   if (selector?.pack) {
     const record = installed.find((item) => item.name === String(selector.pack))

@@ -20,6 +20,14 @@ test('启动不再自动补装任何插件', () => {
   assert.doesNotMatch(server, /desktopPluginsToInstall/, '不再按启动版本算缺装')
 })
 
+test('插件列表里以一组「整合包」显示（合成记录，不碰真实安装记录）', () => {
+  assert.match(server, /DESKTOP_ENHANCE_ID/, '合成包 id 只写一处')
+  assert.match(server, /synthetic: true/, '借记录做分组，不是真安装记录')
+  assert.match(server, /selector\?\.pack === DESKTOP_ENHANCE_ID/, '整组开关认这个 id')
+  assert.match(page, /record && !record\.synthetic/, '合成组不显示卸载按钮')
+  assert.match(page, /records\.filter\(\(record\) => !record\.synthetic\)\.at\(-1\)/, '「最近安装」只算真实记录')
+})
+
 test('安装 / 卸载两条路由：只动缺的或装了的那几个，版本不对的给失败信息', () => {
   assert.match(server, /url\.pathname === '\/api\/desktop-enhance\/install'/)
   assert.match(server, /const wanted = desktopEnhanceMissing\(profile\)/)

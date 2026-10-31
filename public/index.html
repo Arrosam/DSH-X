@@ -8155,7 +8155,8 @@
         ? (item.plugins || []).filter((plugin) => pluginUpdates[plugin.name]?.hasUpdate).length
         : 0
       const records = item.records || []
-      const latest = records.at(-1)
+      // 桌面增强的合成记录（synthetic）不算「最近安装的整合包」，卸载按钮只对真实记录开放
+      const latest = records.filter((record) => !record.synthetic).at(-1)
       // 顶部只剩一行：左上返回图标（在静态结构里），右上全部操作；批量启停收进「更多操作」
       packHeadEl.innerHTML = `
         <button class="ghost icon-btn pack-tool" type="button" data-pack-import="1" title="${escapeHtml(t('装整合包'))}" aria-label="${escapeHtml(t('装整合包'))}" ${packBusy || pluginUpdating ? 'disabled' : ''}>${packMoreIcons.install}</button>
@@ -8213,7 +8214,7 @@
           const disabled = packBusy || pluginUpdating || pluginTogglePending.size
           return `<div class="plugin-group-card"><div class="plugin-group-tools">
             ${updates || updating ? `<button class="ghost icon-btn group-update${updating ? ' loading' : ''}" type="button" data-group-update="${escapeHtml(group.key)}" title="${escapeHtml(t('更新 {name} 的 {n} 个插件', { name: group.name, n: updates }))}" aria-label="${escapeHtml(t('更新 {name} 的 {n} 个插件', { name: group.name, n: updates }))}" ${disabled ? 'disabled' : ''}><span class="spin" aria-hidden="true"></span>${packMoreIcons.update}<span class="pack-update-count" aria-hidden="true">${updates}</span></button>` : ''}
-            ${record ? `<button class="ghost icon-btn danger" type="button" data-group-remove="${escapeHtml(group.key)}" title="${escapeHtml(record === latest ? t('卸载 {name}', { name: group.name }) : t('请先卸载此后安装的整合包'))}" aria-label="${escapeHtml(t('卸载 {name}', { name: group.name }))}" ${disabled || record !== latest ? 'disabled' : ''}>${packMoreIcons.trash}</button>` : ''}
+            ${record && !record.synthetic ? `<button class="ghost icon-btn danger" type="button" data-group-remove="${escapeHtml(group.key)}" title="${escapeHtml(record === latest ? t('卸载 {name}', { name: group.name }) : t('请先卸载此后安装的整合包'))}" aria-label="${escapeHtml(t('卸载 {name}', { name: group.name }))}" ${disabled || record !== latest ? 'disabled' : ''}>${packMoreIcons.trash}</button>` : ''}
             <label class="toggle plugin-group-toggle" title="${escapeHtml([mixed ? t('部分启用') : '', t(enabled ? '禁用 {name}' : '启用 {name}', { name: group.name })].filter(Boolean).join(' · '))}"><input type="checkbox" data-group-toggle="${escapeHtml(group.key)}" aria-label="${escapeHtml(t(enabled ? '禁用 {name}' : '启用 {name}', { name: group.name }))}" ${enabled ? 'checked' : ''} ${switching ? 'class="is-switching" aria-busy="true"' : ''} ${disabled || !toggleable.length ? 'disabled' : ''}/></label>
           </div><details class="plugin-group" data-plugin-group="${escapeHtml(group.key)}" ${expanded.get(group.key) !== false ? 'open' : ''}>
             <summary><svg class="plugin-group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg><span class="plugin-group-heading"><span class="plugin-group-name">${escapeHtml(group.name)}</span><span class="plugin-group-version">${escapeHtml([group.version ? `v${group.version}` : '', t('{n} 个插件', { n: group.plugins.length }), mixed ? t('部分启用') : ''].filter(Boolean).join(' · '))}</span></span></summary>
