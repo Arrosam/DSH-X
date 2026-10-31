@@ -98,7 +98,7 @@
     </div>
     <div class="visual">
       <figure class="shot">
-        <img id="productShot" src="./landing-shot-home.jpg" alt="DSH-X 启动项主页" width="1440" height="960" />
+        <img id="productShot" src="./screenshots/landing-shot-home.jpg" alt="DSH-X 启动项主页" width="1440" height="960" />
       </figure>
       <p class="preview-caption" data-zh="当前启动器界面 · 1440 × 960 实拍" data-en="Current launcher interface · Captured at 1440 × 960">当前启动器界面 · 1440 × 960 实拍</p>
     </div>
@@ -110,8 +110,8 @@
     <article class="feature"><span class="feature-number">04 / ORIGINAL WEB</span><h2 data-zh="熟悉的 DSH，随你打开" data-en="DSH, opened your way">熟悉的 DSH，随你打开</h2><p data-zh="选择浏览器标签页、浏览器独立窗口或桌面窗口。原版 DSH Web 不变，启动器提供深浅主题与大肥鱼。" data-en="Choose a browser tab, standalone browser window or desktop window. Enjoy the original DSH Web UI, with light and dark launcher themes and the Big Fish.">选择浏览器标签页、浏览器独立窗口或桌面窗口。原版 DSH Web 不变，启动器提供深浅主题与大肥鱼。</p></article>
   </section>
   <section class="wrap previews" aria-label="界面预览">
-    <figure><img data-shot="profiles" src="./landing-shot-profiles.jpg" alt="DSH-X 环境列表" width="1440" height="960" loading="lazy" /><figcaption data-zh="环境列表 · 插件各自管理" data-en="Environments · Manage plugins separately">环境列表 · 插件各自管理</figcaption></figure>
-    <figure><img data-shot="market" src="./landing-shot-market.jpg" alt="DSH-X 整合包市场" width="1440" height="960" loading="lazy" /><figcaption data-zh="整合包市场 · 浏览与导入" data-en="Modpack market · Browse and import">整合包市场 · 浏览与导入</figcaption></figure>
+    <figure><img data-shot="profiles" src="./screenshots/landing-shot-profiles.jpg" alt="DSH-X 环境列表" width="1440" height="960" loading="lazy" /><figcaption data-zh="环境列表 · 插件各自管理" data-en="Environments · Manage plugins separately">环境列表 · 插件各自管理</figcaption></figure>
+    <figure><img data-shot="market" src="./screenshots/landing-shot-market.jpg" alt="DSH-X 整合包市场" width="1440" height="960" loading="lazy" /><figcaption data-zh="整合包市场 · 浏览与导入" data-en="Modpack market · Browse and import">整合包市场 · 浏览与导入</figcaption></figure>
   </section>
   <!-- 「有官方桌面端为啥还要启动器」被问得最多，正面回答一次，省得每个新人都自己猜 -->
   <section class="wrap faq" aria-labelledby="faq-heading">
@@ -200,10 +200,10 @@
       button.title = label
       const suffix = lang === 'en' ? '-en' : ''
       const shot = document.getElementById('productShot')
-      shot.src = `./landing-shot-${dark ? 'dark-mode' : 'home'}${suffix}.jpg`
+      shot.src = `./screenshots/landing-shot-${dark ? 'dark-mode' : 'home'}${suffix}.jpg`
       shot.alt = lang === 'en' ? 'DSH-X launch entries' : 'DSH-X 启动项主页'
       for (const image of document.querySelectorAll('[data-shot]')) {
-        image.src = `./landing-shot-${image.dataset.shot}${suffix}.jpg`
+        image.src = `./screenshots/landing-shot-${image.dataset.shot}${suffix}.jpg`
         image.alt = image.dataset.shot === 'profiles'
           ? (lang === 'en' ? 'DSH-X environments' : 'DSH-X 环境列表')
           : (lang === 'en' ? 'DSH-X modpack market' : 'DSH-X 整合包市场')

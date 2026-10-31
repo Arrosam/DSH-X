@@ -105,7 +105,7 @@ sha256sum DSH-X-<版本>-x86_64.AppImage                # Linux
 **多启动项 · 深色主题**
 
 <p align="center">
-  <img src="docs/screenshot-launches.png" alt="DSH-X v0.1.16 多启动项主页" width="820" />
+  <img src="docs/screenshots/screenshot-launches.png" alt="DSH-X v0.1.16 多启动项主页" width="820" />
 </p>
 
 <details>
@@ -114,25 +114,25 @@ sha256sum DSH-X-<版本>-x86_64.AppImage                # Linux
 **环境列表**
 
 <p align="center">
-  <img src="docs/screenshot-profiles-dark.jpg" alt="DSH-X v0.1.16 深色环境列表" width="820" />
+  <img src="docs/screenshots/screenshot-profiles-dark.jpg" alt="DSH-X v0.1.16 深色环境列表" width="820" />
 </p>
 
 **插件管理**
 
 <p align="center">
-  <img src="docs/screenshot-plugins-dark.jpg" alt="DSH-X v0.1.16 深色插件管理" width="820" />
+  <img src="docs/screenshots/screenshot-plugins-dark.jpg" alt="DSH-X v0.1.16 深色插件管理" width="820" />
 </p>
 
 **整合包市场**
 
 <p align="center">
-  <img src="docs/screenshot-market-dark.jpg" alt="DSH-X v0.1.16 深色整合包市场" width="820" />
+  <img src="docs/screenshots/screenshot-market-dark.jpg" alt="DSH-X v0.1.16 深色整合包市场" width="820" />
 </p>
 
 **常规设置**
 
 <p align="center">
-  <img src="docs/screenshot-settings-dark.jpg" alt="DSH-X v0.1.16 深色常规设置" width="820" />
+  <img src="docs/screenshots/screenshot-settings-dark.jpg" alt="DSH-X v0.1.16 深色常规设置" width="820" />
 </p>
 
 </details>
@@ -143,31 +143,31 @@ sha256sum DSH-X-<版本>-x86_64.AppImage                # Linux
 **启动器主页**
 
 <p align="center">
-  <img src="docs/screenshot-home.jpg" alt="DSH-X 启动项主页" width="820" />
+  <img src="docs/screenshots/screenshot-home.jpg" alt="DSH-X 启动项主页" width="820" />
 </p>
 
 **环境列表**
 
 <p align="center">
-  <img src="docs/screenshot-profiles.jpg" alt="DSH-X 环境列表" width="820" />
+  <img src="docs/screenshots/screenshot-profiles.jpg" alt="DSH-X 环境列表" width="820" />
 </p>
 
 **插件管理**
 
 <p align="center">
-  <img src="docs/screenshot-plugins.jpg" alt="DSH-X 按环境管理插件" width="820" />
+  <img src="docs/screenshots/screenshot-plugins.jpg" alt="DSH-X 按环境管理插件" width="820" />
 </p>
 
 **整合包市场**
 
 <p align="center">
-  <img src="docs/screenshot-market.jpg" alt="DSH-X 整合包市场" width="820" />
+  <img src="docs/screenshots/screenshot-market.jpg" alt="DSH-X 整合包市场" width="820" />
 </p>
 
 **常规设置**
 
 <p align="center">
-  <img src="docs/screenshot-settings.jpg" alt="DSH-X 设置页" width="820" />
+  <img src="docs/screenshots/screenshot-settings.jpg" alt="DSH-X 设置页" width="820" />
 </p>
 
 </details>
@@ -175,7 +175,7 @@ sha256sum DSH-X-<版本>-x86_64.AppImage                # Linux
 **多标签页 · 深色主题**
 
 <p align="center">
-  <img src="docs/screenshot-tabs.png" alt="DSH-X v0.1.16 多标签页界面" width="820" />
+  <img src="docs/screenshots/screenshot-tabs.png" alt="DSH-X v0.1.16 多标签页界面" width="820" />
 </p>
 
 ## 整合包

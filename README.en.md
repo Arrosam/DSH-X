@@ -105,7 +105,7 @@ sha256sum DSH-X-<version>-x86_64.AppImage                # Linux
 **Multiple launch entries · Dark theme**
 
 <p align="center">
-  <img src="docs/screenshot-launches.png" alt="DSH-X v0.1.16 with multiple launch entries" width="820" />
+  <img src="docs/screenshots/screenshot-launches.png" alt="DSH-X v0.1.16 with multiple launch entries" width="820" />
 </p>
 
 <details>
@@ -114,25 +114,25 @@ sha256sum DSH-X-<version>-x86_64.AppImage                # Linux
 **Environments**
 
 <p align="center">
-  <img src="docs/screenshot-profiles-dark-en.jpg" alt="DSH-X v0.1.16 dark environments" width="820" />
+  <img src="docs/screenshots/screenshot-profiles-dark-en.jpg" alt="DSH-X v0.1.16 dark environments" width="820" />
 </p>
 
 **Plugin management**
 
 <p align="center">
-  <img src="docs/screenshot-plugins-dark-en.jpg" alt="DSH-X v0.1.16 dark plugin management" width="820" />
+  <img src="docs/screenshots/screenshot-plugins-dark-en.jpg" alt="DSH-X v0.1.16 dark plugin management" width="820" />
 </p>
 
 **Modpack market**
 
 <p align="center">
-  <img src="docs/screenshot-market-dark-en.jpg" alt="DSH-X v0.1.16 dark modpack market" width="820" />
+  <img src="docs/screenshots/screenshot-market-dark-en.jpg" alt="DSH-X v0.1.16 dark modpack market" width="820" />
 </p>
 
 **General settings**
 
 <p align="center">
-  <img src="docs/screenshot-settings-dark-en.jpg" alt="DSH-X v0.1.16 dark general settings" width="820" />
+  <img src="docs/screenshots/screenshot-settings-dark-en.jpg" alt="DSH-X v0.1.16 dark general settings" width="820" />
 </p>
 
 </details>
@@ -143,31 +143,31 @@ sha256sum DSH-X-<version>-x86_64.AppImage                # Linux
 **Launcher home**
 
 <p align="center">
-  <img src="docs/screenshot-home-en.jpg" alt="DSH-X launch entries" width="820" />
+  <img src="docs/screenshots/screenshot-home-en.jpg" alt="DSH-X launch entries" width="820" />
 </p>
 
 **Environments**
 
 <p align="center">
-  <img src="docs/screenshot-profiles-en.jpg" alt="DSH-X environments" width="820" />
+  <img src="docs/screenshots/screenshot-profiles-en.jpg" alt="DSH-X environments" width="820" />
 </p>
 
 **Plugin management**
 
 <p align="center">
-  <img src="docs/screenshot-plugins-en.jpg" alt="DSH-X plugins by environment" width="820" />
+  <img src="docs/screenshots/screenshot-plugins-en.jpg" alt="DSH-X plugins by environment" width="820" />
 </p>
 
 **Modpack market**
 
 <p align="center">
-  <img src="docs/screenshot-market-en.jpg" alt="DSH-X modpack market" width="820" />
+  <img src="docs/screenshots/screenshot-market-en.jpg" alt="DSH-X modpack market" width="820" />
 </p>
 
 **General settings**
 
 <p align="center">
-  <img src="docs/screenshot-settings-en.jpg" alt="DSH-X settings page" width="820" />
+  <img src="docs/screenshots/screenshot-settings-en.jpg" alt="DSH-X settings page" width="820" />
 </p>
 
 </details>
@@ -175,7 +175,7 @@ sha256sum DSH-X-<version>-x86_64.AppImage                # Linux
 **Multiple tabs · Dark theme**
 
 <p align="center">
-  <img src="docs/screenshot-tabs.png" alt="DSH-X v0.1.16 with multiple tabs" width="820" />
+  <img src="docs/screenshots/screenshot-tabs.png" alt="DSH-X v0.1.16 with multiple tabs" width="820" />
 </p>
 
 ## Modpacks
