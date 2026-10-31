@@ -17,8 +17,10 @@ function ui() {
   assert.notEqual(showStart, -1, '开关旁有持久化结果显示逻辑')
   const context = {
     savedSystemPath: false, systemPathEl: {}, systemPathHint: {}, t: translate,
-    // 系统开关（硬件加速 / 更新通道 / 通知 / 托盘）和 PATH 无关：给 flushSettings 一份空桩
+    // 系统开关（硬件加速 / 更新通道 / 通知 / 托盘）和 PATH 无关：给 flushSettings 一份空桩。
+    // 外壳和浏览器两种页面各有一组行（systemPrefRows / browserPrefRows），都要给。
     systemPrefRows: [], savedSystemPrefs: {}, showSystemPrefs() {},
+    browserPrefRows: [], showBrowserPrefs() {},
   }
   vm.runInNewContext(html.slice(showStart, showEnd), context)
   return context

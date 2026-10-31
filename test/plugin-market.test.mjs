@@ -78,7 +78,11 @@ test('管理页保存默认源只改设置，启动不再安装或重新启用 d
   writeFileSync(join(binary, 'bin.js'), `
     import { createServer } from 'node:http'
     import { writeFileSync } from 'node:fs'
-    if (process.argv.includes('plugin')) { console.error('不应自动安装插件'); process.exit(1) }
+    // 桌面增强（dsh-x-*）由启动器在启动前自动补装，属于预期行为；别的一律不许装。
+    if (process.argv.includes('plugin')) {
+      if (!process.argv.join(' ').includes('dsh-x-')) { console.error('不应自动安装插件'); process.exit(1) }
+      process.exit(0)
+    }
     writeFileSync(${JSON.stringify(envFile)}, JSON.stringify(process.env.DSH_X_PLUGIN_MARKET_SOURCES))
     const server = createServer((req, res) => res.end('<html>ok</html>'))
     server.listen(0, '127.0.0.1', () => console.log('dsh web: http://127.0.0.1:' + server.address().port + '/?token=test'))
@@ -107,7 +111,11 @@ test('管理页保存默认源只改设置，启动不再安装或重新启用 d
   const started = await post('/api/start', { version: '9.9.9', profile: 'web' })
   assert.equal(started.status, 200, JSON.stringify(started.body))
   assert.equal(JSON.parse(readFileSync(envFile, 'utf8')), JSON.stringify(urls))
-  assert.equal(readFileSync(join(profile, 'package.json'), 'utf8'), manifest, '保留旧市场及其禁用状态')
+  // 启动现在会把缺的桌面增强插件补进 profile，所以不再比对整份 package.json；
+  // 只钉住这件事：旧的 dshmarket 依赖原样保留、没有被重新挂载。
+  const after = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8'))
+  assert.equal(after.dependencies.dshmarket, '1.0.0', '保留旧市场及其禁用状态')
+  assert.ok(!(after.dsh.profile.bundles || []).includes('dshmarket'), '不重新启用 dshmarket')
   assert.equal(readFileSync(join(profile, 'cordis.patch.yml'), 'utf8'), '[]\n')
   assert.doesNotMatch(await (await fetch(origin + '/api/logs/export')).text(), /不应自动安装插件|预装.*失败/)
   await server.stopAll()

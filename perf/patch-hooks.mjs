@@ -13,7 +13,7 @@ import { patchProfileBoot } from './startup-resolver.mjs'
 
 const TARGET = 'dsh-client-modules/lib/index.js'
 const PROFILE_BOOT = /\/dsh\/lib\/profile-boot(?:-[^/]+)?\.js(?:\?.*)?$/
-/** Cordis loader：插件体检靠它记录每个 entry 的导入/应用耗时（只观测，不改行为）。 */
+/** Cordis loader：启动账本靠它知道每个 entry 什么时候结算完（只观测，不改行为）。 */
 const LOADER = 'cordis-plugin-loader/lib/index.js'
 const LOADER_ENTRY = 'async _init() {'
 const LOADER_FIBER = 'this.fiber = this.ctx.registry.plugin(plugin, this.options.config, this.getOuterStack).ctx.fiber;'
@@ -40,10 +40,9 @@ export function load(url, context, nextLoad) {
     return patched === source ? result : { ...result, source: patched }
   }
   if (loader) {
-    // 两个锚点都在才注入：上游改了 loader 实现就整段跳过，体检自然没有数据，启动照旧。
+    // 两个锚点都在才注入：上游改了 loader 实现就整段跳过，账本自然没有 entry 时间线，启动照旧。
     if (!source.includes(LOADER_ENTRY) || !source.includes(LOADER_FIBER)) return result
     const patched = source.replace(LOADER_ENTRY, LOADER_ENTRY_HOOK).replace(LOADER_FIBER, LOADER_FIBER_HOOK)
-    if (process.env.DSH_PERF_DEBUG === '1') console.error('[perf] 插件体检钩子: 已注入')
     return { ...result, source: patched }
   }
   const applied = []

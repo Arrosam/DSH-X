@@ -44,6 +44,15 @@ body {
   /* 隐式列写死 minmax(0, 1fr)：默认的 auto 会按内容的「最大宽度」把整列撑开，
      标签条一宽（标签 + 两头按钮超过窗口）整条就跟着变宽，刷新/齿轮/窗口按钮被顶出窗口。 */
   grid-template-columns: minmax(0, 1fr);
+  /* 桌面窗口：界面文字默认不可选，拖动页面时不会把导航、卡片、按钮选中。 */
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* 该能复制的地方照旧：输入框、日志、代码/错误详情。 */
+input, textarea, select, option, pre, code, kbd, samp,
+#log, .launch-log-text, .notice-detail, .rc-details-pre {
+  -webkit-user-select: text;
+  user-select: text;
 }
 /* 高清角色独立成层，仅动画 transform / opacity，保留文字区域的对比度。 */
 .backdrop {
@@ -1076,6 +1085,9 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
    图标放到 24px —— 通用 .icon-btn svg 是 20px，铅笔那种只占画布 3/4 的图形缩完只剩 15px，看着太小。 */
 .set-control .icon-btn { width: var(--control-height); height: var(--control-height); border-radius: 10px; }
 .set-control .icon-btn svg { width: 24px; height: 24px; }
+/* 设置页的危险操作（浏览器数据 → 清除全部）：红字红边，和其他 ghost 按钮同尺寸 */
+.set-control .ghost.danger { color: var(--danger); border-color: #f7ccd2; }
+.set-control .ghost.danger:hover:not(:disabled) { background: #fff1f2; }
 .set-row .hint { margin: 9px 0 0; }
 /* 整行可点的开关行：给个悬停反馈，别让人猜哪儿能点 */
 .toggle.set-row {
@@ -1188,29 +1200,6 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .hint a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 /* 提示行里的文字型按钮（恢复档的「还原」）与链接同款 */
 .hint button { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-/* 在跑的实例（多开）：一行一个。没有实例时整块收起来（见 paintInstances） */
-.instances { margin-top: 14px; border-top: 1px solid var(--line); }
-.instances[hidden] { display: none; }
-.instances-title { display: block; color: var(--muted); font-size: 12px; letter-spacing: 0.08em; margin: 11px 0 2px; }
-.instance-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
-.instance-row:last-child { border-bottom: 0; }
-.instance-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.instance-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.instance-name { color: var(--text); font-weight: 600; font-size: 14px; letter-spacing: 0; white-space: nowrap; }
-.instance-profile { color: var(--muted); font-weight: 500; font-size: 12.5px; white-space: nowrap; }
-.instance-state { flex: 0 0 auto; color: var(--muted); font-size: 11.5px; }
-.instance-url { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.instance-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-/* 启动体检：按包列 CPU/分配，数字右对齐；长包名省略，整行保留 tooltip。 */
-.plugin-profile-summary { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
-.plugin-profile-group + .plugin-profile-group { margin-top: 4px; }
-.plugin-profile-title { margin: 0 0 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
-.plugin-profile-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 76px; gap: 10px; align-items: center; padding: 5px 8px; border-radius: 8px; font-size: 12.5px; }
-.plugin-profile-row[data-cols="2"] { grid-template-columns: minmax(0, 1fr) 72px; }
-.plugin-profile-row.head { padding-block: 2px; color: var(--muted); font-size: 11.5px; }
-.plugin-profile-row:not(.head):nth-of-type(even) { background: rgba(127, 127, 127, .07); }
-.plugin-profile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plugin-profile-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 #pane-settings .hint:empty { display: none; }
 #settingsHint:not(:empty) { padding: 5px 10px; background: rgba(255, 255, 255, 0.92); border-radius: 8px; }
 .progress {
@@ -1331,6 +1320,47 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
   white-space: pre-wrap;
 }
 .log-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+/* 启动项日志弹窗：两张卡片（耗时 / 原始日志） */
+#launchLogDialog .dialog-heading { margin-bottom: 12px; }
+.launch-log-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+.launch-log-tools[hidden] { display: none; }
+.launch-log-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 48px 0; color: var(--muted); font-size: 13px; }
+.launch-log-loading[hidden] { display: none; }
+.launch-log-loading .spin { display: block; width: 16px; height: 16px; }
+.launch-log-tools .hint { margin: 0; }
+.launch-log-tools .hint:empty { display: none; }
+.launch-log-meta { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; background: rgba(127, 127, 127, .1); color: var(--text); font-size: 12px; }
+.launch-log-card { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: rgba(127, 127, 127, .035); }
+.launch-log-card + .launch-log-card { margin-top: 12px; }
+.launch-log-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.launch-log-card-head h3 { margin: 0; color: var(--text); font-size: 13px; font-weight: 650; }
+.launch-log-card-head > span { color: var(--muted); font-size: 11.5px; }
+.launch-log-head-meta { display: inline-flex; align-items: baseline; gap: 4px; }
+.launch-log-head-meta #launchLogRss::before { content: '· '; opacity: .6; }
+.launch-log-actions { display: flex; gap: 6px; }
+.launch-log-card-head .ghost { padding: 3px 10px; font-size: 11.5px; }
+.launch-log-subhead { margin: 14px 0 6px; color: var(--muted); font-size: 11.5px; }
+.launch-log-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.launch-log-legend span { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: rgba(127, 127, 127, .07); color: var(--muted); font-size: 11.5px; }
+.launch-log-legend i { width: 7px; height: 7px; border-radius: 2px; }
+.launch-log-legend b { color: var(--text); font-weight: 600; }
+.launch-log-ledger { display: flex; height: 22px; border-radius: 8px; overflow: hidden; background: rgba(127, 127, 127, .08); }
+.launch-log-ledger > span { display: flex; min-width: 3px; align-items: center; justify-content: center; overflow: hidden; color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.ledger-plugin { background: #4d6bfe; }
+.ledger-node { background: #6f7684; }
+.ledger-other { background: #b6bcc8; }
+.ledger-native { background: #d99a2b; }
+.ledger-rest { background: #dfe3ea; }
+.launch-log-ledger > .ledger-rest { color: #4a5160; }
+.launch-log-bars { display: flex; flex-direction: column; gap: 6px; }
+.launch-log-bar-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 56px; gap: 10px; align-items: center; font-size: 12px; }
+.launch-log-bar-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.launch-log-bar-row .track { height: 7px; border-radius: 999px; background: rgba(127, 127, 127, .12); overflow: hidden; }
+.launch-log-bar-row .fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #9aa4b2, #c3c9d4); }
+.launch-log-bar-row.is-plugin .fill { background: linear-gradient(90deg, #4d6bfe, #7c93ff); }
+.launch-log-bar-row .value { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.launch-log-note { margin: 8px 0 0; }
+.launch-log-text { margin: 0; max-height: min(38vh, 380px); min-height: 150px; overflow: auto; padding: 12px; border-radius: 10px; background: #f7faff; color: #3f5478; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .ghost {
   border: 1px solid #c7d8f7;
   background: #fff;

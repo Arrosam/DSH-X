@@ -142,6 +142,15 @@ export function parseTrayState(text) {
   return state
 }
 
+/**
+ * 说得上「在跑」的实例：起来中或已经跑起来（正在停的不算）。
+ * 退出前的确认框数的是这一群——stopping 的实例本来就快停了，不该再拦一次。
+ */
+export function liveInstances(instances) {
+  return (Array.isArray(instances) ? instances : [])
+    .filter((item) => item && (item.status === 'running' || item.status === 'starting'))
+}
+
 /** 设置里选了「桌面窗口」且确实由外壳托管：dsh 的界面开进独立窗口。 */
 export function windowMode(state) {
   return state.openmode === 'window' && state.shell

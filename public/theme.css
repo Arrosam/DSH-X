@@ -106,6 +106,9 @@ html[data-color-scheme="dark"] .pack-more-actions .ghost { background: transpare
 html[data-color-scheme="dark"] .pack-more-actions .ghost:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
 html[data-color-scheme="dark"] .pack-more-actions .ghost.danger { color: #f2797f; }
 html[data-color-scheme="dark"] .pack-more-actions .ghost.danger:hover:not(:disabled) { background: rgba(225, 29, 72, 0.16); }
+/* 设置页的危险操作按钮跟「更多操作」里的危险项同一套配色（浅色主题那条 #fff1f2 在暗色里太亮） */
+html[data-color-scheme="dark"] .set-control .ghost.danger { color: #f2797f; border-color: rgba(225, 29, 72, 0.35); }
+html[data-color-scheme="dark"] .set-control .ghost.danger:hover:not(:disabled) { background: rgba(225, 29, 72, 0.16); }
 /* 编辑启动项的删除图标钮：悬停铺同款淡玫瑰红（浅色主题那条 #fff1f2 在暗色里太亮） */
 html[data-color-scheme="dark"] .launch-save-actions .launch-delete:hover:not(:disabled) { background: rgba(225, 29, 72, 0.16); border-color: rgba(225, 29, 72, 0.35); }
 html[data-color-scheme="dark"] .ghost:hover:not(:disabled),
@@ -185,6 +188,8 @@ html[data-color-scheme="dark"] .launch-modal-fields::-webkit-scrollbar-thumb,
 html[data-color-scheme="dark"] .dialog-body::-webkit-scrollbar-thumb,
 html[data-color-scheme="dark"] .ask-items::-webkit-scrollbar-thumb,
 html[data-color-scheme="dark"] .backup-list::-webkit-scrollbar-thumb { background: #77787d; background-clip: content-box; }
+html[data-color-scheme="dark"] .launch-log-text { background: #202024; color: #dddde0; scrollbar-color: #77787d transparent; }
+html[data-color-scheme="dark"] .launch-log-text::-webkit-scrollbar-thumb { background: #77787d; background-clip: content-box; }
 
 html[data-color-scheme="dark"] .ask.is-child-dialog { background: transparent; }
 html[data-color-scheme="dark"] .set-row:focus-within { background: transparent; box-shadow: none; }

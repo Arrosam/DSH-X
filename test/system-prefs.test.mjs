@@ -23,15 +23,16 @@ test('默认值两端一致（settings.js 的 DEFAULTS 与 shell/prefs.mjs 的 P
   }
 })
 
-test('七个开关能存能读，保存后的值原样回来', async () => {
+test('八个开关能存能读，保存后的值原样回来', async () => {
   const patch = {
     hardwareAcceleration: false,
-    acceptPrerelease: true,
     autoUpdate: true,
     taskNotifications: false,
     notificationSound: false,
     closeToTray: false,
     keepAwake: true,
+    browserControl: false,
+    browserIgnoreCertificate: true,
   }
   const saved = await saveSettings(patch)
   for (const [key, value] of Object.entries(patch)) assert.equal(saved[key], value)
@@ -42,18 +43,21 @@ test('七个开关能存能读，保存后的值原样回来', async () => {
 test('脏值回默认：true 型只认 true，false 型只认 false', async () => {
   const saved = await saveSettings({
     hardwareAcceleration: 'no',
-    acceptPrerelease: 1,
     autoUpdate: 'true',
     taskNotifications: 0,
     notificationSound: 'false',
     closeToTray: null,
     keepAwake: {},
+    browserControl: 'off',
+    browserIgnoreCertificate: 'yes',
   })
   assert.equal(saved.hardwareAcceleration, true)
-  assert.equal(saved.acceptPrerelease, false)
   assert.equal(saved.autoUpdate, false)
   assert.equal(saved.taskNotifications, true)
   assert.equal(saved.notificationSound, true)
   assert.equal(saved.closeToTray, true)
   assert.equal(saved.keepAwake, false)
+  // 内置浏览器：开关默认开（脏值当开），忽略证书默认关（脏值当关）
+  assert.equal(saved.browserControl, true)
+  assert.equal(saved.browserIgnoreCertificate, false)
 })

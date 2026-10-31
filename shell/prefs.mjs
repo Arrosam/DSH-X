@@ -14,8 +14,6 @@ import { readFileSync } from 'node:fs'
 export const PREF_DEFAULTS = Object.freeze({
   // Chromium 硬件加速（关掉后重启生效）
   hardwareAcceleration: true,
-  // 启动器更新是否收预览版（rc / alpha）
-  acceptPrerelease: false,
   // 发现更新就下载，空闲时直接安装
   autoUpdate: false,
   // 实例启动完成 / 失败时发桌面通知
@@ -26,6 +24,11 @@ export const PREF_DEFAULTS = Object.freeze({
   closeToTray: true,
   // 阻止系统空闲休眠
   keepAwake: false,
+  // 内置浏览器：管 agent 插件（dsh-x-sidebar-browser）的补装与停用，主要是核心在用；
+  // 外壳保留这个键只是为了两边默认值一致，不拿它拦侧栏 Browser 本身
+  browserControl: true,
+  // 内置浏览器忽略 HTTPS 证书错误（自签名站点）
+  browserIgnoreCertificate: false,
 })
 
 /** 从设置对象里挑出外壳要用的字段：只认布尔语义，缺字段回默认。 */
@@ -33,12 +36,13 @@ export function parsePrefs(stored) {
   const source = stored && typeof stored === 'object' ? stored : {}
   return {
     hardwareAcceleration: source.hardwareAcceleration !== false,
-    acceptPrerelease: source.acceptPrerelease === true,
     autoUpdate: source.autoUpdate === true,
     taskNotifications: source.taskNotifications !== false,
     notificationSound: source.notificationSound !== false,
     closeToTray: source.closeToTray !== false,
     keepAwake: source.keepAwake === true,
+    browserControl: source.browserControl !== false,
+    browserIgnoreCertificate: source.browserIgnoreCertificate === true,
   }
 }
 

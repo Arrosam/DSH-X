@@ -582,7 +582,7 @@ function editorHarness({ lang = 'zh', scene = NO_FALLBACK, live = false } = {}) 
   const submit = page.slice(page.indexOf('    launchFormEl.onsubmit = async'), page.indexOf('    launchDeleteEl.onclick = async'))
   assert.ok(submit.trim(), '找不到保存启动项的代码')
   const unrelated = {
-    paintLaunchHome() {}, paintInstances() {}, setProgress() {}, setPluginProgress() {}, paintVersionTrigger() {}, paintVersionPanel() {},
+    paintLaunchHome() {}, setProgress() {}, setPluginProgress() {}, paintVersionTrigger() {}, paintVersionPanel() {},
     closeVersionPanel() {}, maybeLaunch() {}, resetPluginView() {}, loadPlugins() {}, renderPackGrid() {}, renderPackView() {},
     pluginTargetHome: () => 'home', launchPluginScope: '', currentPane: 'home', stateAutoFix: () => '', paintVersionManager() {},
   }

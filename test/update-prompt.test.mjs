@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
 const css = readFileSync(fileURLToPath(new URL('../public/launcher.css', import.meta.url)), 'utf8')
 const start = readFileSync(fileURLToPath(new URL('../start.js', import.meta.url)), 'utf8')
+const shellMain = readFileSync(fileURLToPath(new URL('../shell/main.mjs', import.meta.url)), 'utf8')
 
 // dsh 是第三方插件的宿主：新版本可能让插件失效（插件市场就出过），所以升级必须先确认。
 const RISK = '升级会先停掉正在运行的 dsh，再下载安装新版本。插件由第三方维护、通常滞后于 dsh，新版本可能让插件失效或页面打不开（插件市场就出过这种情况）。已装的其他版本会保留，随时可以切回。'
@@ -66,4 +67,14 @@ test('升级正在运行的实例后要收掉「正在安装」', () => {
     /if \(wasLive\) \{[\s\S]{0,400}?await startVersion\(latest[\s\S]{0,300}?action = ''\r?\n\s*render\(\)\r?\n\s*return/,
     '启动完返回前要先清掉 action 并重绘',
   )
+})
+
+test('自动更新只下载，安装留给用户', () => {
+  // 自动下载的是 DSH-X 外壳/核心，不是 dsh 版本；装不装、什么时候重启由用户点首页「更新」决定
+  const tick = shellMain.match(/async function autoUpdateTick\(\)[\s\S]*?\n\}/)
+  assert.ok(tick, 'autoUpdateTick 还在')
+  assert.match(tick[0], /api\/self\/app-download/, '核心更新照常自动下载')
+  assert.doesNotMatch(tick[0], /app-apply/, '自动路径不应用核心更新')
+  assert.doesNotMatch(shellMain, /maybeInstallShellUpdate/, '没有自动安装外壳的路径')
+  assert.match(shellMain, /snapshot\.status === 'ready'\) notifyUpdateReady/, '外壳下完只提醒，不自动安装')
 })

@@ -13,9 +13,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { cmpVer, currentRegistry, describeNpmFailure, installSpec, listPackage, optimizeDependencies, parsePnpmProgress, parseVer } from './registry.js'
 import pkg from './package.json' with { type: 'json' }
-import { VERSION_CHANNEL, VERSION_CHANNELS, channelIncludes, effectiveChannel, versionChannel, versionInChannel } from './version.js'
+import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionChannel, versionInChannel } from './version.js'
 import { createLogWriter } from './log-writer.js'
 import { createStartupDiagnosis } from './startup-diagnosis.js'
+import { applyNativeNotify } from './native-notify.js'
+import { DESKTOP_PLUGINS_SKIP_PROFILES, desktopPluginsToInstall } from './desktop-plugins.js'
 import { bindDiagnosis, checkedRepairPlan, profileFingerprint } from './repair-plan.js'
 import { DiagnosticRepairs, verificationSummary } from './repair-actions.js'
 import { recordedChanges } from './repair-evidence.js'
@@ -129,7 +131,8 @@ import {
 // 带代理的 fetch：Node 的全局 fetch 既不看系统代理也不看 HTTP_PROXY，外网请求都走 netFetch
 import { netFetch, proxyEnv, resetProxyCache, resolveProxy } from './proxy.js'
 import { APP_DIR, fileManager } from './filemanager.js'
-import { checkCoreUpdate, checkCoreUpdateAny, downloadCoreTarball, extractCoreTarball, stagingExists, stagingStats } from './core-npm.js'
+import { DESKTOP_API_VERSION, DESKTOP_CAPABILITIES, parseDesktopRequest } from './desktop.js'
+import { checkCoreUpdate, downloadCoreTarball, extractCoreTarball, stagingExists, stagingStats } from './core-npm.js'
 import { IN_ELECTRON, IS_LINUX, IS_MAC, IS_WINDOWS, LAUNCHER_NAME, MAC_APP_NAME, NPM_MODE, PACKAGED, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platform.js'
 
 const execFileAsync = promisify(execFile)
@@ -209,6 +212,13 @@ let UPDATE_SOURCE = updateSourceForDownload(loadSettingsSync().downloadSource)
 let OPEN_MODE = safeOpenMode(loadSettingsSync().openMode)
 // 是否把 dsh 的 shim 目录写进用户 PATH（默认关，改了要新开终端才生效）
 let SYSTEM_PATH = loadSettingsSync().systemPath === true
+// 内置浏览器（官方右侧栏浏览器）的总开关：启动参数里的 --patch 按它在启用 / 关闭之间切换。
+// 外壳那侧还有一道 guest 放行检查（shell/main.mjs），两边读同一份 settings.json。
+let BROWSER_CONTROL = loadSettingsSync().browserControl !== false
+// 右键菜单（dsh-x-context-menu）：关掉后启动补丁把插件行停用（不卸载），也不再自动补装。
+let CONTEXT_MENU = loadSettingsSync().contextMenu !== false
+const CONTEXT_MENU_PLUGIN = 'dsh-x-context-menu'
+const CONTEXT_MENU_ROW_ID = 'x-context-menu'
 
 /** 安装目录里的 lang.txt（安装程序写的），只认 zh / en。 */
 function installLang() {
@@ -223,7 +233,67 @@ const LOG_FILE = join(LOG_DIR, 'manager.log')
 const LOG_MAX_BYTES = 5 * 1024 * 1024
 const NOISY_LOG_RE = /^(?:已安装 \d+\/\d+|已解析 \d+)/
 const logWriter = createLogWriter(LOG_FILE, { maxBytes: LOG_MAX_BYTES })
-process.on('exit', () => logWriter.flush())
+/** 每个启动项一份日志：启动时行里的上下文带上 launchId，`pushLog` 顺手 tee 过来。 */
+const LAUNCH_LOG_DIR = join(APP_DIR, 'launch-logs')
+const LAUNCH_LOG_MAX_BYTES = 2 * 1024 * 1024
+const LAUNCH_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+const launchLogWriters = new Map()
+function launchLogWriter(id) {
+  let writer = launchLogWriters.get(id)
+  if (!writer) {
+    writer = createLogWriter(join(LAUNCH_LOG_DIR, `launch-${id}.log`), { maxBytes: LAUNCH_LOG_MAX_BYTES })
+    launchLogWriters.set(id, writer)
+  }
+  return writer
+}
+/** 清空某个启动项的原始日志（耗时记录保留，账本和 RSS 还要用）。 */
+function clearLaunchLog(id) {
+  const writer = launchLogWriters.get(id)
+  if (writer) {
+    writer.flush()
+    launchLogWriters.delete(id)
+  }
+  for (const name of [`launch-${id}.log`, `launch-${id}.log.1`]) {
+    try { unlinkSync(join(LAUNCH_LOG_DIR, name)) } catch { /* 没有就算了 */ }
+  }
+}
+
+/** 删除启动项时顺手删掉它自己的日志（分片也一起）。 */
+function dropLaunchLog(id) {
+  const writer = launchLogWriters.get(id)
+  if (writer) {
+    writer.flush()
+    launchLogWriters.delete(id)
+  }
+  for (const name of [`launch-${id}.log`, `launch-${id}.log.1`, `launch-${id}.json`]) {
+    try { unlinkSync(join(LAUNCH_LOG_DIR, name)) } catch { /* 没有就算了 */ }
+  }
+}
+
+/** 记一次启动的阶段耗时（最近 20 次，新的在前），给日志弹窗画分段条。 */
+function recordLaunchRun(id, run) {
+  if (!id || !LAUNCH_ID_RE.test(id)) return
+  const file = join(LAUNCH_LOG_DIR, `launch-${id}.json`)
+  let runs = []
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'))
+    if (Array.isArray(parsed?.runs)) runs = parsed.runs
+  } catch {
+    // 第一次启动还没有记录
+  }
+  runs.unshift(run)
+  if (runs.length > 20) runs.length = 20
+  try {
+    mkdirSync(LAUNCH_LOG_DIR, { recursive: true })
+    writeFileSync(file, `${JSON.stringify({ runs }, null, 2)}\n`)
+  } catch {
+    // 记录不是启动的依赖，写不进去只影响可视化
+  }
+}
+process.on('exit', () => {
+  logWriter.flush()
+  for (const writer of launchLogWriters.values()) writer.flush()
+})
 let pendingLogEvents = []
 let logEventTimer = null
 
@@ -558,7 +628,11 @@ async function saveConfig(config) {
 /** 把重要日志追加到 manager.log（进度类噪音行丢弃，超过 5MB 轮转一次）。 */
 function persistLog(text) {
   if (NOISY_LOG_RE.test(text)) return
-  logWriter.append(`[${new Date().toISOString()}] ${text}\n`)
+  const line = `[${new Date().toISOString()}] ${text}\n`
+  logWriter.append(line)
+  // 启动项启动/停止期间的行同时落到它自己的日志里；手动启动（没有启动项）只有全局那份。
+  const launchId = launchScope.getStore()?.launchId
+  if (launchId && LAUNCH_ID_RE.test(launchId)) launchLogWriter(launchId).append(line)
 }
 
 function flushLogEvents() {
@@ -993,6 +1067,33 @@ function liveInstanceList() {
 }
 
 /**
+ * 读一个进程的常驻内存（RSS，MB）。跨平台各用系统自带的查询，不引原生依赖。
+ *
+ * 只给进程级数字：dsh 的插件都在同一个 Node 进程里，操作系统的 RSS 没有插件维度。
+ *
+ * @param {number} pid - 进程号。
+ * @returns {number|null} MB，读不到时 null。
+ */
+function readProcessRssMB(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null
+  try {
+    if (IS_WINDOWS) {
+      // "DSH.exe","1234","Console","1","123,456 K"
+      const out = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true, timeout: 4000 }).stdout || ''
+      const match = /^"[^"]*","[^"]*","[^"]*","[^"]*","([\d.,]+) K"/m.exec(out)
+      if (!match) return null
+      const kb = Number(match[1].replace(/[.,]/g, ''))
+      return Number.isFinite(kb) ? Math.round(kb / 1024) : null
+    }
+    const out = spawnSync('ps', ['-o', 'rss=', '-p', String(pid)], { encoding: 'utf8', windowsHide: true, timeout: 4000 }).stdout || ''
+    const kb = Number(out.trim())
+    return Number.isFinite(kb) && kb > 0 ? Math.round(kb / 1024) : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * 指名某个用户目录里的 Profile 做「整包」操作：该目录里它有实例在跑、
  * 或者有人正在改它，都先拒绝。默认目录走 withIdleProfile；跨目录复制 Profile 时
  * 来源那一份要用它按自己的目录锁（见 createProfile）。
@@ -1351,12 +1452,17 @@ async function publicSettings() {
     // 桌面端系统开关的当前值。外壳直接读 settings.json（见 shell/prefs.mjs），这里只是给页面回显；
     // shellPrefs 表明当前外壳懂这组设置（旧外壳不认，页面据此提示更新）。
     hardwareAcceleration: stored.hardwareAcceleration !== false,
-    acceptPrerelease: stored.acceptPrerelease === true,
     autoUpdate: stored.autoUpdate === true,
     taskNotifications: stored.taskNotifications !== false,
     notificationSound: stored.notificationSound !== false,
     closeToTray: stored.closeToTray !== false,
     keepAwake: stored.keepAwake === true,
+    // 内置浏览器（右侧栏浏览器）：开关与证书策略。browserHost 表明当前外壳能否清理浏览数据
+    // （只有 Electron 外壳拿得到 guest 分区；浏览器里打开管理页 / 旧外壳没有这层能力）。
+    browserControl: stored.browserControl !== false,
+    browserIgnoreCertificate: stored.browserIgnoreCertificate === true,
+    contextMenu: stored.contextMenu !== false,
+    browserHost: Boolean(host.browser),
     shellPrefs: process.env.DSH_SHELL_PREFS === '1',
     desktopShell: shellWindowHost(),
     // Web 绑定：设置值 + 插件开关是否压着它（页面要如实说明当前生效的是哪一个）
@@ -1699,6 +1805,7 @@ async function removeLaunchPresetNow(id) {
   if (next.length === presets.length) throw new Error('这个启动项已不存在，请刷新后重试')
   // 删除快捷入口不改实例端口，避免影响同一组合的手动启动设置。
   await saveSettings({ launchPresets: next })
+  dropLaunchLog(id)
   await emitState()
   return { ok: true }
 }
@@ -1789,12 +1896,14 @@ async function saveManagerSettings(body) {
     ...('hideBackground' in body ? { hideBackground: body.hideBackground === true } : {}),
     ...('hideBigFish' in body ? { hideBigFish: body.hideBigFish === true } : {}),
     ...('hardwareAcceleration' in body ? { hardwareAcceleration: body.hardwareAcceleration !== false } : {}),
-    ...('acceptPrerelease' in body ? { acceptPrerelease: body.acceptPrerelease === true } : {}),
     ...('autoUpdate' in body ? { autoUpdate: body.autoUpdate === true } : {}),
     ...('taskNotifications' in body ? { taskNotifications: body.taskNotifications !== false } : {}),
     ...('notificationSound' in body ? { notificationSound: body.notificationSound !== false } : {}),
     ...('closeToTray' in body ? { closeToTray: body.closeToTray !== false } : {}),
     ...('keepAwake' in body ? { keepAwake: body.keepAwake === true } : {}),
+    ...('browserControl' in body ? { browserControl: body.browserControl !== false } : {}),
+    ...('browserIgnoreCertificate' in body ? { browserIgnoreCertificate: body.browserIgnoreCertificate === true } : {}),
+    ...('contextMenu' in body ? { contextMenu: body.contextMenu !== false } : {}),
     ...('autoStart' in body ? { autoStart: Boolean(body.autoStart) } : {}),
     ...('pluginMarketSources' in body ? { pluginMarketSources: safePluginMarketSources(body.pluginMarketSources) } : {}),
     ...('autoDisablePlugins' in body ? { autoDisablePlugins: body.autoDisablePlugins !== false } : {}),
@@ -1871,16 +1980,46 @@ async function saveManagerSettings(body) {
       ? '装新版本后自动清理旧版本'
       : '不再自动清理旧版本（已装版本全部保留）')
   }
-  if ('acceptPrerelease' in body) {
-    // 换了更新通道要重新问一次远端，否则页面拿到的还是缓存里正式版的结果
-    selfCache = { at: 0, data: null }
-    appUpdateCache = { at: 0, data: null }
-    pushLog(stored.acceptPrerelease ? '启动器更新改为跟随预览版（RC / Alpha）' : '启动器更新只跟随正式版')
+  if ('taskNotifications' in body) {
+    // 原生通知总开关：外壳按它拦发不发，这里再把原生通知的 loader 行一并停掉 / 恢复。
+    // 处理当前目录与登记过的目录；没登记过的 DSH_HOME 管不到。
+    const current = homeDir()
+    const homes = [...new Set([current, ...safeDshHomes(stored.dshHomes)])]
+    const changed = []
+    for (const home of homes) {
+      try {
+        const result = applyNativeNotify(home, stored.taskNotifications !== false)
+        for (const name of result.profiles) changed.push(home === current ? name : `${name}（${home}）`)
+        for (const failure of result.failed) pushLog(`原生通知开关：${failure.profile} 没改成功（${failure.error}）`)
+      } catch (error) {
+        pushLog(`原生通知开关：${home} 处理失败（${error instanceof Error ? error.message : error}）`)
+      }
+    }
+    pushLog(stored.taskNotifications !== false
+      ? `原生通知已开启${changed.length ? `：${changed.join('、')}，重启 dsh 后生效` : '（没有环境装过原生通知）'}`
+      : `原生通知已关闭${changed.length ? `：${changed.join('、')} 已停用，重启 dsh 后生效` : '（没有环境装过原生通知）'}`)
   }
   if ('hardwareAcceleration' in body) {
     pushLog(stored.hardwareAcceleration ? 'Chrome 硬件加速已开启，重启启动器后生效' : 'Chrome 硬件加速已关闭，重启启动器后生效')
   }
   if ('keepAwake' in body) pushLog(stored.keepAwake ? '已阻止系统空闲休眠' : '不再阻止系统空闲休眠')
+  if ('browserControl' in body) {
+    BROWSER_CONTROL = stored.browserControl !== false
+    pushLog(BROWSER_CONTROL
+      ? '内置浏览器已启用：启动新的 dsh 实例后，右侧栏浏览器可用'
+      : '内置浏览器已关闭：启动新的 dsh 实例后不再提供右侧栏浏览器')
+  }
+  if ('browserIgnoreCertificate' in body) {
+    pushLog(stored.browserIgnoreCertificate
+      ? '内置浏览器不再校验 HTTPS 证书（只影响内置浏览器，重启启动器后生效）'
+      : '内置浏览器恢复 HTTPS 证书校验（重启启动器后生效）')
+  }
+  if ('contextMenu' in body) {
+    CONTEXT_MENU = stored.contextMenu !== false
+    pushLog(CONTEXT_MENU
+      ? '右键菜单已启用：启动新的 dsh 实例后生效'
+      : '右键菜单已关闭：启动新的 dsh 实例后不再加载')
+  }
   // profile 立即生效：插件页、启动参数、npmrc 都读这个变量（已经在跑的 dsh 不受影响）
   EXTRA_ARGS = composeExtraArgs(stored.args)
   WEB_BIND = safeWebBind(stored.webBind)
@@ -1924,6 +2063,11 @@ export function dshEnv(version, options = {}) {
     DSH_PROFILE: PROFILE_NAME,
     // 只给官方市场 schema 提供缺省值；用户保存过的 indexes（包括空数组）始终优先。
     DSH_X_PLUGIN_MARKET_SOURCES: JSON.stringify(safePluginMarketSources(loadSettingsSync().pluginMarketSources)),
+    // 插件桌面 API 的发现信息：管理页端口每次启动可能顺延，插件不许硬编码 3780。
+    // DSH_X_DESKTOP 只在真外壳接上 host.desktop 时给（浏览器模式 / 旧外壳没有），
+    // 插件据此静默降级，不必先发一次注定 503 的请求。
+    DSH_X_MANAGER_URL: `http://127.0.0.1:${PORT}`,
+    ...(host.desktop ? { DSH_X_DESKTOP: '1' } : {}),
     // 只有「必须被 dsh 起的 worker 线程继承」的东西留在这里：worker 的 execArgv 是空的，
     // 命令行参数传不进去，只能靠 NODE_OPTIONS（路径写法见 nodeOptionsPath）。
     // dsh 自己要的那几个开关（--use-system-ca、--max-http-header-size、--import 钩子）走命令行，
@@ -2655,11 +2799,70 @@ function profileBootsWebIn(home, name) {
  * @param {boolean} alongside
  * @param {number} pinned 手工固定或自动记忆的端口（0 = 首次，由系统挑）
  */
+/**
+ * 右侧栏浏览器的覆盖补丁：外壳已经提供原生 webview 载体（见 shell/browser-guests.mjs），
+ * 这里只把官方 `ui-sidebar-browser` 行从 web-app bundle 的「非 desktop profile 禁用」里放开。
+ * 走 `--patch` 叠加层，不改用户的 profile 文件，也不要求 profile 改名叫 desktop。
+ *
+ * 「启用内置浏览器控制」管的是 agent 那一半（dsh-x-sidebar-browser）：侧栏 Browser 本身照旧，
+ * 用户手动看网页不受影响，只是 agent 不能再操作它。关掉时给已装的插件补一行 disabled: true
+ * （没装就不写——不存在的行没必要出现在补丁里）。
+ */
+const SIDEBAR_BROWSER_PATCH_HEADER = '# 由 DSH-X 外壳生成：右侧栏浏览器（原生 webview 载体见 shell/browser-guests.mjs）。'
+/** 让 agent 操作侧栏 Browser 的首方插件；ensureDesktopPlugins 也按同一个开关决定补不补装。 */
+const AGENT_BROWSER_PLUGIN = 'dsh-x-sidebar-browser'
+
+/** profile 的清单里有没有这个插件（依赖或 bundle 列表任一命中，link: / file: 也算装）。 */
+function profileHasPlugin(profile, name) {
+  try {
+    const manifest = JSON.parse(readFileSync(join(profileDirOf(profile), 'package.json'), 'utf8'))
+    const dependencies = manifest?.dependencies
+    const bundles = manifest?.dsh?.profile?.bundles
+    return (dependencies && Object.hasOwn(dependencies, name)) || (Array.isArray(bundles) && bundles.includes(name))
+  } catch {
+    return false
+  }
+}
+
+function sidebarBrowserPatchText(profile, enabled) {
+  const disableAgent = !enabled && profileHasPlugin(profile, AGENT_BROWSER_PLUGIN)
+  // 右键菜单的开关也搭同一趟 --patch：只在装过插件时写停用行，别给没装的环境留一条
+  // 匹配不到的补丁（dsh 会对每条不匹配的补丁打一行警告）。
+  const disableContextMenu = !CONTEXT_MENU && profileHasPlugin(profile, CONTEXT_MENU_PLUGIN)
+  return `${SIDEBAR_BROWSER_PATCH_HEADER}\n- id: ui-sidebar-browser\n  disabled: false\n`
+    + (disableAgent ? `- id: ${AGENT_BROWSER_PLUGIN}\n  disabled: true\n` : '')
+    + (disableContextMenu ? `- id: ${CONTEXT_MENU_ROW_ID}\n  disabled: true\n` : '')
+}
+
+function sidebarBrowserPatchArgs(profile) {
+  const enabled = BROWSER_CONTROL
+  // desktop profile 默认就放开 ui-sidebar-browser，也不装首方插件：浏览器和右键菜单都开着时
+  // 没有要覆盖的；任一个关着就得写补丁（右键菜单关掉在 desktop profile 上同样要生效）。
+  if (enabled && CONTEXT_MENU && String(profile ?? '').toLowerCase() === 'desktop') return []
+  try {
+    const file = join(DATA, 'shell', 'sidebar-browser.patch.yml')
+    mkdirSync(dirname(file), { recursive: true })
+    let current = ''
+    try {
+      current = readFileSync(file, 'utf8')
+    } catch { /* 还没有：写一份 */ }
+    const text = sidebarBrowserPatchText(profile, enabled)
+    if (current !== text) writeFileSync(file, text)
+    return ['--patch', file]
+  } catch (error) {
+    pushLog(`右侧栏浏览器补丁写不出来：${error instanceof Error ? error.message : error}`)
+    return []
+  }
+}
+
 function bootArgs(profile = PROFILE_NAME, alongside = false, pinned = 0) {
   // 不起 web 的 profile（headless / acp / sdk…）不提供 HTTP 服务，也不认这几个 flag：
   // 参数是透传给 profile 对应 app 的，会被它自己的 commander 打回 `unknown option`
   // 并 exit 1（`dsh headless --no-open` 就是这条），所以只对会起 web 的注入
   if (!bootsWebApp(profile)) return [profile, ...EXTRA_ARGS]
+  // profile 名必须排在第一个；launcher 自己的 flag（--patch 等）放在 profile 之后、
+  // app 参数之前（见 dsh 的 `dsh tui --patch ./extra.yml` 示例）。
+  const overlay = sidebarBrowserPatchArgs(profile)
   const port = pinned > 0 ? String(pinned) : '0'
   if (lanBindActive(WEB_BIND, lanBindToggleOn(homeDir(), profile))) {
     // 局域网：--host 不传。CLI 硬禁 --host 0.0.0.0，绑定只能走配置层（远程插件的
@@ -2667,14 +2870,14 @@ function bootArgs(profile = PROFILE_NAME, alongside = false, pinned = 0) {
     // 把插件钉好的端口抹成随机值，所以端口也交给配置层决定。
     // 两个例外，都是「不显式给端口就出事」：多开时配置层里只有一个端口，第二个实例
     // 撞上去就是 EADDRINUSE；用户自己钉了端口，就是要它——这两种情况显式传 --port。
-    if (!pinned && !alongside) return [profile, '--no-open', ...EXTRA_ARGS]
-    return [profile, '--port', port, '--no-open', ...EXTRA_ARGS]
+    if (!pinned && !alongside) return [profile, ...overlay, '--no-open', ...EXTRA_ARGS]
+    return [profile, ...overlay, '--port', port, '--no-open', ...EXTRA_ARGS]
   }
   // 默认姿势：钉死回环 + 端口（首次 --port 0，让 OS 现挑一个；dsh 会把真实地址
   // 打出来，启动器读它，所以顺延也不影响页面拿到链接）。
   // 额外参数放最后：用户可以用它覆盖 --port 之类（启动器是从 dsh 的输出里读真实地址的，
   // 所以换个端口也不影响管理页拿到的链接）
-  return [profile, '--host', '127.0.0.1', '--port', port, '--no-open', ...EXTRA_ARGS]
+  return [profile, ...overlay, '--host', '127.0.0.1', '--port', port, '--no-open', ...EXTRA_ARGS]
 }
 
 /** 这个「版本 × profile」手工固定的端口（0 = 自动分配并记忆）。 */
@@ -2933,7 +3136,7 @@ function spawnDsh(version, extra, profile = '', options = {}) {
   // 统一用 RUNTIME_NODE 拉起 dsh（打包后就是 Electron 自带的 Node，见 platform.js）；#61 的诊断
   // 上下文仍要在这之前建好 env。
   const env = dshEnv(version, options)
-  // 插件体检：只有真正拉起实例（bootOnce）时才记录，插件命令 / AI 修复命令不写报告，
+  // 启动 CPU 账本：只有真正拉起实例（bootOnce）时才写报告，插件命令 / 修复命令不写，
   // 否则会用一次半截运行覆盖掉上一次正常启动的样本。报告按「版本@profile」落盘。
   if (options.pluginProfile) {
     env.DSH_X_PLUGIN_PROFILE = `${version}@${profile || PROFILE_NAME}`
@@ -3043,7 +3246,7 @@ async function checkSelfUpdate({ force = false } = {}) {
 let stagedApp = null
 let pendingAppUpdate = null
 let appUpdateCache = { at: 0, data: null }
-/** 自动更新与页面可能同时操作：下载并到同一份，应用只允许开一次（换了目录进程就退出了）。 */
+/** 下载可能被连点或两个标签页同时发起：并到同一份，应用只允许开一次（换了目录进程就退出了）。 */
 let appDownloadInFlight = null
 let appApplyStarted = false
 /** 完整安装包自更新的测试通道：DSH_UPDATE_VERSION 当最新版本。 */
@@ -3205,22 +3408,12 @@ async function checkAppUpdate({ force = false } = {}) {
   const latest = APP_VERSION
   let result
   try {
-    // 接受预览版时把 rc / alpha 也算进来，取其中最高的；否则只跟当前版本所在通道。
-    // 通道选择跟着当前版本走（rc 版只收 rc / alpha），不凭空让正式版用户吃 alpha。
-    const acceptPrerelease = loadSettingsSync().acceptPrerelease === true
-    if (acceptPrerelease) {
-      // 从当前版本所在通道一路看到 Alpha：正式版用户也能收到 rc / alpha。
-      // channelIncludes(候选, 当前) 的含义是「候选通道收不收当前这个版本」，正是这里要的方向。
-      const base = versionChannel(APP_VERSION) || VERSION_CHANNEL.OFFICIAL
-      const channels = VERSION_CHANNELS.filter((channel) => channelIncludes(channel, base))
-      result = await checkCoreUpdateAny({ current: APP_VERSION, source: UPDATE_SOURCE, channels })
-    } else {
-      result = await checkCoreUpdate({
-        current: APP_VERSION,
-        source: UPDATE_SOURCE,
-        channel: versionChannel(APP_VERSION) || VERSION_CHANNEL.OFFICIAL,
-      })
-    }
+    // 通道跟着当前版本走（正式版只收正式版，rc 版收 rc / alpha），没有单独的通道开关。
+    result = await checkCoreUpdate({
+      current: APP_VERSION,
+      source: UPDATE_SOURCE,
+      channel: versionChannel(APP_VERSION) || VERSION_CHANNEL.OFFICIAL,
+    })
   } catch (error) {
     return remember({ available: false, reason: 'manifest', latest, error: error?.message || String(error) })
   }
@@ -3729,6 +3922,66 @@ async function addPlugin(version, spec, { profile = PROFILE_NAME } = {}) {
     pluginProgressName = ''
     pluginProgressProfile = ''
     emitPluginProgress(null)
+  }
+}
+
+// ---- 桌面增强：启动前把缺的首方插件补进 profile ----
+/** 本进程正在自动装插件；和插件页的手动安装共用 addPlugin 的那把锁。 */
+let desktopPluginInstalling = false
+/**
+ * 本进程里试过的「home + profile」：一次启动只尝试一轮。
+ *
+ * 失败（多半是离线）不在同一个进程里反复重试——每次点启动都等一遍超时可不行；
+ * 下次启动启动器（新进程）会重新检查。
+ */
+const desktopPluginsAttempted = new Set()
+
+/**
+ * 拉起实例前检查 web profile 缺哪个桌面增强插件，缺的用插件页同一条链路装上。
+ *
+ * - 只认「装没装」：用户在 dsh 里关掉的插件不会被这里重新打开；
+ * - 失败只记日志、不拦启动：离线或 registry 抽风不该让 dsh 起不来，下次启动再试；
+ * - 和用户手动安装撞上（pluginBusy）就跳过这一次，别让两条 pnpm 抢同一个目录。
+ *
+ * @param {string} version - 要启动的 dsh 版本。
+ * @param {string} profile - profile 名。
+ */
+async function ensureDesktopPlugins(version, profile) {
+  if (desktopPluginInstalling) return
+  if (!bootsWebApp(profile)) return
+  if (DESKTOP_PLUGINS_SKIP_PROFILES.includes(String(profile).toLowerCase())) return
+  const attemptKey = `${homeDir()}\0${profile}`
+  if (desktopPluginsAttempted.has(attemptKey)) return
+  let manifest
+  try {
+    manifest = JSON.parse(readFileSync(join(profileDirOf(profile), 'package.json'), 'utf8'))
+  } catch {
+    return
+  }
+  // 「启用内置浏览器控制」关掉时不再补装 agent 工具；「右键菜单」关掉时同样不补装。
+  // 已经装过的由启动补丁停用。
+  const missing = desktopPluginsToInstall(manifest, version)
+    .filter((plugin) => plugin.name !== AGENT_BROWSER_PLUGIN || BROWSER_CONTROL)
+    .filter((plugin) => plugin.name !== CONTEXT_MENU_PLUGIN || CONTEXT_MENU)
+  if (!missing.length) return
+  desktopPluginsAttempted.add(attemptKey)
+  desktopPluginInstalling = true
+  try {
+    for (const plugin of missing) {
+      if (pluginBusy) {
+        pushLog(`桌面增强：${profile} 缺少 ${plugin.label}（${plugin.name}），但插件正在安装，下次启动再补`)
+        continue
+      }
+      pushLog(`桌面增强：${profile} 缺少 ${plugin.label}（${plugin.name}），自动安装`)
+      try {
+        await addPlugin(version, `${plugin.name}@${plugin.spec}`, { profile })
+        pushLog(`桌面增强：${plugin.name} 已装进 ${profile}`)
+      } catch (error) {
+        pushLog(`桌面增强：${plugin.name} 自动安装失败（下次启动再试）：${error instanceof Error ? error.message : error}`)
+      }
+    }
+  } finally {
+    desktopPluginInstalling = false
   }
 }
 
@@ -4542,7 +4795,7 @@ async function terminateProcess(proc) {
 }
 
 /**
- * 任务通知：实例启动完成 / 启动失败 / 意外退出。文案由外壳按当前语言拼（外壳知道 lang，
+ * 任务通知：实例启动失败 / 意外退出。文案由外壳按当前语言拼（外壳知道 lang，
  * 也掌管 Notification 与提示音开关），这里只给结构化事实。
  */
 function notifyInstance(kind, proc, extra = {}) {
@@ -4601,6 +4854,8 @@ function attachProcess(version, profile, child, diagnosticContext) {
     }
   }
   const onLine = (line) => {
+    // 首个输出时间：等待就绪那一段里，从 spawn 到第一行之间通常是 Node 启动与依赖解析
+    if (!proc.firstOutputAt) proc.firstOutputAt = performance.now()
     if (proc.diagnosis.addLine(line)) {
       scheduleDiagnosis()
     }
@@ -4624,7 +4879,8 @@ function attachProcess(version, profile, child, diagnosticContext) {
       scheduleDiagnosis()
       proc.readyAt = performance.now()
       ready()
-      notifyInstance('started', proc)
+      // 正常启动不发通知：用户点了启动就有进度页和窗口，再响一声只是噪音。
+      // 只有失败 / 意外退出（下面那条）才值得打断。
       emitState()
     }
   }
@@ -4719,8 +4975,8 @@ export async function checkWebPage(origin, token) {
 }
 
 /**
- * 插件体检报告：正常启动时由 perf/plugin-profile.mjs 采样写入，这里只负责读。
- * 记录不存在（还没启动过、或 loader 锚点没命中）时返回 missing，页面据此给出人话。
+ * 启动 CPU 账本：正常启动时由 perf/plugin-profile.mjs 在启动窗口内采样写入，这里只读。
+ * 记录不存在时返回 missing，页面据此显示「重启一次后再看」。
  */
 async function pluginProfileReport(version, profile) {
   const file = join(APP_DIR, 'plugin-profile', `${version}@${profile}.json`)
@@ -4840,7 +5096,22 @@ async function bootOnce(ver, prof, onStarted) {
     const readyAt = proc.readyAt || performance.now()
     proc.startupMs = Math.round(readyAt - spawnAt)
     const confirmedAt = performance.now()
-    pushLog(`启动耗时 ${ver}/${prof}：准备 ${Math.round(spawnAt - startedAt)}ms，子进程就绪地址 ${Math.round(readyAt - spawnAt)}ms，确认 ${Math.round(confirmedAt - readyAt)}ms，总计 ${Math.round(confirmedAt - startedAt)}ms`)
+    const prepareMs = Math.round(spawnAt - startedAt)
+    const readyMs = Math.round(readyAt - spawnAt)
+    const confirmMs = Math.round(confirmedAt - readyAt)
+    recordLaunchRun(launchScope.getStore()?.launchId, {
+      at: Date.now(),
+      version: ver,
+      profile: prof,
+      totalMs: Math.round(confirmedAt - startedAt),
+      prepareMs,
+      readyMs,
+      confirmMs,
+      firstOutputMs: proc.firstOutputAt ? Math.round(proc.firstOutputAt - spawnAt) : null,
+      // 启动结算时读一次子进程 RSS：进程级常驻，够用的“大概”
+      startupRssMB: readProcessRssMB(proc.child?.pid),
+    })
+    pushLog(`启动耗时 ${ver}/${prof}：准备 ${prepareMs}ms，子进程就绪地址 ${readyMs}ms，确认 ${confirmMs}ms，总计 ${Math.round(confirmedAt - startedAt)}ms`)
     // 钉了端口却没落到上面（额外参数里另有 --port，或 dsh 自己顺延了）：如实说一句，
     // 否则用户以为存下来的地址还有效
     if (pinned && urlPortOf(result.url) !== pinned) {
@@ -5024,6 +5295,11 @@ async function startWithRepair(version, profile = PROFILE_NAME) {
   // 快照失败不拦启动——备份是保险，不是启动的前提。
   await snapshotProfileConfig(profile).catch((error) => {
     pushLog(`[备份] Profile ${profile} 快照失败：${error instanceof Error ? error.message : error}`)
+  })
+  // 桌面增强（原生通知 / 右键菜单 / 侧栏浏览器控制）：缺哪个补哪个。装在拉起子进程之前，
+  // 这样第一次启动就能用上；失败不影响启动，下次再试。
+  await ensureDesktopPlugins(version, profile).catch((error) => {
+    pushLog(`桌面增强：自动安装检查失败：${error instanceof Error ? error.message : error}`)
   })
   for (;;) {
     try {
@@ -5777,6 +6053,37 @@ async function exportLogs() {
   return redact(chunks.length ? chunks.join('') : logs.join('\n'), secretValues)
 }
 
+/**
+ * 插件桌面 API 的能力清单（GET /api/desktop）。
+ *
+ * available 只有真外壳接上 host.desktop 时为真：浏览器模式（node start.js）和旧外壳
+ * 都没有这层能力。通知开关和外壳读的是同一份 settings.json，插件可以先看它决定
+ * 要不要退回页面内提示。
+ */
+function desktopPayload() {
+  const desktop = host.desktop
+  // 外壳的 info 坏了不该让整份能力清单失败：插件至少还能看到 available 和 capabilities。
+  let info = {}
+  try {
+    info = (desktop && typeof desktop.info === 'function' ? desktop.info() : null) || {}
+  } catch {
+    info = {}
+  }
+  const settings = loadSettingsSync()
+  return {
+    api: DESKTOP_API_VERSION,
+    available: Boolean(desktop),
+    platform: process.platform,
+    capabilities: desktop ? [...DESKTOP_CAPABILITIES] : [],
+    notifications: {
+      enabled: settings.taskNotifications !== false,
+      sound: settings.notificationSound !== false,
+    },
+    theme: typeof info.theme === 'string' ? info.theme : '',
+    versions: { core: APP_VERSION, ...(info.versions && typeof info.versions === 'object' ? info.versions : {}) },
+  }
+}
+
 async function handleApi(req, res, url) {
   // 身份标记：端口被占用时我们要能分辨那是自己的另一个实例还是别人的程序
   if (url.pathname === '/api/ping') {
@@ -5865,6 +6172,51 @@ async function handleApi(req, res, url) {
     send(res, 200, await publicSettings())
     return
   }
+  if (req.method === 'GET' && url.pathname === '/api/launch-log') {
+    const id = String(url.searchParams.get('id') || '')
+    if (!LAUNCH_ID_RE.test(id)) {
+      send(res, 400, { error: '启动项 id 不合法' })
+      return
+    }
+    const file = join(LAUNCH_LOG_DIR, `launch-${id}.log`)
+    let text = ''
+    let at = null
+    try {
+      text = readFileSync(file, 'utf8')
+      at = statSync(file).mtimeMs
+    } catch {
+      // 还没启动过：空日志，页面显示提示
+    }
+    const limit = 120 * 1024
+    const clipped = text.length > limit
+    if (clipped) text = text.slice(-limit)
+    let runs = []
+    try {
+      const parsed = JSON.parse(readFileSync(join(LAUNCH_LOG_DIR, `launch-${id}.json`), 'utf8'))
+      if (Array.isArray(parsed?.runs)) runs = parsed.runs.slice(0, 20)
+    } catch {
+      // 没有耗时记录：只显示日志
+    }
+    send(res, 200, { id, text, at, clipped, runs })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/launch-log/export') {
+    const id = String(url.searchParams.get('id') || '')
+    if (!LAUNCH_ID_RE.test(id)) {
+      send(res, 400, { error: '启动项 id 不合法' })
+      return
+    }
+    let text = ''
+    try {
+      text = readFileSync(join(LAUNCH_LOG_DIR, `launch-${id}.log`), 'utf8')
+    } catch {
+      send(res, 404, { error: '这个启动项还没有日志' })
+      return
+    }
+    res.setHeader('content-disposition', `attachment; filename="launch-${id}.log"`)
+    send(res, 200, text, 'text/plain; charset=utf-8')
+    return
+  }
   if (req.method === 'GET' && url.pathname === '/api/logs/export') {
     res.setHeader('content-disposition', 'attachment; filename="dsh-x-logs.txt"')
     send(res, 200, await exportLogs(), 'text/plain; charset=utf-8')
@@ -5875,7 +6227,7 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/plugin-profile') {
-    // 体检报告按「版本@profile」存在数据目录里；参数非法回 400，别让它拼进文件路径。
+    // 账本按「版本@profile」存在数据目录里；参数非法回 400，别让它拼进文件路径。
     try {
       const version = safeVersion(url.searchParams.get('version') || '')
       const profile = safeProfile(url.searchParams.get('profile') || PROFILE_NAME)
@@ -5981,6 +6333,77 @@ async function handleApi(req, res, url) {
   }
 
   const body = req.method === 'POST' ? await readJson(req) : {}
+  // 插件桌面 API：插件在 dsh 子进程里用本机 HTTP 调这里，真正的 Notification / dialog /
+  // clipboard 由外壳的 host.desktop 执行（见 shell/main.mjs）。GET 只回能力清单。
+  if (url.pathname === '/api/desktop' || url.pathname.startsWith('/api/desktop/')) {
+    if (url.pathname === '/api/desktop') {
+      if (req.method !== 'GET') send(res, 405, { error: '/api/desktop 只支持 GET' })
+      else send(res, 200, desktopPayload())
+      return
+    }
+    if (req.method !== 'POST') {
+      send(res, 405, { error: '桌面能力只支持 POST' })
+      return
+    }
+    if (!host.desktop) {
+      // 浏览器模式 / 旧外壳：能力不存在。插件按 available=false 降级，别重试。
+      send(res, 503, { available: false, error: '桌面能力不可用：当前不是 DSH-X 桌面外壳在运行' })
+      return
+    }
+    const action = url.pathname.slice('/api/desktop/'.length)
+    let request
+    try {
+      request = parseDesktopRequest(action, body)
+    } catch (error) {
+      send(res, 400, { error: error instanceof Error ? error.message : String(error) })
+      return
+    }
+    if (!request) {
+      send(res, 404, { error: `没有 /api/desktop/${action} 这个能力` })
+      return
+    }
+    if (typeof host.desktop[request.action] !== 'function') {
+      send(res, 503, { available: false, error: `这个外壳还不支持 ${request.action}` })
+      return
+    }
+    // 只显示真实存在的路径：这条路由没有鉴权，不能变成任意路径的文件管理器入口。
+    if (request.action === 'reveal' && !existsSync(request.path)) {
+      send(res, 400, { error: '这个路径不存在' })
+      return
+    }
+    try {
+      const result = await host.desktop[request.action](request)
+      send(res, 200, { ok: true, ...(result && typeof result === 'object' ? result : {}) })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushLog(`桌面能力 ${request.action} 失败：${message}`)
+      send(res, 500, { error: message })
+    }
+    return
+  }
+  // 设置页「浏览器控制」的两个清理按钮：guest 分区在 Electron 外壳里，核心只能转发。
+  // 只影响内置浏览器（persist:dsh-sidebar-browser-*），管理页和 dsh 页面的数据不动。
+  if (req.method === 'POST' && (url.pathname === '/api/browser/clear-cache' || url.pathname === '/api/browser/clear-data')) {
+    if (!host.browser) {
+      send(res, 503, { available: false, error: '浏览器数据清理不可用：当前不是 DSH-X 桌面外壳在运行，或外壳版本太旧' })
+      return
+    }
+    const action = url.pathname.endsWith('/clear-cache') ? 'clearCache' : 'clearAll'
+    if (typeof host.browser[action] !== 'function') {
+      send(res, 503, { available: false, error: `这个外壳还不支持 ${action}` })
+      return
+    }
+    try {
+      const result = await host.browser[action]()
+      pushLog(action === 'clearCache' ? '内置浏览器缓存已清除' : '内置浏览器的 Cookie、站点数据和缓存已清除')
+      send(res, 200, { ok: true, ...(result && typeof result === 'object' ? result : {}) })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushLog(`清理内置浏览器数据失败：${message}`)
+      send(res, 500, { error: message })
+    }
+    return
+  }
   if (req.method === 'POST' && ['/api/diagnosis/repair/preview', '/api/diagnosis/repair/execute', '/api/diagnosis/repair/rollback'].includes(url.pathname)) {
     try {
       let result
@@ -6064,7 +6487,7 @@ async function handleApi(req, res, url) {
     // 核心增量：内置基线 → 复制到用户目录 core/current，重启外壳（外壳优先加载它）；
     // 已经在 core/current → 替换助手等外壳退出后原地换目录，失败回滚。
     try {
-      // 已经开过一次（自动更新和页面同时触发）：重复替换会把刚换好的目录再挪一遍
+      // 已经开过一次（连点两下或两个标签页同时点）：重复替换会把刚换好的目录再挪一遍
       if (appApplyStarted) {
         send(res, 200, { ok: true, already: true })
         return
@@ -6163,6 +6586,16 @@ async function handleApi(req, res, url) {
   }
   if (req.method === 'POST' && url.pathname === '/api/launch-presets') {
     send(res, 200, await saveLaunchPreset(body))
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/launch-log/clear') {
+    const id = String(body.id || '')
+    if (!LAUNCH_ID_RE.test(id)) {
+      send(res, 400, { error: '启动项 id 不合法' })
+      return
+    }
+    clearLaunchLog(id)
+    send(res, 200, { ok: true })
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/launch-presets/remove') {

@@ -272,8 +272,6 @@ export const DEFAULTS = {
   // ---- 桌面端系统开关（Electron 外壳直接读 settings.json，见 shell/prefs.mjs）----
   // Chromium 硬件加速：关闭能规避显卡/驱动导致的白屏与闪退，代价是动画更吃 CPU，重启生效
   hardwareAcceleration: true,
-  // 启动器的更新通道（核心 npm 包与外壳都算）：收 rc / alpha，不再只跟正式版
-  acceptPrerelease: false,
   // 发现更新就自动下载；没有 dsh 实例在跑时直接装上并重启
   autoUpdate: false,
   // dsh 实例启动完成 / 启动失败时发桌面通知（外壳实现）
@@ -284,6 +282,12 @@ export const DEFAULTS = {
   closeToTray: true,
   // 阻止系统空闲休眠（跑长任务时用）
   keepAwake: false,
+  // 内置浏览器（官方右侧栏浏览器）：关掉后不再给新启动的 dsh 实例放开那一行插件
+  browserControl: true,
+  // 内置浏览器不校验 HTTPS 证书（自签名 / 过期证书的站点也能打开），只影响浏览器分区
+  browserIgnoreCertificate: false,
+  // 右键菜单（dsh-x-context-menu）：关掉后新启动的 dsh 实例不再加载这个插件（不卸载）
+  contextMenu: true,
   downloadSource: DEFAULT_SOURCE,
   // 启动器更新的下载源：direct（默认）/ mirror（国内加速）
   updateSource: DEFAULT_UPDATE_SOURCE,
@@ -696,6 +700,8 @@ function mergeStoredSettings(stored) {
     merged.hideBackground = stored.disableBackgroundAnimation === true
   }
   delete merged.disableBackgroundAnimation
+  // 更新通道开关已撤：通道跟着当前版本走，旧文件里的键顺手清掉
+  delete merged.acceptPrerelease
   // 内置插件的预置开关已撤（插件改由整合包分发），旧文件里的键顺手清掉
   delete merged.seedBundled
   delete merged.seedMarket
@@ -807,12 +813,15 @@ async function saveSettingsNow(patch) {
   merged.hideBigFish = merged.hideBigFish === true
   // 桌面端系统开关：只认布尔，脏值回默认（true 的两个用 !== false，其余 === true）
   merged.hardwareAcceleration = merged.hardwareAcceleration !== false
-  merged.acceptPrerelease = merged.acceptPrerelease === true
   merged.autoUpdate = merged.autoUpdate === true
   merged.taskNotifications = merged.taskNotifications !== false
   merged.notificationSound = merged.notificationSound !== false
   merged.closeToTray = merged.closeToTray !== false
   merged.keepAwake = merged.keepAwake === true
+  // 内置浏览器开关与证书校验：和上面一组同一套布尔语义
+  merged.browserControl = merged.browserControl !== false
+  merged.browserIgnoreCertificate = merged.browserIgnoreCertificate === true
+  merged.contextMenu = merged.contextMenu !== false
   // 同 webBind：脏值顺手修回默认（回环），显式改绑定方式时才把错误抛给调用方
   try {
     merged.webBind = safeWebBind(merged.webBind)

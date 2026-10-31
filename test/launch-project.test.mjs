@@ -17,6 +17,8 @@ import { packumentOf, startChannelServer } from './update-channel-fixture.mjs'
 const recordCwdBin = (version) => `import { createServer } from 'node:http'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
+// 桌面增强会调 \`dsh plugin add\`：假 dsh 只负责起服务，插件命令直接成功退出，也不记 spawn。
+if (process.argv.includes('plugin')) process.exit(0)
 const home = process.env.DSH_HOME
 appendFileSync(join(home, 'spawned'), '${version}\\n')
 appendFileSync(join(home, 'cwd'), process.cwd() + '\\n')

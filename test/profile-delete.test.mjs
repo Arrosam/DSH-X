@@ -33,6 +33,8 @@ test('最后一个 Profile 可删除，保留用户数据并按目录清理启�
   const lib = join(data, 'versions', '1.0.0', 'node_modules', '@deepseek-ai', 'dsh', 'lib')
   mkdirSync(lib, { recursive: true })
   writeFileSync(join(lib, 'bin.js'), `import { createServer } from 'node:http'
+// 桌面增强会调 \`dsh plugin add\`：假 dsh 只负责起服务，插件命令直接成功退出。
+if (process.argv.includes('plugin')) process.exit(0)
 const server = createServer((req, res) => res.end('<!doctype html><html><body>ok</body></html>'))
 server.listen(0, '127.0.0.1', () => console.log('dsh web: http://127.0.0.1:' + server.address().port + '/?token=fake'))
 `)

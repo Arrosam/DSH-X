@@ -3,7 +3,7 @@ import { load } from './patch-hooks.mjs'
 import { installPluginProfile } from './plugin-profile.mjs'
 import { createStartupResolver, installationRoots, STARTUP_RESOLVER } from './startup-resolver.mjs'
 
-// 插件体检：只在启动器给了输出目录时启用，正常启动顺手记录，不额外起进程、不重启。
+// 启动 CPU 账本：只在启动器给了输出目录时启用，启动窗口内采一次，结算后停。
 installPluginProfile()
 
 const resolver = createStartupResolver({

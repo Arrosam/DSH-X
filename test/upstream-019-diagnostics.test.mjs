@@ -25,6 +25,10 @@ function bootContext(home, profile, fail = false) {
     pushLog(message) {
       observations.logs.push(message)
     },
+    // 启动项日志的耗时记录是副作用，这里只关心诊断身份
+    launchScope: { getStore: () => undefined },
+    recordLaunchRun() {},
+    readProcessRssMB: () => 300,
     lanBindActive: () => false,
     lanBindToggleOn: () => false,
     WEB_BIND: '',

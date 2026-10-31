@@ -9,6 +9,8 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 /** 和 main.mjs 的 IPC_CHANNEL 一致。 */
 const IPC_CHANNEL = 'dsh-x:ipc'
+/** 外壳 → 页面的通道（和 main.mjs 的 SHELL_CHANNEL 一致）：退出前的询问。 */
+const SHELL_CHANNEL = 'dsh-x:shell'
 /** 单条消息的上限：页面发的都是很短的 JSON，超长的直接丢，别让主进程去解析。 */
 const MESSAGE_MAX_CHARS = 64 * 1024
 
@@ -26,5 +28,11 @@ contextBridge.exposeInMainWorld('ipc', {
   postMessage(message) {
     const text = String(message)
     if (text.length <= MESSAGE_MAX_CHARS) ipcRenderer.send(IPC_CHANNEL, text)
+  },
+  // 外壳 → 页面：目前只有「退出前还有实例在跑」这一种询问（见 main.mjs 的 confirmQuitWithInstances）。
+  // 页面在启动时订阅一次就够了，不返回「取消订阅」函数：跨 contextBridge 往回传函数没必要，也没人用。
+  onMessage(handler) {
+    if (typeof handler !== 'function') return
+    ipcRenderer.on(SHELL_CHANNEL, (_event, text) => handler(String(text)))
   },
 })

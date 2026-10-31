@@ -26,8 +26,6 @@ const [REPORT_VERSION, REPORT_PROFILE] = NAME.includes('@')
 const REPORT_NAME = (NAME || `${VERSION}@${PROFILE}`).replace(/[^0-9A-Za-z@._-]/g, '_')
 /** CPU 采样间隔（微秒）：1ms，开销小到启动时间上看不出来。 */
 const CPU_INTERVAL_US = 1000
-/** 堆分配采样间隔（字节）：64KB，够看出量级，又不至于让采样树过大。 */
-const HEAP_INTERVAL_BYTES = 65536
 /** 最后一个 entry 稳定后再等这么久才收尾：给异步 apply 留出完成时间。 */
 const IDLE_MS = 1500
 /** 兜底：有 entry 一直不结算时也不能让采样器永远开着。 */
@@ -137,8 +135,8 @@ async function stop() {
   if (!session) return
   try {
     const cpu = await session.post('Profiler.stop')
-    const heap = await session.post('HeapProfiler.stopSampling')
-    writeReport(summarize(cpu.profile, heap.profile))
+    // 堆分配采样已撤：账本只看 CPU；内存用启动结算时读一次 RSS。
+    writeReport(summarize(cpu.profile, null))
   } catch { /* 采样失败不能影响运行 */ }
   try { session.disconnect() } catch { /* ignore */ }
 }
@@ -171,8 +169,6 @@ async function start() {
     session.connect()
     await session.post('Profiler.enable')
     await session.post('Profiler.setSamplingInterval', { interval: CPU_INTERVAL_US })
-    await session.post('HeapProfiler.enable')
-    await session.post('HeapProfiler.startSampling', { samplingInterval: HEAP_INTERVAL_BYTES })
     await session.post('Profiler.start')
     startedAt = performance.now()
     cap = setTimeout(() => { void stop() }, MAX_MS)

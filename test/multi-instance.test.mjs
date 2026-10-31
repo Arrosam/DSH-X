@@ -27,6 +27,8 @@ const page = readFileSync(fileURLToPath(new URL('../public/index.html', import.m
 const FAKE_DSH = `import { createServer } from 'node:http'
 import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+// 桌面增强会调 \`dsh plugin add\`：假 dsh 只负责起服务，插件命令直接成功退出。
+if (process.argv.includes('plugin')) process.exit(0)
 if (process.env.DSH_TEST_START_GATE) {
   const profile = process.argv.includes('--profile') ? process.argv[process.argv.indexOf('--profile') + 1] : process.argv[2]
   const marker = join(process.env.DSH_TEST_START_GATE, process.env.DSH_VERSION + '-' + profile)
@@ -478,11 +480,23 @@ test('托盘只禁用正在操作的启动项，其他 Profile 仍可并发启�
   }
 })
 
-test('控制页有「在跑的实例」一栏，每行单独打开/停止', () => {
-  assert.match(page, /<details class="instances" id="instances" hidden>[\s\S]{0,220}?<summary class="instances-title" data-i18n="其他运行项">/, '实例一栏在控制页')
-  assert.match(page, /const show = list\.length > 0/, '有实例就列出来：选中别的版本时，这栏是唯一能看到「还有东西在跑」的地方')
-  assert.match(page, /post\('\/api\/stop', \{ version: el\.dataset\.stopVersion, profile: el\.dataset\.profile, home: el\.dataset\.home \}\)/, '每行的停止打在它自己那个 版本×profile×home 上')
-  assert.match(page, /void openInstance\(item\?\.url\)/, '打开走服务端的打开方式（内嵌窗口 / 应用窗口 / 标签页）')
+test('控制页只列启动项，不再单列其他实例', () => {
+  assert.doesNotMatch(page, /id="instances"/, '控制页不再有「其他运行项」一栏')
+  assert.doesNotMatch(page, /paintInstances/, '实例专用渲染也一起撤掉')
+  assert.match(page, /<div class="launch-presets" id="launchPresets"><\/div>/, '启动项列表还在')
+  assert.match(page, /<div class="ask" id="launchLogDialog" hidden>/, '每个启动项有自己的日志弹窗')
+  assert.match(page, /data-log-id="\$\{entry\.id\}"/, '启动项行上有打开日志的按钮')
+  assert.match(page, /\/api\/launch-log\?id=\$\{encodeURIComponent\(entry\.id\)\}/, '日志按启动项 id 拉取')
+  assert.match(page, /startupRssMB/, '启动结算时读一次子进程 RSS')
+  assert.match(page, /id="launchLogRss"/, 'RSS 跟窗口/CPU 同一行显示')
+  assert.match(page, /function renderLaunchReport\(report\)/, '启动时间账本还在')
+  assert.match(page, /launch-log-ledger/, '账本画成堆叠条')
+  assert.match(page, /id="launchLogExport"/, '日志可导出')
+  assert.match(page, /id="launchLogClear"/, '日志可清空')
+  assert.match(page, /function simplifyLogText\(text\)/, '显示时压缩时间戳')
+  assert.doesNotMatch(page, /analyzeLaunchMemory|instance-memory/, '按需内存分析入口已撤')
+  assert.doesNotMatch(page, /id="pluginProfileDialog"|openPluginProfile/, '独立的启动明细弹窗已撤')
+  assert.doesNotMatch(page, /renderLaunchRuns|renderLaunchBreakdown|launchLogTimeline/, '阶段条与空档列表已撤')
   assert.match(page, /const live = runningInfo\(version, entry\.profile, entry\.dshHome \|\| state\.dshHome\)/, '每个启动项只打开自己的版本、profile 与 home')
   assert.match(page, /function runningInfo\(version = '', profile = '', home = ''\)/, 'runningInfo 收版本、profile 与 home')
   assert.match(page, /id="launchProfile"/, '控制页有启动 profile 下拉')

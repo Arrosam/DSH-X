@@ -28,7 +28,9 @@ FAVICON_PNG = 64
 
 # Corner shape of the app tile: a superellipse ("squircle") like the source
 # artwork's own tile, n=2 would be a plain rounded rectangle, larger is squarer.
-CORNER_N = 4.5
+# 3.0 比最初的 4.5 更圆润：标题栏 / 任务栏 / 通知标题里是一枚圆角应用图标，
+# 而不是一个几乎见棱见角的白方块。
+CORNER_N = 3.0
 SUPERSAMPLE = 4
 
 # A pixel counts as removed background below FULL; up to BLEND it is an

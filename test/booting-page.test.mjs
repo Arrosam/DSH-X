@@ -32,7 +32,7 @@ function bootPageSandbox({ state = { dshHome: 'C:/Users/me/.dsh', launchPresets:
     location: { origin: 'http://127.0.0.1:62604' },
     launchEntries: () => context.state.launchPresets,
   })
-  vm.runInContext(section('    function bootPageUrl(', '    function paintInstances'), context)
+  vm.runInContext(section('    function bootPageUrl(', '    // ---- 启动项日志'), context)
   return { context, urls }
 }
 
@@ -78,7 +78,7 @@ test('打开失败时返回 false：启动照发，完成后再兜底开 dsh', a
     location: { origin: 'http://127.0.0.1:62604' },
     launchEntries: () => [],
   })
-  vm.runInContext(section('    function bootPageUrl(', '    function paintInstances'), context)
+  vm.runInContext(section('    function bootPageUrl(', '    // ---- 启动项日志'), context)
   assert.equal(await context.openBootPage('1.2.3', 'web', ''), false)
 })
 
