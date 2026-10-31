@@ -16,8 +16,7 @@ import pkg from './package.json' with { type: 'json' }
 import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionChannel, versionInChannel } from './version.js'
 import { createLogWriter } from './log-writer.js'
 import { createStartupDiagnosis } from './startup-diagnosis.js'
-import { applyNativeNotify } from './native-notify.js'
-import { DESKTOP_PLUGINS_SKIP_PROFILES, desktopPluginsToInstall } from './desktop-plugins.js'
+import { DESKTOP_PLUGINS, versionAtLeast } from './desktop-plugins.js'
 import { bindDiagnosis, checkedRepairPlan, profileFingerprint } from './repair-plan.js'
 import { DiagnosticRepairs, verificationSummary } from './repair-actions.js'
 import { recordedChanges } from './repair-evidence.js'
@@ -212,13 +211,8 @@ let UPDATE_SOURCE = updateSourceForDownload(loadSettingsSync().downloadSource)
 let OPEN_MODE = safeOpenMode(loadSettingsSync().openMode)
 // 是否把 dsh 的 shim 目录写进用户 PATH（默认关，改了要新开终端才生效）
 let SYSTEM_PATH = loadSettingsSync().systemPath === true
-// 内置浏览器（官方右侧栏浏览器）的总开关：启动参数里的 --patch 按它在启用 / 关闭之间切换。
-// 外壳那侧还有一道 guest 放行检查（shell/main.mjs），两边读同一份 settings.json。
-let BROWSER_CONTROL = loadSettingsSync().browserControl !== false
-// 右键菜单（dsh-x-context-menu）：关掉后启动补丁把插件行停用（不卸载），也不再自动补装。
-let CONTEXT_MENU = loadSettingsSync().contextMenu !== false
-const CONTEXT_MENU_PLUGIN = 'dsh-x-context-menu'
-const CONTEXT_MENU_ROW_ID = 'x-context-menu'
+// 右键菜单 / 浏览器控制这两个开关已撤：插件由设置里的「桌面增强 → 一键安装」装，
+// 装完在 dsh 插件页单独开关；侧栏 Browser 始终放开。
 
 /** 安装目录里的 lang.txt（安装程序写的），只认 zh / en。 */
 function installLang() {
@@ -1459,9 +1453,9 @@ async function publicSettings() {
     keepAwake: stored.keepAwake === true,
     // 内置浏览器（右侧栏浏览器）：开关与证书策略。browserHost 表明当前外壳能否清理浏览数据
     // （只有 Electron 外壳拿得到 guest 分区；浏览器里打开管理页 / 旧外壳没有这层能力）。
-    browserControl: stored.browserControl !== false,
     browserIgnoreCertificate: stored.browserIgnoreCertificate === true,
-    contextMenu: stored.contextMenu !== false,
+    // 桌面增强：当前环境装了几个（设置页右侧的「一键安装」按钮按它显示安装 / 已安装）
+    desktopEnhance: desktopEnhanceSummary(),
     browserHost: Boolean(host.browser),
     shellPrefs: process.env.DSH_SHELL_PREFS === '1',
     desktopShell: shellWindowHost(),
@@ -1901,9 +1895,7 @@ async function saveManagerSettings(body) {
     ...('notificationSound' in body ? { notificationSound: body.notificationSound !== false } : {}),
     ...('closeToTray' in body ? { closeToTray: body.closeToTray !== false } : {}),
     ...('keepAwake' in body ? { keepAwake: body.keepAwake === true } : {}),
-    ...('browserControl' in body ? { browserControl: body.browserControl !== false } : {}),
     ...('browserIgnoreCertificate' in body ? { browserIgnoreCertificate: body.browserIgnoreCertificate === true } : {}),
-    ...('contextMenu' in body ? { contextMenu: body.contextMenu !== false } : {}),
     ...('autoStart' in body ? { autoStart: Boolean(body.autoStart) } : {}),
     ...('pluginMarketSources' in body ? { pluginMarketSources: safePluginMarketSources(body.pluginMarketSources) } : {}),
     ...('autoDisablePlugins' in body ? { autoDisablePlugins: body.autoDisablePlugins !== false } : {}),
@@ -1981,44 +1973,20 @@ async function saveManagerSettings(body) {
       : '不再自动清理旧版本（已装版本全部保留）')
   }
   if ('taskNotifications' in body) {
-    // 原生通知总开关：外壳按它拦发不发，这里再把原生通知的 loader 行一并停掉 / 恢复。
-    // 处理当前目录与登记过的目录；没登记过的 DSH_HOME 管不到。
-    const current = homeDir()
-    const homes = [...new Set([current, ...safeDshHomes(stored.dshHomes)])]
-    const changed = []
-    for (const home of homes) {
-      try {
-        const result = applyNativeNotify(home, stored.taskNotifications !== false)
-        for (const name of result.profiles) changed.push(home === current ? name : `${name}（${home}）`)
-        for (const failure of result.failed) pushLog(`原生通知开关：${failure.profile} 没改成功（${failure.error}）`)
-      } catch (error) {
-        pushLog(`原生通知开关：${home} 处理失败（${error instanceof Error ? error.message : error}）`)
-      }
-    }
+    // 任务通知只管外壳自己的提醒（实例启动失败 / 意外退出）；插件自己的通知由 dsh
+    // 插件页的开关控制，不再跟着这个键停下。
     pushLog(stored.taskNotifications !== false
-      ? `原生通知已开启${changed.length ? `：${changed.join('、')}，重启 dsh 后生效` : '（没有环境装过原生通知）'}`
-      : `原生通知已关闭${changed.length ? `：${changed.join('、')} 已停用，重启 dsh 后生效` : '（没有环境装过原生通知）'}`)
+      ? '任务通知已开启：实例启动失败 / 意外退出时发桌面通知'
+      : '任务通知已关闭：实例启动失败 / 意外退出时不再发桌面通知')
   }
   if ('hardwareAcceleration' in body) {
     pushLog(stored.hardwareAcceleration ? 'Chrome 硬件加速已开启，重启启动器后生效' : 'Chrome 硬件加速已关闭，重启启动器后生效')
   }
   if ('keepAwake' in body) pushLog(stored.keepAwake ? '已阻止系统空闲休眠' : '不再阻止系统空闲休眠')
-  if ('browserControl' in body) {
-    BROWSER_CONTROL = stored.browserControl !== false
-    pushLog(BROWSER_CONTROL
-      ? '内置浏览器已启用：启动新的 dsh 实例后，右侧栏浏览器可用'
-      : '内置浏览器已关闭：启动新的 dsh 实例后不再提供右侧栏浏览器')
-  }
   if ('browserIgnoreCertificate' in body) {
     pushLog(stored.browserIgnoreCertificate
       ? '内置浏览器不再校验 HTTPS 证书（只影响内置浏览器，重启启动器后生效）'
       : '内置浏览器恢复 HTTPS 证书校验（重启启动器后生效）')
-  }
-  if ('contextMenu' in body) {
-    CONTEXT_MENU = stored.contextMenu !== false
-    pushLog(CONTEXT_MENU
-      ? '右键菜单已启用：启动新的 dsh 实例后生效'
-      : '右键菜单已关闭：启动新的 dsh 实例后不再加载')
   }
   // profile 立即生效：插件页、启动参数、npmrc 都读这个变量（已经在跑的 dsh 不受影响）
   EXTRA_ARGS = composeExtraArgs(stored.args)
@@ -2794,51 +2762,21 @@ function profileBootsWebIn(home, name) {
 }
 
 /**
- * dsh 启动参数。`alongside` = 已经有一个实例在跑（多开），局域网下要另给端口。
- * @param {string} profile 这次启动用的 profile（多开下同一版本可以各用各的）
- * @param {boolean} alongside
- * @param {number} pinned 手工固定或自动记忆的端口（0 = 首次，由系统挑）
- */
-/**
  * 右侧栏浏览器的覆盖补丁：外壳已经提供原生 webview 载体（见 shell/browser-guests.mjs），
  * 这里只把官方 `ui-sidebar-browser` 行从 web-app bundle 的「非 desktop profile 禁用」里放开。
  * 走 `--patch` 叠加层，不改用户的 profile 文件，也不要求 profile 改名叫 desktop。
- *
- * 「启用内置浏览器控制」管的是 agent 那一半（dsh-x-sidebar-browser）：侧栏 Browser 本身照旧，
- * 用户手动看网页不受影响，只是 agent 不能再操作它。关掉时给已装的插件补一行 disabled: true
- * （没装就不写——不存在的行没必要出现在补丁里）。
  */
 const SIDEBAR_BROWSER_PATCH_HEADER = '# 由 DSH-X 外壳生成：右侧栏浏览器（原生 webview 载体见 shell/browser-guests.mjs）。'
-/** 让 agent 操作侧栏 Browser 的首方插件；ensureDesktopPlugins 也按同一个开关决定补不补装。 */
-const AGENT_BROWSER_PLUGIN = 'dsh-x-sidebar-browser'
 
-/** profile 的清单里有没有这个插件（依赖或 bundle 列表任一命中，link: / file: 也算装）。 */
-function profileHasPlugin(profile, name) {
-  try {
-    const manifest = JSON.parse(readFileSync(join(profileDirOf(profile), 'package.json'), 'utf8'))
-    const dependencies = manifest?.dependencies
-    const bundles = manifest?.dsh?.profile?.bundles
-    return (dependencies && Object.hasOwn(dependencies, name)) || (Array.isArray(bundles) && bundles.includes(name))
-  } catch {
-    return false
-  }
-}
-
-function sidebarBrowserPatchText(profile, enabled) {
-  const disableAgent = !enabled && profileHasPlugin(profile, AGENT_BROWSER_PLUGIN)
-  // 右键菜单的开关也搭同一趟 --patch：只在装过插件时写停用行，别给没装的环境留一条
-  // 匹配不到的补丁（dsh 会对每条不匹配的补丁打一行警告）。
-  const disableContextMenu = !CONTEXT_MENU && profileHasPlugin(profile, CONTEXT_MENU_PLUGIN)
+function sidebarBrowserPatchText() {
+  // 只做一件事：把官方右侧栏 Browser 那一行放开（web profile 默认是关的）。
+  // 右键菜单 / 侧栏浏览器控制两个插件装不装、开不开，归 dsh 插件页管。
   return `${SIDEBAR_BROWSER_PATCH_HEADER}\n- id: ui-sidebar-browser\n  disabled: false\n`
-    + (disableAgent ? `- id: ${AGENT_BROWSER_PLUGIN}\n  disabled: true\n` : '')
-    + (disableContextMenu ? `- id: ${CONTEXT_MENU_ROW_ID}\n  disabled: true\n` : '')
 }
 
 function sidebarBrowserPatchArgs(profile) {
-  const enabled = BROWSER_CONTROL
-  // desktop profile 默认就放开 ui-sidebar-browser，也不装首方插件：浏览器和右键菜单都开着时
-  // 没有要覆盖的；任一个关着就得写补丁（右键菜单关掉在 desktop profile 上同样要生效）。
-  if (enabled && CONTEXT_MENU && String(profile ?? '').toLowerCase() === 'desktop') return []
+  // desktop profile 默认就放开 ui-sidebar-browser，没有要覆盖的
+  if (String(profile ?? '').toLowerCase() === 'desktop') return []
   try {
     const file = join(DATA, 'shell', 'sidebar-browser.patch.yml')
     mkdirSync(dirname(file), { recursive: true })
@@ -2846,7 +2784,7 @@ function sidebarBrowserPatchArgs(profile) {
     try {
       current = readFileSync(file, 'utf8')
     } catch { /* 还没有：写一份 */ }
-    const text = sidebarBrowserPatchText(profile, enabled)
+    const text = sidebarBrowserPatchText()
     if (current !== text) writeFileSync(file, text)
     return ['--patch', file]
   } catch (error) {
@@ -2855,6 +2793,12 @@ function sidebarBrowserPatchArgs(profile) {
   }
 }
 
+/**
+ * dsh 启动参数。`alongside` = 已经有一个实例在跑（多开），局域网下要另给端口。
+ * @param {string} profile 这次启动用的 profile（多开下同一版本可以各用各的）
+ * @param {boolean} alongside
+ * @param {number} pinned 手工固定或自动记忆的端口（0 = 首次，由系统挑）
+ */
 function bootArgs(profile = PROFILE_NAME, alongside = false, pinned = 0) {
   // 不起 web 的 profile（headless / acp / sdk…）不提供 HTTP 服务，也不认这几个 flag：
   // 参数是透传给 profile 对应 app 的，会被它自己的 commander 打回 `unknown option`
@@ -3925,63 +3869,32 @@ async function addPlugin(version, spec, { profile = PROFILE_NAME } = {}) {
   }
 }
 
-// ---- 桌面增强：启动前把缺的首方插件补进 profile ----
-/** 本进程正在自动装插件；和插件页的手动安装共用 addPlugin 的那把锁。 */
-let desktopPluginInstalling = false
+// ---- 桌面增强：设置里一键装三个首方插件 ----
 /**
- * 本进程里试过的「home + profile」：一次启动只尝试一轮。
+ * 这个 profile 还缺哪些桌面增强插件。
  *
- * 失败（多半是离线）不在同一个进程里反复重试——每次点启动都等一遍超时可不行；
- * 下次启动启动器（新进程）会重新检查。
- */
-const desktopPluginsAttempted = new Set()
-
-/**
- * 拉起实例前检查 web profile 缺哪个桌面增强插件，缺的用插件页同一条链路装上。
+ * 只认 dependencies：装过的（不管 registry / link: / file:）算有，用户在 dsh 插件页
+ * 关掉的也算有——开关状态归 dsh 管，这里只管「装没装」。
  *
- * - 只认「装没装」：用户在 dsh 里关掉的插件不会被这里重新打开；
- * - 失败只记日志、不拦启动：离线或 registry 抽风不该让 dsh 起不来，下次启动再试；
- * - 和用户手动安装撞上（pluginBusy）就跳过这一次，别让两条 pnpm 抢同一个目录。
- *
- * @param {string} version - 要启动的 dsh 版本。
  * @param {string} profile - profile 名。
+ * @returns {typeof DESKTOP_PLUGINS} 缺的那几个。
  */
-async function ensureDesktopPlugins(version, profile) {
-  if (desktopPluginInstalling) return
-  if (!bootsWebApp(profile)) return
-  if (DESKTOP_PLUGINS_SKIP_PROFILES.includes(String(profile).toLowerCase())) return
-  const attemptKey = `${homeDir()}\0${profile}`
-  if (desktopPluginsAttempted.has(attemptKey)) return
-  let manifest
+function desktopEnhanceMissing(profile = PROFILE_NAME) {
+  let manifest = null
   try {
     manifest = JSON.parse(readFileSync(join(profileDirOf(profile), 'package.json'), 'utf8'))
   } catch {
-    return
+    return [...DESKTOP_PLUGINS]
   }
-  // 「启用内置浏览器控制」关掉时不再补装 agent 工具；「右键菜单」关掉时同样不补装。
-  // 已经装过的由启动补丁停用。
-  const missing = desktopPluginsToInstall(manifest, version)
-    .filter((plugin) => plugin.name !== AGENT_BROWSER_PLUGIN || BROWSER_CONTROL)
-    .filter((plugin) => plugin.name !== CONTEXT_MENU_PLUGIN || CONTEXT_MENU)
-  if (!missing.length) return
-  desktopPluginsAttempted.add(attemptKey)
-  desktopPluginInstalling = true
-  try {
-    for (const plugin of missing) {
-      if (pluginBusy) {
-        pushLog(`桌面增强：${profile} 缺少 ${plugin.label}（${plugin.name}），但插件正在安装，下次启动再补`)
-        continue
-      }
-      pushLog(`桌面增强：${profile} 缺少 ${plugin.label}（${plugin.name}），自动安装`)
-      try {
-        await addPlugin(version, `${plugin.name}@${plugin.spec}`, { profile })
-        pushLog(`桌面增强：${plugin.name} 已装进 ${profile}`)
-      } catch (error) {
-        pushLog(`桌面增强：${plugin.name} 自动安装失败（下次启动再试）：${error instanceof Error ? error.message : error}`)
-      }
-    }
-  } finally {
-    desktopPluginInstalling = false
+  const dependencies = manifest?.dependencies && typeof manifest.dependencies === 'object' ? manifest.dependencies : {}
+  return DESKTOP_PLUGINS.filter((plugin) => !Object.hasOwn(dependencies, plugin.name))
+}
+
+/** 桌面增强的安装进度摘要（设置页按钮用）：装了几个 / 共三个。 */
+function desktopEnhanceSummary(profile = PROFILE_NAME) {
+  return {
+    installed: DESKTOP_PLUGINS.length - desktopEnhanceMissing(profile).length,
+    total: DESKTOP_PLUGINS.length,
   }
 }
 
@@ -5295,11 +5208,6 @@ async function startWithRepair(version, profile = PROFILE_NAME) {
   // 快照失败不拦启动——备份是保险，不是启动的前提。
   await snapshotProfileConfig(profile).catch((error) => {
     pushLog(`[备份] Profile ${profile} 快照失败：${error instanceof Error ? error.message : error}`)
-  })
-  // 桌面增强（原生通知 / 右键菜单 / 侧栏浏览器控制）：缺哪个补哪个。装在拉起子进程之前，
-  // 这样第一次启动就能用上；失败不影响启动，下次再试。
-  await ensureDesktopPlugins(version, profile).catch((error) => {
-    pushLog(`桌面增强：自动安装检查失败：${error instanceof Error ? error.message : error}`)
   })
   for (;;) {
     try {
@@ -6676,6 +6584,48 @@ async function handleApi(req, res, url) {
       const message = error instanceof Error ? error.message : String(error)
       send(res, /找不到这份备份/.test(message) ? 404 : 400, { error: message })
     }
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/desktop-enhance/install') {
+    // 设置页「桌面增强 → 一键安装」：把缺的首方插件按顺序装进当前 profile。
+    // 装法复用插件页那条 addPlugin（pnpm add + 写 dsh.profile.bundles）；
+    // 已经装过的不动（link: / file: 也不会被换成 npm 版）。
+    const profile = safeProfile(String(body.profile || '') || PROFILE_NAME)
+    const wanted = desktopEnhanceMissing(profile)
+    if (!wanted.length) {
+      send(res, 200, { ok: true, installed: [], failed: [], desktopEnhance: desktopEnhanceSummary(profile), ...listPlugins(profileDirOf(profile)), profile })
+      return
+    }
+    if (pluginBusy) {
+      send(res, 409, { error: '正在装插件或整合包，等它结束再试' })
+      return
+    }
+    let version
+    try {
+      version = await pluginCommandVersion(profile)
+    } catch (error) {
+      send(res, 400, { error: error instanceof Error ? error.message : String(error) })
+      return
+    }
+    const installed = []
+    const failed = []
+    for (const plugin of wanted) {
+      if (!versionAtLeast(version, plugin.minDsh)) {
+        failed.push({ name: plugin.name, error: `${plugin.label} 需要 dsh ${plugin.minDsh} 或更高版本` })
+        continue
+      }
+      pushLog(`桌面增强：安装 ${plugin.label}（${plugin.name}）到 ${profile}`)
+      try {
+        await addPlugin(version, `${plugin.name}@${plugin.spec}`, { profile })
+        installed.push(plugin.name)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        failed.push({ name: plugin.name, error: message })
+        pushLog(`桌面增强：${plugin.name} 安装失败：${message}`)
+      }
+    }
+    pushLog(`桌面增强：${profile} 安装完成，成功 ${installed.length} 个${failed.length ? `，失败 ${failed.length} 个` : ''}（重启 dsh 后生效）`)
+    send(res, 200, { ok: failed.length === 0, installed, failed, desktopEnhance: desktopEnhanceSummary(profile), ...listPlugins(profileDirOf(profile)), profile })
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/plugins/toggle') {

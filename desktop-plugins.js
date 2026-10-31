@@ -1,11 +1,9 @@
 /**
- * DSH-X 桌面增强：随启动器自动装进 web profile 的三个首方插件。
+ * DSH-X 桌面增强：设置 → 常规 里「一键安装」装进当前 profile 的三个首方插件。
  *
- * 它们是普通的 dsh 插件（host / client 分开），只有装进 profile 才会加载。启动器在每次
- * 拉起实例前检查一遍，缺哪个就补哪个；装法复用插件页那条链路（`dsh plugin add` + 写
- * `dsh.profile.bundles`），所以从 npm 装、能在插件页更新。
- *
- * 只看「装没装」，不看行是否启用：用户在 dsh 插件页关掉的插件不会被这里重新打开。
+ * 它们是普通的 dsh 插件（host / client 分开），不在安装包里、也不随启动自动补装：
+ * 用户在设置里点一下才装。装法复用插件页那条链路（`dsh plugin add` + 写
+ * `dsh.profile.bundles`），所以从 npm 装、能在插件页更新，装完也能在插件页单独开关。
  *
  * 纯函数（不读盘、不起进程），单测见 test/desktop-plugins.test.mjs；真正的安装留在
  * server.js 的 addPlugin。
@@ -23,11 +21,8 @@
 export const DESKTOP_PLUGINS = Object.freeze([
   { name: 'dsh-x-desktop-notify', spec: '0.1.1', label: '原生通知', minDsh: '0.2.0' },
   { name: 'dsh-x-context-menu', spec: '0.1.1', label: '右键菜单', minDsh: '0.2.0' },
-  { name: 'dsh-x-sidebar-browser', spec: '0.1.1', label: '侧栏浏览器控制', minDsh: '0.2.1-rc.2' },
+  { name: 'dsh-x-sidebar-browser', spec: '0.1.1', label: '侧栏浏览器', minDsh: '0.2.1-rc.2' },
 ])
-
-/** dsh 自己的 desktop profile 归 dsh-desktop 管，DSH-X 不往里塞插件（同 --patch 的例外）。 */
-export const DESKTOP_PLUGINS_SKIP_PROFILES = Object.freeze(['desktop'])
 
 /**
  * `x.y.z` / `x.y.z-rc.1` → `[x, y, z]`；认不出来返回 null。
@@ -59,28 +54,4 @@ export function versionAtLeast(version, min) {
     if (left[i] < right[i]) return false
   }
   return true
-}
-
-/**
- * 这个 dsh 版本能装的桌面增强插件。
- * @param {string} version - 要启动的 dsh 版本。
- * @returns {{ name: string, spec: string, label: string, minDsh: string }[]} 子集。
- */
-export function desktopPluginsForDsh(version) {
-  return DESKTOP_PLUGINS.filter((plugin) => versionAtLeast(version, plugin.minDsh))
-}
-
-/**
- * profile 还缺哪些桌面增强插件。
- *
- * 已经写在 `dependencies` 里就算装了（不管是 registry 版本、`link:` 还是 `file:`）：
- * 开发机上 link 的本地包不该被换成 npm 版。
- *
- * @param {object} manifest - profile 的 package.json 内容。
- * @param {string} version - 要启动的 dsh 版本。
- * @returns {{ name: string, spec: string, label: string, minDsh: string }[]} 需要安装的插件。
- */
-export function desktopPluginsToInstall(manifest, version) {
-  const dependencies = manifest?.dependencies && typeof manifest.dependencies === 'object' ? manifest.dependencies : {}
-  return desktopPluginsForDsh(version).filter((plugin) => !Object.hasOwn(dependencies, plugin.name))
 }

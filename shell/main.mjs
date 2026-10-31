@@ -238,13 +238,14 @@ function refreshPrefs() {
 }
 
 /**
- * 桌面通知（任务完成 / 失败 / 更新就绪 / 插件请求）。taskNotifications 关掉就完全不发；
+ * 桌面通知（任务失败 / 意外退出 / 更新就绪 / 插件请求）。`taskSwitch` 只管外壳自己的
+ * 任务提醒：插件通知不受「任务通知」开关控制（插件装不装、开不开归 dsh 插件页）。
  * notificationSound 关掉只是静音，不影响通知本身。
  *
- * 返回是否真的弹出来了：插件那条路由要把「用户关了通知」和「系统没有通知服务」分开告诉调用方。
+ * 返回是否真的弹出来了：插件那条路由要把「系统没有通知服务」告诉调用方。
  */
-function showNotification({ title, body, silent = !prefs.notificationSound, onClick = null }) {
-  if (!prefs.taskNotifications || !Notification.isSupported()) return false
+function showNotification({ title, body, silent = !prefs.notificationSound, onClick = null, taskSwitch = true }) {
+  if ((taskSwitch && !prefs.taskNotifications) || !Notification.isSupported()) return false
   try {
     // 不传 icon：Windows 会把 icon 画成正文里一大块方图，和系统通知的标题栏图标重复。
     // 应用图标只在通知标题栏出现（由 AUMID / 快捷方式决定），正文留给文字。
@@ -282,6 +283,8 @@ function desktopNotify(payload) {
     title: payload.title,
     body: payload.body,
     silent: decision.silent,
+    // 插件通知不跟「任务通知」开关走：那个开关只管外壳自己的实例提醒
+    taskSwitch: false,
     // 点击通知：有地址就去那个地址（本机地址仍按设置进标签 / 独立窗口），没有就回管理页
     onClick: url ? () => openLink(url) : () => showManager(),
   })

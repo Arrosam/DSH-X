@@ -123,7 +123,7 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - 六个键（`hardwareAcceleration` / `autoUpdate` / `taskNotifications` / `notificationSound` / `closeToTray` / `keepAwake`）存在 `settings.json`，**外壳直接读文件**（`shell/prefs.mjs`），不走管理页接口：外壳和核心分开更新，读同一份文件避免协议版本问题。默认值在 `settings.js` 的 `DEFAULTS` 与 `prefs.mjs` 的 `PREF_DEFAULTS` 两处，**必须一致**。
 - `hardwareAcceleration` 在 `app.disableHardwareAcceleration()` 前读，必须在 app ready 之前决定（改完重启启动器才生效）；其余开关由每 1.5s 的托盘轮询按 mtime 重读后实时应用。
 - `DSH_SHELL_PREFS=1` 由 `shell/env.mjs` 写入，`/api/settings` 的 `shellPrefs` 据此告诉页面外壳认不认这组键（旧外壳不认，页面把整组禁用并提示更新）。
-- 任务通知：`server.js` 在实例启动失败 / 意外退出时调 `host.notify`（结构化字段），文案、`Notification`、提示音都在外壳里；**正常启动不发通知**（点了启动就看得到窗口，不必再响一声）；本机页面的 `notifications` 权限也按 `taskNotifications` 放行。通知不带 `icon`：Windows 会把 icon 画成正文里的大方图，应用图标只留在标题栏。
+- 任务通知：`server.js` 在实例启动失败 / 意外退出时调 `host.notify`（结构化字段），文案、`Notification`、提示音都在外壳里；**正常启动不发通知**（点了启动就看得到窗口，不必再响一声）。**这个开关只管外壳自己的提醒**：插件通知（`/api/desktop/notify`）不再受它控制，插件要不要提醒由 dsh 插件页里那个插件自己的开关决定。本机页面的 `notifications` 权限仍按 `taskNotifications` 放行。通知不带 `icon`：Windows 会把 icon 画成正文里的大方图，应用图标只留在标题栏。
 - 自动更新：**只下载，不安装**（`autoUpdate` 打开时）。外壳层走 electron-updater（预览版通道跟着当前外壳版本：预发布版继续收预发布，正式版只收正式版），核心层由外壳调 `/api/self/app-download`；下完发一次「点首页更新安装」提醒。安装是用户动作：首页「更新」→ 核心 `/api/self/app-apply` / 外壳 `host.shellUpdate.install`；安装会让启动器退出重启，正在跑的 dsh 会跟着停。两个下载/应用接口都做了并发护栏（`appDownloadInFlight` / `appApplyStarted`），连点或两个页面同时触发也只会执行一次。
 - 这组功能是**外壳**能力：只改核心不会到达用户，发包时要 bump `shell/package.json` 并重打安装包。
 
@@ -144,13 +144,12 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - `reveal` 只收绝对且真实存在的路径（这条路由没有鉴权，不能变成任意路径的文件管理器入口）；对话框父窗口只在管理页可见时挂。
 - 这是**外壳 + 核心**两层功能：发布时两个版本都要 bump。只发核心 → 旧外壳返回 503；只发外壳 → 旧核心没有路由（404）。
 
-### 桌面增强插件（自动安装）
+### 桌面增强（设置里一键安装）
 
-- 三个首方插件 `dsh-x-desktop-notify` / `dsh-x-context-menu` / `dsh-x-sidebar-browser` **不打包进安装包**，由启动器在拉起实例前从 npm 自动补齐：清单和版本门槛在 `desktop-plugins.js`（dsh ≥ 0.2.0，侧栏浏览器 ≥ 0.2.1-rc.2，同版本的预发布算满足），装法复用插件页的 `addPlugin`（pnpm add + 写 `dsh.profile.bundles`）。
-- 只对会起 web 的 profile 做；`desktop` profile 归 dsh-desktop 管（和 `--patch` 开通侧栏的例外一致）。
-- 设置 → 常规有「右键菜单」开关（`contextMenu`，默认开）：关掉后启动补丁在同一个 `--patch` 里给 `x-context-menu` 写 `disabled: true`（只对装了插件的环境写），也不再自动补装；不卸载、不动 `dependencies`。
-- 只认 `dependencies` 里有没有：用户在 dsh 插件页关掉、停用不会被重新打开；`link:` / `file:` 装的也不会被换成 npm 版。
-- 一个进程里每个 home + profile 只尝试一轮：离线时不至于每点一次启动都等一遍超时；失败只记日志、不拦启动，下次启动启动器再试。
+- 三个首方插件 `dsh-x-desktop-notify` / `dsh-x-context-menu` / `dsh-x-sidebar-browser` **不在安装包里，也不随启动自动装**：设置 → 常规 → 桌面增强 右侧「一键安装」才装。清单和版本门槛在 `desktop-plugins.js`（dsh ≥ 0.2.0，侧栏浏览器 ≥ 0.2.1-rc.2，同版本预发布算满足）；安装走 `POST /api/desktop-enhance/install`，复用插件页的 `addPlugin`（pnpm add + 写 `dsh.profile.bundles`）。
+- 只装当前 profile 里缺的：已经在 `dependencies` 里（registry / `link:` / `file:`）算装过，不换版本；装完在 dsh 插件页单独开关，启动器不再插手。
+- 内核版本低于插件下限时那一项跳过并在响应里给原因，不影响另外两个。
+- 设置接口的 `desktopEnhance`（installed / total）驱动按钮显示「一键安装 / 已安装」。
 - 发布时三个包要发到 npm（`0.1.1` 已发，`desktop-plugins.js` 的 `spec` 钉精确版本：首发会先出 `0.0.0-stage` 占位，`latest` 会装到空壳；升级由插件页做）。发版前先 bump 版本、把 `spec` 一起改，并确认三个包都有 `meta.title` + `locale/{zh,en}.json`（插件页的名字来自这两个位置，缺了会显示裸包名）。测试里的假 dsh 需要认 `plugin` 参数直接退出（`multi-instance` / `launch-project` / `profile-delete` / `plugin-market` 都这么改过）。
 
 ### 核心更新（core-npm.js / apply-update.mjs）

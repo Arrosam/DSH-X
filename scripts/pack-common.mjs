@@ -44,7 +44,6 @@ const APP_FILES = [
   'plugins.js',
   'desktop.js',
   'desktop-plugins.js',
-  'native-notify.js',
   'recovery.js',
   'packs.js',
   'pack-market.js',

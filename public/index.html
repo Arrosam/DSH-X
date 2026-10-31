@@ -120,10 +120,6 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
             <span data-i18n="外观">外观</span>
           </button>
-          <button type="button" class="nav-item" data-pane="settings" data-category="browser">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 12h17M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5s1.2-6.2 3.6-8.5Z" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-            <span data-i18n="浏览器控制">浏览器控制</span>
-          </button>
             <button type="button" class="nav-item" data-pane="mcp">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4.5 7.5h15v11h-15zM8 7.5V5h8v2.5M9.5 12.5h5M9.5 15.5h3"/></svg>
             <span data-i18n="MCP">MCP</span>
@@ -322,7 +318,7 @@
                 <label class="toggle set-row">
                   <span class="set-text">
                     <span class="set-name" data-i18n="任务通知">任务通知</span>
-                    <span class="set-desc" data-i18n="dsh 实例启动失败或意外退出时发桌面通知，插件通知同受这个开关控制。">dsh 实例启动失败或意外退出时发桌面通知，插件通知同受这个开关控制。</span>
+                    <span class="set-desc" data-i18n="dsh 实例启动失败或意外退出时发桌面通知（插件自己的提醒由 dsh 插件页的开关控制）。">dsh 实例启动失败或意外退出时发桌面通知（插件自己的提醒由 dsh 插件页的开关控制）。</span>
                   </span>
                   <input id="taskNotifications" type="checkbox" />
                 </label>
@@ -349,17 +345,20 @@
                 </label>
               </div>
               <p class="hint" id="systemPrefsHint" role="status" aria-live="polite"></p>
-              <!-- 右键菜单（dsh-x-context-menu）：核心在启动补丁里停用插件行，不卸载包。 -->
-              <div class="set-caption" data-i18n="右键菜单">右键菜单</div>
+              <!-- 桌面增强：三个首方插件一键装进当前环境，装完在 dsh 插件页单独开关 -->
+              <div class="set-caption" data-i18n="桌面增强">桌面增强</div>
               <div class="set-group">
-                <label class="toggle set-row">
-                  <span class="set-text">
-                    <span class="set-name" data-i18n="启用右键菜单">启用右键菜单</span>
-                    <span class="set-desc" data-i18n="在 dsh 网页里给会话行、工作区行、选中文字、链接和输入框加一套右键菜单。关闭后启动新的 dsh 实例生效。">在 dsh 网页里给会话行、工作区行、选中文字、链接和输入框加一套右键菜单。关闭后启动新的 dsh 实例生效。</span>
-                  </span>
-                  <input id="contextMenu" type="checkbox" />
-                </label>
+                <div class="set-row">
+                  <div class="set-text">
+                    <span class="set-name" data-i18n="安装桌面增强">安装桌面增强</span>
+                    <span class="set-desc" data-i18n="原生通知、右键菜单、侧栏浏览器三个插件，一键装进当前环境；装完可以在 dsh 插件页单独开关。">原生通知、右键菜单、侧栏浏览器三个插件，一键装进当前环境；装完可以在 dsh 插件页单独开关。</span>
+                  </div>
+                  <div class="set-control">
+                    <button class="ghost" id="desktopEnhanceInstall" type="button" data-i18n="一键安装">一键安装</button>
+                  </div>
+                </div>
               </div>
+              <p class="hint" id="desktopEnhanceHint" role="status" aria-live="polite"></p>
             </section>
             <section class="set-section" data-category="appearance" aria-labelledby="settingsAppearanceTitle" hidden>
               <div class="set-label" id="settingsAppearanceTitle" data-i18n="外观">外观</div>
@@ -421,17 +420,8 @@
             </section>
             <!-- 内置浏览器（右侧栏浏览器）：总开关在核心（启动补丁）与外壳（guest 放行）各管一半；
                  证书策略和浏览数据只有外壳碰得到，能力字段 browserHost 由 /api/settings 给。 -->
-            <section class="set-section" data-category="browser" aria-labelledby="settingsBrowserTitle" hidden>
-              <div class="set-label" id="settingsBrowserTitle" data-i18n="浏览器控制">浏览器控制</div>
-              <div class="set-group">
-                <label class="toggle set-row">
-                  <span class="set-text">
-                    <span class="set-name" data-i18n="启用内置浏览器控制">启用内置浏览器控制</span>
-                    <span class="set-desc" data-i18n="启用 dsh-x-sidebar-browser 插件，让 agent 可以通过内置浏览器访问和操作网页。关闭后启动新的 dsh 实例生效（侧栏浏览器本身仍可手动使用）。">启用 dsh-x-sidebar-browser 插件，让 agent 可以通过内置浏览器访问和操作网页。关闭后启动新的 dsh 实例生效（侧栏浏览器本身仍可手动使用）。</span>
-                  </span>
-                  <input id="browserControl" type="checkbox" />
-                </label>
-              </div>
+            <section class="set-section" data-category="general" aria-labelledby="settingsBrowserTitle">
+              <div class="set-label" id="settingsBrowserTitle" data-i18n="浏览器">浏览器</div>
               <div class="set-caption" data-i18n="安全">安全</div>
               <div class="set-group">
                 <label class="toggle set-row">
@@ -1440,18 +1430,23 @@
   "自动下载 DSH-X 更新": "Download DSH-X updates automatically",
   "只针对 DSH-X 的外壳与核心，不涉及 dsh 版本；检测到更新会自动下载，安装仍要你手动点「更新」。": "Covers DSH-X itself (the shell and the core), never dsh versions. Updates download automatically; you still install them via the Update button.",
   "任务通知": "Task notifications",
-  "dsh 实例启动失败或意外退出时发桌面通知，插件通知同受这个开关控制。": "Desktop notifications when a dsh instance fails to start or exits unexpectedly; plugin notifications follow this switch too.",
+  "dsh 实例启动失败或意外退出时发桌面通知（插件自己的提醒由 dsh 插件页的开关控制）。": "Desktop notifications when a dsh instance fails to start or exits unexpectedly; plugin notifications follow this switch too.",
   "通知声音": "Notification sound",
   "通知开启后，可单独关闭任务通知的提示音。": "Play a sound with task notifications. Turn off to keep them silent.",
   "关闭窗口时隐藏到托盘": "Hide to tray when closing the window",
   "开启时点击关闭按钮隐藏窗口，托盘里的退出仍会完全退出应用；关闭时点关闭即退出（有实例在运行会先问一句，再停止它们）。Linux 没有系统托盘时总是关闭即退出。": "When on, the close button hides the window and Quit from the tray still exits fully. When off, closing quits: if instances are running it asks first, then stops them. Without a system tray on Linux, closing always quits.",
   "保持电脑运行": "Keep the computer awake",
   "阻止系统因空闲进入休眠（仍可手动睡眠 / 合盖休眠）。": "Prevent the system from sleeping while idle. Manual sleep and closing the lid still work.",
-  "浏览器控制": "Browser control",
-  "内置浏览器的开关、证书校验与浏览数据。": "The built-in browser's switch, certificate checks and browsing data.",
-  "启用内置浏览器控制": "Enable built-in browser control",
-  "启用 dsh-x-sidebar-browser 插件，让 agent 可以通过内置浏览器访问和操作网页。关闭后启动新的 dsh 实例生效（侧栏浏览器本身仍可手动使用）。": "Enable the dsh-x-sidebar-browser plugin so the agent can browse and operate web pages in the built-in browser. Takes effect when a new dsh instance starts; the sidebar browser itself stays available for manual use.",
   "右键菜单": "Context menu",
+  "浏览器": "Browser",
+  "桌面增强": "Desktop enhancements",
+  "安装桌面增强": "Install desktop enhancements",
+  "原生通知、右键菜单、侧栏浏览器三个插件，一键装进当前环境；装完可以在 dsh 插件页单独开关。": "One-click install of the native-notifications, context-menu and sidebar-browser plugins into the current environment; each can then be toggled in the dsh plugin page.",
+  "一键安装": "Install",
+  "正在安装…": "Installing…",
+  "装好了，重启 dsh 后生效": "Installed; restart dsh to apply",
+  "{n} 个装失败：{error}": "{n} failed to install: {error}",
+  "安装失败：{error}": "Install failed: {error}",
   "启用右键菜单": "Enable context menu",
   "在 dsh 网页里给会话行、工作区行、选中文字、链接和输入框加一套右键菜单。关闭后启动新的 dsh 实例生效。": "Adds a right-click menu to session rows, workspaces, selected text, links and inputs in the dsh web UI. Takes effect when a new dsh instance starts.",
   "安全": "Security",
@@ -6446,8 +6441,8 @@
     }
     const autoDisableEl = document.getElementById('autoDisable')
     const autoCleanEl = document.getElementById('autoCleanVersions')
-    const contextMenuEl = document.getElementById('contextMenu')
-    let savedContextMenu = true
+    const desktopEnhanceEl = document.getElementById('desktopEnhanceInstall')
+    const desktopEnhanceHintEl = document.getElementById('desktopEnhanceHint')
     // 桌面端系统开关。外壳直接读 settings.json（shell/prefs.mjs），这里的勾选只是回显与保存；
     // 没跑在认识这些键的外壳里时整组禁用（见 showSystemPrefsAvailability）。
     const systemPrefRows = [
@@ -6463,7 +6458,6 @@
     // 内置浏览器那一组：前两个键和系统开关同一套保存链路，后两个按钮走 /api/browser/*，
     // 由外壳清理 guest 分区（浏览器模式 / 旧外壳没有这层能力，见 showBrowserPrefs）。
     const browserPrefRows = [
-      ['browserControl', document.getElementById('browserControl')],
       ['browserIgnoreCertificate', document.getElementById('browserIgnoreCertificate')],
     ]
     const browserHintEl = document.getElementById('browserHint')
@@ -6772,6 +6766,21 @@
     }
 
     /**
+     * 桌面增强：三个首方插件的安装状态 → 右侧按钮。
+     *
+     * 装齐了按钮变「已安装」并禁用；还缺就是「一键安装」。状态来自 /api/settings 的
+     * desktopEnhance（核心按当前 profile 的 dependencies 算）。
+     */
+    function showDesktopEnhance(state) {
+      if (!state) return
+      const installed = Number(state.installed) || 0
+      const total = Number(state.total) || 0
+      const done = total > 0 && installed >= total
+      desktopEnhanceEl.disabled = done
+      desktopEnhanceEl.textContent = done ? t('已安装') : t('一键安装')
+    }
+
+    /**
      * 内置浏览器：回显 + 可用性。browserHost 只有带上浏览器数据能力的 Electron 外壳才有，
      * 浏览器模式 / 旧外壳整组禁用并说明原因；清理按钮的忙碌状态也在这里收口。
      */
@@ -6895,10 +6904,7 @@
       if ('pluginMarketSources' in data) pluginMarketSourcesEl.value = data.pluginMarketSources.join('\n')
       if ('autoDisablePlugins' in data) autoDisableEl.checked = data.autoDisablePlugins !== false
       if ('autoCleanVersions' in data) autoCleanEl.checked = data.autoCleanVersions !== false
-      if ('contextMenu' in data) {
-        savedContextMenu = data.contextMenu !== false
-        if (!pendingSettings.has('contextMenu')) contextMenuEl.checked = savedContextMenu
-      }
+      showDesktopEnhance(data.desktopEnhance)
       showSystemPrefs(data)
       showBrowserPrefs(data)
       syncUiSelects()
@@ -7055,8 +7061,6 @@
           if (!(key in patch) || pendingSettings.has(key)) continue
           input.checked = savedBrowserPrefs[key] === true
         }
-        // 右键菜单保存失败：勾选回到最近一次成功保存的值
-        if ('contextMenu' in patch && !pendingSettings.has('contextMenu')) contextMenuEl.checked = savedContextMenu
         settingsHint.textContent = error.message
       } finally {
         settingSaveRunning = false
@@ -7102,7 +7106,6 @@
     autoStartEl.onchange = () => queueSetting('autoStart', autoStartEl.checked)
     autoDisableEl.onchange = () => queueSetting('autoDisablePlugins', autoDisableEl.checked)
     autoCleanEl.onchange = () => queueSetting('autoCleanVersions', autoCleanEl.checked)
-    contextMenuEl.onchange = () => queueSetting('contextMenu', contextMenuEl.checked)
     for (const [key, input] of systemPrefRows) {
       input.onchange = () => queueSetting(key, input.checked)
     }
@@ -7111,6 +7114,24 @@
     }
     browserClearCacheEl.onclick = () => void clearBrowserData('cache')
     browserClearAllEl.onclick = () => void clearBrowserData('all')
+    desktopEnhanceEl.onclick = async () => {
+      if (desktopEnhanceEl.disabled) return
+      desktopEnhanceEl.disabled = true
+      desktopEnhanceHintEl.textContent = t('正在安装…')
+      try {
+        const result = await post('/api/desktop-enhance/install', {})
+        const failed = Array.isArray(result.failed) ? result.failed : []
+        if (failed.length) {
+          desktopEnhanceHintEl.textContent = t('{n} 个装失败：{error}', { n: failed.length, error: failed[0].error })
+        } else {
+          desktopEnhanceHintEl.textContent = t('装好了，重启 dsh 后生效')
+        }
+        showDesktopEnhance(result.desktopEnhance)
+      } catch (error) {
+        desktopEnhanceHintEl.textContent = t('安装失败：{error}', { error: error.message })
+        desktopEnhanceEl.disabled = false
+      }
+    }
     uiLangEl.onchange = () => queueSetting('lang', uiLangEl.value)
     sourceEl.onchange = () => {
       // 提示行跟着换；设置交给自动保存，切完下一次查版本/下载就走新源

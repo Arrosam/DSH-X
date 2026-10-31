@@ -111,11 +111,8 @@ test('管理页保存默认源只改设置，启动不再安装或重新启用 d
   const started = await post('/api/start', { version: '9.9.9', profile: 'web' })
   assert.equal(started.status, 200, JSON.stringify(started.body))
   assert.equal(JSON.parse(readFileSync(envFile, 'utf8')), JSON.stringify(urls))
-  // 启动现在会把缺的桌面增强插件补进 profile，所以不再比对整份 package.json；
-  // 只钉住这件事：旧的 dshmarket 依赖原样保留、没有被重新挂载。
-  const after = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8'))
-  assert.equal(after.dependencies.dshmarket, '1.0.0', '保留旧市场及其禁用状态')
-  assert.ok(!(after.dsh.profile.bundles || []).includes('dshmarket'), '不重新启用 dshmarket')
+  // 启动不再自动安装任何插件（桌面增强改成设置里手动一键装）：profile 必须原样不动。
+  assert.equal(readFileSync(join(profile, 'package.json'), 'utf8'), manifest, '保留旧市场及其禁用状态')
   assert.equal(readFileSync(join(profile, 'cordis.patch.yml'), 'utf8'), '[]\n')
   assert.doesNotMatch(await (await fetch(origin + '/api/logs/export')).text(), /不应自动安装插件|预装.*失败/)
   await server.stopAll()

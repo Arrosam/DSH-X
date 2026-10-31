@@ -42,7 +42,7 @@ test('顶栏四个 tab 已取消，设置分类在左侧导航，主页右上角
     assert.match(html, new RegExp(`class="nav-item[^"]*" data-pane="${pane}"`), `${label} 要在左侧导航里`)
     assert.match(html, new RegExp(`<section class="pane[^"]*" id="pane-${pane}">`), `${label} 的面板要在设置页里`)
   }
-  for (const category of ['general', 'appearance', 'browser', 'advanced', 'about']) {
+  for (const category of ['general', 'appearance', 'advanced', 'about']) {
     assert.match(html, new RegExp(`data-pane="settings" data-category="${category}"`), `${category} 有独立的导航入口`)
     assert.match(html, new RegExp(`class="set-section" data-category="${category}"`), `${category} 有独立的设置内容`)
   }
@@ -228,23 +228,19 @@ test('常规的系统组有六个桌面端开关，成败都按服务端回值�
   }
 })
 
-test('浏览器控制是独立分类：两个开关走统一保存链路，两个清理按钮走 /api/browser/*', () => {
-  const ids = ['browserControl', 'browserIgnoreCertificate']
-  for (const id of ids) {
-    assert.match(html, new RegExp(`<input id="${id}" type="checkbox" />`), `${id} 是复选框`)
-    assert.match(html, new RegExp(`\\['${id}', document\\.getElementById\\('${id}'\\)\\]`), `${id} 进 browserPrefRows`)
-  }
-  // 「安全」「浏览器数据」两块都在这一个分类里
-  assert.match(html, /<section class="set-section" data-category="browser"[\s\S]*?data-i18n="安全"[\s\S]*?data-i18n="浏览器数据"/, '安全与浏览器数据在同一分类')
+test('浏览器安全与数据放进常规：证书开关走统一保存链路，清理按钮走 /api/browser/*', () => {
+  assert.match(html, /<input id="browserIgnoreCertificate" type="checkbox" \/>/, '证书开关是复选框')
+  assert.match(html, /\['browserIgnoreCertificate', document\.getElementById\('browserIgnoreCertificate'\)\]/, '进 browserPrefRows')
+  assert.match(html, /<section class="set-section" data-category="general"[^>]*aria-labelledby="settingsBrowserTitle"[\s\S]*?data-i18n="安全"[\s\S]*?data-i18n="浏览器数据"/, '安全和浏览器数据在常规分类里')
+  assert.doesNotMatch(html, /data-category="browser"/, '不再是独立分类')
   assert.match(html, /id="browserClearCache" type="button" data-i18n="清除缓存"/, '清缓存按钮')
   assert.match(html, /id="browserClearAll" type="button" data-i18n="清除全部"/, '清全部按钮')
   assert.match(html, /post\(kind === 'cache' \? '\/api\/browser\/clear-cache' : '\/api\/browser\/clear-data'\)/, '两个按钮各走一条接口')
-  // 能力字段只看 browserHost：旧外壳没有清理能力时整组禁用
   assert.match(html, /if \(!\('desktopShell' in data\) && !\('browserHost' in data\)\) return/, '外观推送不能把整组误禁用')
   assert.match(html, /data\.desktopShell === true && data\.browserHost === true/, '能力判断用 desktopShell + browserHost')
   assert.match(html, /if \(browserPrefRows\.some\(\(\[key\]\) => key in patch\)\) showBrowserPrefs\(data\)/, '保存后回显')
   const dict = new vm.Script(`(${html.match(/const EN = (\{[\s\S]*?\n\})/)[1]})`).runInNewContext()
-  for (const key of ['浏览器控制', '启用内置浏览器控制', '忽略证书校验', '清除内置浏览器缓存', '清除全部浏览器数据', '清除缓存', '清除全部', '安全', '浏览器数据']) {
+  for (const key of ['浏览器', '忽略证书校验', '清除内置浏览器缓存', '清除全部浏览器数据', '清除缓存', '清除全部', '安全', '浏览器数据']) {
     assert.ok(dict[key], `「${key}」有英文`)
   }
 })

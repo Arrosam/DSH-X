@@ -16,13 +16,13 @@ export const NOTIFY_GAP_MS = 500
 /**
  * 插件通知发不发、带不带声。
  *
- * 声音只能被插件关小、不能被打开：设置里关掉提示音是用户的决定（和外壳自己的任务
- * 通知同一口径）。返回 reason 是为了让插件能区分「用户关了通知」和「通知失败」。
+ * 插件通知不再受「任务通知」开关控制：那个开关只管外壳自己的实例提醒；插件要不要
+ * 提醒由 dsh 插件页里那个插件自己的开关决定。声音只能被插件关小、不能被打开——
+ * 设置里关掉提示音是用户的决定。
  *
- * @returns {{ enabled: boolean, silent: boolean, reason: 'disabled' | '' }}
+ * @returns {{ enabled: boolean, silent: boolean, reason: '' }}
  */
 export function notificationDecision(payload, prefs) {
-  if (prefs?.taskNotifications === false) return { enabled: false, silent: true, reason: 'disabled' }
   return {
     enabled: true,
     silent: prefs?.notificationSound === false || payload?.silent === true,

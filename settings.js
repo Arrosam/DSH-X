@@ -282,12 +282,8 @@ export const DEFAULTS = {
   closeToTray: true,
   // 阻止系统空闲休眠（跑长任务时用）
   keepAwake: false,
-  // 内置浏览器（官方右侧栏浏览器）：关掉后不再给新启动的 dsh 实例放开那一行插件
-  browserControl: true,
   // 内置浏览器不校验 HTTPS 证书（自签名 / 过期证书的站点也能打开），只影响浏览器分区
   browserIgnoreCertificate: false,
-  // 右键菜单（dsh-x-context-menu）：关掉后新启动的 dsh 实例不再加载这个插件（不卸载）
-  contextMenu: true,
   downloadSource: DEFAULT_SOURCE,
   // 启动器更新的下载源：direct（默认）/ mirror（国内加速）
   updateSource: DEFAULT_UPDATE_SOURCE,
@@ -819,9 +815,7 @@ async function saveSettingsNow(patch) {
   merged.closeToTray = merged.closeToTray !== false
   merged.keepAwake = merged.keepAwake === true
   // 内置浏览器开关与证书校验：和上面一组同一套布尔语义
-  merged.browserControl = merged.browserControl !== false
   merged.browserIgnoreCertificate = merged.browserIgnoreCertificate === true
-  merged.contextMenu = merged.contextMenu !== false
   // 同 webBind：脏值顺手修回默认（回环），显式改绑定方式时才把错误抛给调用方
   try {
     merged.webBind = safeWebBind(merged.webBind)

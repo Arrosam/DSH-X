@@ -11,11 +11,11 @@ import { NOTIFY_GAP_MS, clickTarget, dialogOptions, notificationDecision, notify
 
 const read = (path) => readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), 'utf8')
 
-test('插件通知：开关关掉不发，声音关掉静音，插件只能关小不能打开', () => {
+test('插件通知：声音关掉静音，插件只能关小不能打开；任务通知开关不再管插件', () => {
   assert.deepEqual(
     notificationDecision({}, { taskNotifications: false, notificationSound: true }),
-    { enabled: false, silent: true, reason: 'disabled' },
-    '用户关掉任务通知时，插件请求也按同一个开关拒绝',
+    { enabled: true, silent: false, reason: '' },
+    '任务通知开关只管外壳自己的实例提醒，不拦插件通知',
   )
   assert.deepEqual(
     notificationDecision({}, { taskNotifications: true, notificationSound: false }),
