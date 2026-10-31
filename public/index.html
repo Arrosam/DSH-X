@@ -1443,10 +1443,15 @@
   "安装桌面增强": "Install desktop enhancements",
   "原生通知、右键菜单、侧栏浏览器三个插件，一键装进当前环境；装完可以在 dsh 插件页单独开关。": "One-click install of the native-notifications, context-menu and sidebar-browser plugins into the current environment; each can then be toggled in the dsh plugin page.",
   "一键安装": "Install",
+  "一键卸载": "Uninstall",
+  "卸载": "Uninstall",
+  "卸载桌面增强": "Uninstall desktop enhancements",
+  "卸载桌面增强？会从当前环境移除原生通知、右键菜单、侧栏浏览器三个插件；会话、记忆和别的插件不受影响。": "Uninstall desktop enhancements? This removes the native-notifications, context-menu and sidebar-browser plugins from the current environment. Sessions, memories and other plugins stay.",
+  "卸载完成，重启 dsh 后生效": "Uninstalled; restart dsh to apply",
+  "{n} 个失败：{error}": "{n} failed: {error}",
+  "操作失败：{error}": "Action failed: {error}",
   "正在安装…": "Installing…",
   "装好了，重启 dsh 后生效": "Installed; restart dsh to apply",
-  "{n} 个装失败：{error}": "{n} failed to install: {error}",
-  "安装失败：{error}": "Install failed: {error}",
   "启用右键菜单": "Enable context menu",
   "在 dsh 网页里给会话行、工作区行、选中文字、链接和输入框加一套右键菜单。关闭后启动新的 dsh 实例生效。": "Adds a right-click menu to session rows, workspaces, selected text, links and inputs in the dsh web UI. Takes effect when a new dsh instance starts.",
   "安全": "Security",
@@ -6771,13 +6776,15 @@
      * 装齐了按钮变「已安装」并禁用；还缺就是「一键安装」。状态来自 /api/settings 的
      * desktopEnhance（核心按当前 profile 的 dependencies 算）。
      */
+    let desktopEnhanceDone = false
     function showDesktopEnhance(state) {
       if (!state) return
       const installed = Number(state.installed) || 0
       const total = Number(state.total) || 0
-      const done = total > 0 && installed >= total
-      desktopEnhanceEl.disabled = done
-      desktopEnhanceEl.textContent = done ? t('已安装') : t('一键安装')
+      desktopEnhanceDone = total > 0 && installed >= total
+      desktopEnhanceEl.disabled = false
+      desktopEnhanceEl.classList.toggle('danger', desktopEnhanceDone)
+      desktopEnhanceEl.textContent = desktopEnhanceDone ? t('一键卸载') : t('一键安装')
     }
 
     /**
@@ -7116,19 +7123,27 @@
     browserClearAllEl.onclick = () => void clearBrowserData('all')
     desktopEnhanceEl.onclick = async () => {
       if (desktopEnhanceEl.disabled) return
+      const uninstall = desktopEnhanceDone
+      if (uninstall) {
+        const ok = await appConfirm(
+          t('卸载桌面增强？会从当前环境移除原生通知、右键菜单、侧栏浏览器三个插件；会话、记忆和别的插件不受影响。'),
+          { title: t('卸载桌面增强'), okText: t('卸载') },
+        )
+        if (!ok) return
+      }
       desktopEnhanceEl.disabled = true
-      desktopEnhanceHintEl.textContent = t('正在安装…')
+      desktopEnhanceHintEl.textContent = uninstall ? t('正在卸载…') : t('正在安装…')
       try {
-        const result = await post('/api/desktop-enhance/install', {})
+        const result = await post(uninstall ? '/api/desktop-enhance/uninstall' : '/api/desktop-enhance/install', {})
         const failed = Array.isArray(result.failed) ? result.failed : []
         if (failed.length) {
-          desktopEnhanceHintEl.textContent = t('{n} 个装失败：{error}', { n: failed.length, error: failed[0].error })
+          desktopEnhanceHintEl.textContent = t('{n} 个失败：{error}', { n: failed.length, error: failed[0].error })
         } else {
-          desktopEnhanceHintEl.textContent = t('装好了，重启 dsh 后生效')
+          desktopEnhanceHintEl.textContent = uninstall ? t('卸载完成，重启 dsh 后生效') : t('装好了，重启 dsh 后生效')
         }
         showDesktopEnhance(result.desktopEnhance)
       } catch (error) {
-        desktopEnhanceHintEl.textContent = t('安装失败：{error}', { error: error.message })
+        desktopEnhanceHintEl.textContent = t('操作失败：{error}', { error: error.message })
         desktopEnhanceEl.disabled = false
       }
     }

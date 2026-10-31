@@ -19,12 +19,15 @@ test('启动不再自动补装任何插件', () => {
   assert.doesNotMatch(server, /desktopPluginsToInstall/, '不再按启动版本算缺装')
 })
 
-test('安装路由存在：只装缺的，版本不对的给失败信息，不拦别的插件', () => {
+test('安装 / 卸载两条路由：只动缺的或装了的那几个，版本不对的给失败信息', () => {
   assert.match(server, /url\.pathname === '\/api\/desktop-enhance\/install'/)
   assert.match(server, /const wanted = desktopEnhanceMissing\(profile\)/)
   assert.match(server, /await addPlugin\(version, `\$\{plugin\.name\}@\$\{plugin\.spec\}`, \{ profile \}\)/)
   assert.match(server, /versionAtLeast\(version, plugin\.minDsh\)/, '内核版本不够时跳过并报原因')
   assert.match(server, /desktopEnhance: desktopEnhanceSummary\(profile\)/, '响应里带安装进度')
+  assert.match(server, /url\.pathname === '\/api\/desktop-enhance\/uninstall'/, '一键卸载路由')
+  assert.match(server, /runPluginCommand\(version, \['remove', plugin\.name\]/, '走 dsh plugin remove')
+  assert.match(server, /removeBundleMounted\(profileDirOf\(profile\), \[plugin\.name\]\)/, '同时从层栈摘掉')
 })
 
 test('设置接口回显安装进度（设置页按钮据此显示安装 / 已安装）', () => {
@@ -35,11 +38,12 @@ test('设置接口回显安装进度（设置页按钮据此显示安装 / 已�
 test('设置页：桌面增强一块 + 右侧安装按钮 + 中英文案', () => {
   assert.match(page, /data-i18n="桌面增强"/)
   assert.match(page, /id="desktopEnhanceInstall" type="button" data-i18n="一键安装"/)
-  assert.match(page, /post\('\/api\/desktop-enhance\/install', \{\}\)/)
   assert.match(page, /function showDesktopEnhance\(state\)/)
-  assert.match(page, /desktopEnhanceEl\.textContent = done \? t\('已安装'\) : t\('一键安装'\)/)
+  assert.match(page, /desktopEnhanceEl\.textContent = desktopEnhanceDone \? t\('一键卸载'\) : t\('一键安装'\)/)
+  assert.match(page, /await appConfirm\(/, '卸载前先确认（样式化弹窗，不是原生 alert）')
+  assert.match(page, /post\(uninstall \? '\/api\/desktop-enhance\/uninstall' : '\/api\/desktop-enhance\/install', \{\}\)/)
   const dict = new Function(`return (${page.match(/const EN = (\{[\s\S]*?\n\})/)[1]})`)()
-  for (const key of ['桌面增强', '安装桌面增强', '一键安装', '正在安装…', '已安装', '安装失败：{error}']) {
+  for (const key of ['桌面增强', '安装桌面增强', '一键安装', '一键卸载', '正在安装…', '正在卸载…', '已安装', '操作失败：{error}']) {
     assert.ok(dict[key], `「${key}」有英文`)
   }
 })

@@ -29,6 +29,7 @@ import {
   parseFailedRows,
   parseUnresolvedBundles,
   pluginsNamedInFailure,
+  removeBundleMounted,
   setPluginEnabled,
 } from './plugins.js'
 import { listMcpServers, probeMcpServer, removeMcpServer, saveMcpServer, setMcpEnabled } from './mcp.js'
@@ -6626,6 +6627,53 @@ async function handleApi(req, res, url) {
     }
     pushLog(`桌面增强：${profile} 安装完成，成功 ${installed.length} 个${failed.length ? `，失败 ${failed.length} 个` : ''}（重启 dsh 后生效）`)
     send(res, 200, { ok: failed.length === 0, installed, failed, desktopEnhance: desktopEnhanceSummary(profile), ...listPlugins(profileDirOf(profile)), profile })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/desktop-enhance/uninstall') {
+    // 「一键卸载」：只卸桌面增强这三个包（pnpm remove + 从层栈摘掉），会话、记忆和别的插件不动。
+    const profile = safeProfile(String(body.profile || '') || PROFILE_NAME)
+    let manifest = null
+    try {
+      manifest = JSON.parse(readFileSync(join(profileDirOf(profile), 'package.json'), 'utf8'))
+    } catch { /* 没有 profile 就当没装 */ }
+    const dependencies = manifest?.dependencies && typeof manifest.dependencies === 'object' ? manifest.dependencies : {}
+    const targets = DESKTOP_PLUGINS.filter((plugin) => Object.hasOwn(dependencies, plugin.name))
+    if (!targets.length) {
+      send(res, 200, { ok: true, removed: [], failed: [], desktopEnhance: desktopEnhanceSummary(profile), ...listPlugins(profileDirOf(profile)), profile })
+      return
+    }
+    if (pluginBusy) {
+      send(res, 409, { error: '正在装插件或整合包，等它结束再试' })
+      return
+    }
+    let version
+    try {
+      version = await pluginCommandVersion(profile)
+    } catch (error) {
+      send(res, 400, { error: error instanceof Error ? error.message : String(error) })
+      return
+    }
+    const removed = []
+    const failed = []
+    pluginBusy = true
+    try {
+      for (const plugin of targets) {
+        pushLog(`桌面增强：从 ${profile} 卸载 ${plugin.label}（${plugin.name}）`)
+        try {
+          await runPluginCommand(version, ['remove', plugin.name], `dsh plugin remove ${plugin.name}`, { profile })
+          removeBundleMounted(profileDirOf(profile), [plugin.name])
+          removed.push(plugin.name)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          failed.push({ name: plugin.name, error: message })
+          pushLog(`桌面增强：${plugin.name} 卸载失败：${message}`)
+        }
+      }
+    } finally {
+      pluginBusy = false
+    }
+    pushLog(`桌面增强：${profile} 卸载完成，成功 ${removed.length} 个${failed.length ? `，失败 ${failed.length} 个` : ''}（重启 dsh 后生效）`)
+    send(res, 200, { ok: failed.length === 0, removed, failed, desktopEnhance: desktopEnhanceSummary(profile), ...listPlugins(profileDirOf(profile)), profile })
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/plugins/toggle') {

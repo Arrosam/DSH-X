@@ -389,6 +389,31 @@ export function ensureBundleMounted(profileDir, spec) {
   return { ok: true, changed: true, name: packageName }
 }
 
+/**
+ * 把指定的包名从 `dsh.profile.bundles` 里摘掉（卸载插件时用；pnpm remove 只改依赖，不改层栈）。
+ *
+ * @param {string} profileDir - profile 目录。
+ * @param {string[]} names - 要摘掉的包名。
+ * @returns {{ ok: boolean, changed: boolean, reason?: string }} 结果。
+ */
+export function removeBundleMounted(profileDir, names) {
+  const manifestPath = join(profileDir, 'package.json')
+  let manifest
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  } catch {
+    return { ok: false, changed: false, reason: 'profile 清单读不了' }
+  }
+  const bundles = manifest?.dsh?.profile?.bundles
+  if (!Array.isArray(bundles)) return { ok: false, changed: false, reason: '清单里没有 bundles 字段' }
+  const drop = new Set(names)
+  const next = bundles.filter((name) => !drop.has(name))
+  if (next.length === bundles.length) return { ok: true, changed: false }
+  manifest.dsh.profile.bundles = next
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  return { ok: true, changed: true }
+}
+
 /** 找到某条 loader 行属于哪个已装插件（找不到返回空串，例如传递挂载的行）。 */
 export function ownerOfRow(profileDir, rowId) {
   try {
