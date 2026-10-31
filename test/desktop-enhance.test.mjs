@@ -12,6 +12,7 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 
 const server = read('server.js')
 const page = read('public/index.html')
+const css = read('public/launcher.css')
 const settings = read('settings.js')
 
 test('启动不再自动补装任何插件', () => {
@@ -37,9 +38,11 @@ test('设置接口回显安装进度（设置页按钮据此显示安装 / 已�
 
 test('设置页：桌面增强一块 + 右侧安装按钮 + 中英文案', () => {
   assert.match(page, /data-i18n="桌面增强"/)
-  assert.match(page, /id="desktopEnhanceInstall" type="button" data-i18n="一键安装"/)
+  assert.match(page, /id="desktopEnhanceInstall" type="button"><span class="desktop-enhance-label" data-i18n="一键安装">/)
   assert.match(page, /function showDesktopEnhance\(state\)/)
-  assert.match(page, /desktopEnhanceEl\.textContent = desktopEnhanceDone \? t\('一键卸载'\) : t\('一键安装'\)/)
+  assert.match(page, /desktopEnhanceLabelEl\.textContent = desktopEnhanceDone \? t\('一键卸载'\) : t\('一键安装'\)/)
+  assert.match(page, /desktopEnhanceEl\.classList\.add\('loading'\)/, '安装 / 卸载时按钮转圈')
+  assert.match(css, /#desktopEnhanceInstall\.loading \.desktop-enhance-label \{ visibility: hidden; \}/, '转圈时藏文字')
   assert.match(page, /await appConfirm\(/, '卸载前先确认（样式化弹窗，不是原生 alert）')
   assert.match(page, /post\(uninstall \? '\/api\/desktop-enhance\/uninstall' : '\/api\/desktop-enhance\/install', \{\}\)/)
   const dict = new Function(`return (${page.match(/const EN = (\{[\s\S]*?\n\})/)[1]})`)()

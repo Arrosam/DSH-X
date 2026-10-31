@@ -2380,3 +2380,9 @@ html.reduce-motion #launchIconTrigger, html.reduce-motion #launchDialog .launch-
 #ask .ask-title { padding-right: 36px; }
 .ask-close { position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
 .ask-close:hover { background: var(--accent-soft); color: var(--text); }
+
+/* 桌面增强：安装 / 卸载时按钮里转圈，文字先藏起来（和 pack 安装按钮同一套做法） */
+#desktopEnhanceInstall { position: relative; min-width: 104px; }
+#desktopEnhanceInstall .spin { position: absolute; left: calc(50% - 7px); top: calc(50% - 7px); width: 14px; height: 14px; border-width: 2px; }
+#desktopEnhanceInstall.loading .desktop-enhance-label { visibility: hidden; }
+#desktopEnhanceInstall.loading .spin { display: block; }
