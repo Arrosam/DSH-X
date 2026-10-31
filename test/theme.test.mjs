@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { DEFAULTS, safeTheme, safePanelTransparency } from '../settings.js'
+import { DEFAULTS, safeTheme, safePanelTransparency } from '../src/settings.js'
 
-const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
+const html = readFileSync(fileURLToPath(new URL('../src/public/index.html', import.meta.url)), 'utf8')
 
 test('外观默认跟随系统，历史错误值退回系统主题', () => {
   assert.equal(DEFAULTS.theme, 'system')

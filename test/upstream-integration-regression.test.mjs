@@ -40,7 +40,7 @@ test('混合通道分别检测，最新 Alpha 不掩盖正式版更新', async (
   assert.equal(await env.pendingDsh(), null)
 })
 
-const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
 
 function functionSource(name, next) {
   const start = source.indexOf(`async function ${name}(`)
@@ -159,7 +159,7 @@ test('整合保留诊断启动身份、停止二次确认及两个加载钩子',
   assert.match(adapter, /await stop\(target.version, target.profile, target.home\)/)
   assert.match(adapter, /process.kill\(proc.child.pid, 0\)/)
   assert.match(adapter, /目标进程尚未确认退出，未修改文件/)
-  const hooks = readFileSync(new URL('../compat/register.mjs', import.meta.url), 'utf8')
+  const hooks = readFileSync(new URL('../src/compat/register.mjs', import.meta.url), 'utf8')
   assert.match(hooks, /registerHooks\(\{ load: diagnosticLoad \}\)/)
   assert.match(hooks, /registerHooks\(\{ load: loadPluginMarket \}\)/)
 })

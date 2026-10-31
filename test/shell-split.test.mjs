@@ -17,7 +17,7 @@ test('外壳不依赖核心模块，核心目录在运行时解析', () => {
 })
 
 test('核心更新换的是用户目录 core/current，不再碰 resources/app', () => {
-  const server = read('server.js')
+  const server = read('src/server.js')
   assert.match(server, /join\(APP_DIR, 'core', 'current'\)/)
   assert.match(server, /fileManager\.samePath\(ROOT, activeCore\)/, '已经在 core/current 时走原地替换助手')
   assert.match(server, /writeFileSync\(pending/, '首次换核心写 pending 标记，外壳启动失败可回退')
@@ -50,7 +50,7 @@ test('外壳版本和核心版本分开：shell/package.json + 关于页显示�
   const root = JSON.parse(read('package.json'))
   assert.ok(shell.version, 'shell/package.json 有外壳版本')
   assert.ok(root.version, '根 package.json 是核心版本')
-  const html = read('public/index.html')
+  const html = read('src/public/index.html')
   assert.match(html, /id="aboutShellVersion"/)
   assert.match(html, /data\.shell\?\.current/, '关于页从 /api/self 回填外壳版本')
   assert.match(html, /DSH-X 核心/, '核心和外壳在更新弹窗里分开显示')

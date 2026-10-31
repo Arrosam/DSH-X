@@ -18,7 +18,7 @@ import io
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ASSETS = os.path.join(ROOT, "assets")
+ASSETS = os.path.join(ROOT, "src", "assets")
 MASTER = os.path.join(ASSETS, "icon.png")
 MASTER_SIZE = 512
 
@@ -190,11 +190,11 @@ def main():
     # 托盘用的 PNG（带圆角/透明边）：Windows 用 tray.ico，mac/Linux 用这张
     fit(64, base).save(os.path.join(ASSETS, "tray.png"))
     # 管理页背景虚影用的大图（浏览器缩放要够清晰，favicon 的 64px 不够）
-    base.save(os.path.join(ROOT, "public", "icon.png"))
+    base.save(os.path.join(ROOT, "src", "public", "icon.png"))
     write_ico(os.path.join(ASSETS, "dsh.ico"), ICO_SIZES, base, png_size=256)
     write_ico(os.path.join(ASSETS, "icon.ico"), ICO_SIZES, base, png_size=256)
     write_ico(os.path.join(ASSETS, "tray.ico"), TRAY_SIZES, base)
-    for target in (os.path.join(ROOT, "public"), os.path.join(ROOT, "docs")):
+    for target in (os.path.join(ROOT, "src", "public"), os.path.join(ROOT, "docs")):
         write_ico(os.path.join(target, "favicon.ico"), ICO_SIZES, base, png_size=256)
         fit(FAVICON_PNG, base).save(os.path.join(target, "favicon.png"))
     for name in ("dsh.ico", "icon.ico", "tray.ico"):

@@ -60,8 +60,8 @@ if (args[0] === 'plugin') {
   await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve))
   process.env.PORT = String(probe.address().port)
   await new Promise((resolve) => probe.close(resolve))
-  const server = await import('../server.js')
-  const { saveSettings } = await import('../settings.js')
+  const server = await import('../src/server.js')
+  const { saveSettings } = await import('../src/settings.js')
   const origin = await server.startServer()
   t.after(() => server.stopAll())
 

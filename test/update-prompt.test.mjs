@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
-const css = readFileSync(fileURLToPath(new URL('../public/launcher.css', import.meta.url)), 'utf8')
-const start = readFileSync(fileURLToPath(new URL('../start.js', import.meta.url)), 'utf8')
+const html = readFileSync(fileURLToPath(new URL('../src/public/index.html', import.meta.url)), 'utf8')
+const css = readFileSync(fileURLToPath(new URL('../src/public/launcher.css', import.meta.url)), 'utf8')
+const start = readFileSync(fileURLToPath(new URL('../src/start.js', import.meta.url)), 'utf8')
 const shellMain = readFileSync(fileURLToPath(new URL('../shell/main.mjs', import.meta.url)), 'utf8')
 
 // dsh 是第三方插件的宿主：新版本可能让插件失效（插件市场就出过），所以升级必须先确认。

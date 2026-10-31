@@ -7,7 +7,7 @@ import { isolateUserHome } from './isolated-home.mjs'
 
 const folder = mkdtempSync(join(tmpdir(), 'dsh-settings-write-'))
 isolateUserHome(folder)
-const { saveSettings, loadSettings } = await import('../settings.js')
+const { saveSettings, loadSettings } = await import('../src/settings.js')
 test.after(() => rmSync(folder, { recursive: true, force: true }))
 
 test('并发保存不同字段保留各自结果，失败写入不阻塞后续请求', async () => {

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
 test('verification precedes collapsed changes and every recorded change remains available', () => {
-  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
   const start = html.indexOf('    function verificationText(')
   const end = html.indexOf('    /** 启动这条线', start)
   function element(tag) {

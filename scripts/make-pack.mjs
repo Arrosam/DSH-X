@@ -9,8 +9,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
-import { parsePackArchive, parseManifest } from '../packs.js'
-import { writeZip } from '../zip.js'
+import { parsePackArchive, parseManifest } from '../src/packs.js'
+import { writeZip } from '../src/zip.js'
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
 const OUT_DIR = join(ROOT, 'release', 'packs')
@@ -32,7 +32,7 @@ function collect(dir) {
 
 function packDirs(args) {
   if (args.length) return args.map((arg) => resolve(arg))
-  const base = join(ROOT, 'packs')
+  const base = join(ROOT, 'src', 'packs')
   if (!existsSync(base)) return []
   return readdirSync(base, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { appBootStackPatch } from '../compat/session-events.mjs'
+import { appBootStackPatch } from '../src/compat/session-events.mjs'
 
 // issue #24：注册过任意 ESM loader 钩子（我们的 perf/ 与 compat/ 就是）时，Node 22.19 把
 // 解析错误的 stack 变成**只读的自有属性**；dsh-app-boot 为了还原 importer 路径会写

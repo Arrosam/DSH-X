@@ -15,7 +15,7 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ICON = os.path.join(ROOT, "assets", "icon.png")
+ICON = os.path.join(ROOT, "src", "assets", "icon.png")
 # 英文版走 hero-en.png：README.en.md 的头图，文案与字体跟中文那份不同
 EN = len(sys.argv) > 1 and sys.argv[1].lower().startswith("en")
 OUT = os.path.join(ROOT, "docs", "hero-en.png" if EN else "hero.png")

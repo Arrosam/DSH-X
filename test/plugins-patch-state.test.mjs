@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { enableRowId, ensureBundleMounted, readPatchState } from '../plugins.js'
+import { enableRowId, ensureBundleMounted, readPatchState } from '../src/plugins.js'
 
 function patchFile(content) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-patch-'))

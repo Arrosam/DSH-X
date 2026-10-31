@@ -47,7 +47,7 @@ server.listen(0, '127.0.0.1', () => console.log('dsh web: http://127.0.0.1:' + s
   process.env.APPDATA = join(root, 'appdata')
   process.env.DSH_VERSIONS_DATA = data
   process.env.PORT = String(port)
-  const server = await import('../server.js')
+  const server = await import('../src/server.js')
   const origin = await server.startServer()
   t.after(() => server.stopAll())
   const api = async (path, body, launchId = '') => {

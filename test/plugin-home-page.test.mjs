@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const page = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const page = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 const section = (from, to) => page.slice(page.indexOf(from), page.indexOf(to, page.indexOf(from)))
 
 function panel() {

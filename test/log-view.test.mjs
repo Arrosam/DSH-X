@@ -13,7 +13,7 @@ function setup() {
     set textContent(value) { content = value; renders += 1 },
   }
   const context = { window: {}, setTimeout: (fn) => { pending.set(++next, fn); return next }, clearTimeout: (id) => pending.delete(id) }
-  vm.runInNewContext(readFileSync(new URL('../public/log-view.js', import.meta.url), 'utf8'), context)
+  vm.runInNewContext(readFileSync(new URL('../src/public/log-view.js', import.meta.url), 'utf8'), context)
   return { node, pending, renders: () => renders, view: context.window.createLogView(node),
     flush: () => { for (const [id, fn] of pending) { pending.delete(id); fn() } },
   }

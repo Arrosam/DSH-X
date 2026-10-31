@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { dshToleratesOptionalFailures } from '../server.js'
+import { dshToleratesOptionalFailures } from '../src/server.js'
 
-const server = readFileSync(fileURLToPath(new URL('../server.js', import.meta.url)), 'utf8')
+const server = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8')
 
 // 兼容模式（自动禁用出问题的插件）是老版本唯一的安全网，得留着；但 0.1.7-rc.1 起 dsh
 // 自己就会隔离可选插件失败（其余插件照常跑，必需插件才退出），还给了分类诊断与插件页入口，

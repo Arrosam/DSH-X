@@ -13,7 +13,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { versionChannel } from '../version.js'
+import { versionChannel } from '../src/version.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const DEFAULT_APP = join(ROOT, 'release', 'core-stage')

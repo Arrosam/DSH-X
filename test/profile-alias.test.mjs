@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { aliasProfileName, ensureProfileAlias, listProfiles } from '../server.js'
+import { aliasProfileName, ensureProfileAlias, listProfiles } from '../src/server.js'
 
 function tempRoot() {
   const root = mkdtempSync(join(tmpdir(), 'dsh-profiles-'))

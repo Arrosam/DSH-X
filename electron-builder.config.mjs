@@ -24,7 +24,7 @@ export default {
   directories: {
     app: 'release/shell-stage',
     output: 'release/eb',
-    buildResources: 'assets',
+    buildResources: 'src/assets',
   },
   asar: false,
   npmRebuild: false,
@@ -43,7 +43,7 @@ export default {
   ],
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
-    icon: join('assets', 'dsh.ico'),
+    icon: join('src', 'assets', 'dsh.ico'),
     executableName: 'DSH',
     artifactName: 'DSH-Setup-${version}.${ext}',
   },
@@ -58,12 +58,12 @@ export default {
     uninstallDisplayName: 'DSH-X',
     deleteAppDataOnUninstall: false,
     runAfterFinish: true,
-    installerIcon: join('assets', 'dsh.ico'),
-    uninstallerIcon: join('assets', 'dsh.ico'),
+    installerIcon: join('src', 'assets', 'dsh.ico'),
+    uninstallerIcon: join('src', 'assets', 'dsh.ico'),
   },
   mac: {
     target: [{ target: 'dmg', arch: ['arm64', 'x64'] }],
-    icon: join('assets', 'icon.png'),
+    icon: join('src', 'assets', 'icon.png'),
     category: 'public.app-category.developer-tools',
     executableName: 'DSH',
     artifactName: 'DSH-X-${version}-${arch}.${ext}',
@@ -86,7 +86,7 @@ export default {
       // 用户得手动换包；核心那层（core/current）照旧走 npm，不受影响。
       { target: 'deb', arch: ['x64'] },
     ],
-    icon: join('assets', 'icon.png'),
+    icon: join('src', 'assets', 'icon.png'),
     category: 'Development',
     executableName: 'DSH',
     artifactName: 'DSH-X-${version}-${arch}.${ext}',

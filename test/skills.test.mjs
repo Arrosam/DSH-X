@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { createSkill, listSkills, readSkill, removeSkill, setSkillEnabled } from '../skills.js'
+import { createSkill, listSkills, readSkill, removeSkill, setSkillEnabled } from '../src/skills.js'
 
 // 技能开关只动 frontmatter 里那一行，其余字节一个字不碰（用户手写的 YAML 不该被重排）。
 // 技能根有两层（~/.dsh/skills 与 ~/.agents/skills），测试里用临时目录充当其中一层。

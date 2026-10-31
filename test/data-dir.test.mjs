@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import test from 'node:test'
 
-import { defaultDshHome, safeDataDir, safeDshHome } from '../settings.js'
+import { defaultDshHome, safeDataDir, safeDshHome } from '../src/settings.js'
 
 test('绝对路径放行，末尾斜杠和空白顺手规范掉', () => {
   const base = join(tmpdir(), 'dsh-data')

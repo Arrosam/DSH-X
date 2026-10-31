@@ -73,7 +73,7 @@ test('对话框选项：三种 kind 映射到 Electron，脏属性被丢掉', ()
 })
 
 test('桌面模块不跨层依赖：核心不 import Electron / 外壳，外壳不 import 核心', () => {
-  const core = read('desktop.js').replace(/\/\*[\s\S]*?\*\//g, '')
+  const core = read('src/desktop.js').replace(/\/\*[\s\S]*?\*\//g, '')
   assert.doesNotMatch(core, /from 'electron'/, '核心模块不能依赖 Electron')
   assert.doesNotMatch(core, /from '\.\.\//, '核心不能反向 import 外壳')
   const shell = read('shell/desktop.mjs').replace(/\/\*[\s\S]*?\*\//g, '')

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { RuntimeDiagnostics, schemaDisableReason } from '../runtime-diagnostics.mjs'
+import { RuntimeDiagnostics, schemaDisableReason } from '../src/runtime-diagnostics.mjs'
 
 function fixture() {
   const tracker = new RuntimeDiagnostics()

@@ -35,8 +35,8 @@ server.listen(Number(process.argv[at + 1]), '127.0.0.1', () => console.log('dsh 
   await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve))
   process.env.PORT = String(probe.address().port)
   await new Promise(resolve => probe.close(resolve))
-  const { startServer, stopAll } = await import('../server.js')
-  const { safeLaunchPresets } = await import('../settings.js')
+  const { startServer, stopAll } = await import('../src/server.js')
+  const { safeLaunchPresets } = await import('../src/settings.js')
   t.after(async () => {
     await stopAll()
     // taskkill 是异步子进程；同步重试会挡住它的回调，得让出事件循环等 cwd 释放。

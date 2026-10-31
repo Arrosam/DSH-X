@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { describeNpmFailure } from '../registry.js'
+import { describeNpmFailure } from '../src/registry.js'
 
 const ETARGET = `npm error code ETARGET
 npm error notarget No matching version found for @deepseek-ai/dsh-client-ui-settings-account@0.2.0-rc.2.

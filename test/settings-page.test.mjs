@@ -4,9 +4,9 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
-const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
-const css = readFileSync(new URL('../public/launcher.css', import.meta.url), 'utf8')
-const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+const html = readFileSync(fileURLToPath(new URL('../src/public/index.html', import.meta.url)), 'utf8')
+const css = readFileSync(new URL('../src/public/launcher.css', import.meta.url), 'utf8')
+const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
 
 /** 页面里那段没有打包器的内联脚本（改设置页时最容易碰坏它）。 */
 const inlineScripts = () => {
@@ -74,7 +74,7 @@ test('顶栏四个 tab 已取消，设置分类在左侧导航，主页右上角
 })
 
 test('设置页左侧导航靠底色和内容区分开，不画分隔线', () => {
-  const theme = readFileSync(new URL('../public/theme.css', import.meta.url), 'utf8')
+  const theme = readFileSync(new URL('../src/public/theme.css', import.meta.url), 'utf8')
   assert.match(css, /\.settings-nav \{[^}]*background: var\(--settings-nav-bg\)/, '导航有自己的底色')
   assert.doesNotMatch(css, /\.settings-nav \{[^}]*border-right/, '不再画中间那条线')
   assert.match(css, /--settings-nav-bg: #/, '亮色有一档导航底色')
@@ -123,8 +123,8 @@ test('自动清理旧版本：开关在 dsh 那组里，改动即保存，读设
   )
   assert.match(html, /queueSetting\('autoCleanVersions', autoCleanEl\.checked\)/, '改动即保存')
   // 服务端三处都得认这个键：读出来给页面、写回去、默认值
-  const server = readFileSync(fileURLToPath(new URL('../server.js', import.meta.url)), 'utf8')
-  const settings = readFileSync(fileURLToPath(new URL('../settings.js', import.meta.url)), 'utf8')
+  const server = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8')
+  const settings = readFileSync(fileURLToPath(new URL('../src/settings.js', import.meta.url)), 'utf8')
   assert.match(server, /autoCleanVersions: autoCleanEnabled\(stored\)/, '读设置时交给页面')
   assert.match(server, /'autoCleanVersions' in body \? \{ autoCleanVersions: body\.autoCleanVersions !== false \}/, '保存时认这个键')
   assert.match(settings, /autoCleanVersions: true,/, '默认值在 DEFAULTS 里')
@@ -148,7 +148,7 @@ test('设置页有「关于」：核心/外壳版本，按钮主动检查更新'
   assert.match(html, /核心更新检查失败：\{message\}/, '核心检查失败单独提示')
   assert.match(html, /data\.app\?\.reason === 'manifest'/, 'npm 元数据取不到时也如实报错')
   assert.match(html, /data\.app\?\.reason === 'electron'/, '核心需要新版 Electron 时提示先更新外壳')
-  const server = readFileSync(fileURLToPath(new URL('../server.js', import.meta.url)), 'utf8')
+  const server = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8')
   assert.match(server, /const refresh = url\.searchParams\.get\('refresh'\) === '1'/, 'refresh=1 解析成布尔')
   assert.match(server, /checkAppUpdate\(\{ force: refresh \}\)/, '核心清单也绕缓存')
   const dict = new vm.Script(`(${html.match(/const EN = (\{[\s\S]*?\n\})/)[1]})`).runInNewContext()
@@ -179,7 +179,7 @@ test('设置页有「打开 dsh 的方式」：两项可选、改动即保存', 
 
 test('旧同步界面已撤出首页，兼容接口与插件引擎仍保留', () => {
   assert.doesNotMatch(html, /id="pane-sync"|async function loadSync|paintSyncActions|\/api\/sync/)
-  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+  const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
   assert.match(server, /url.pathname === '\/api\/sync\/save'/)
   assert.match(server, /url.pathname === '\/api\/sync\/run'/)
   assert.match(readFileSync(new URL('../plugins/dsh-x-sync/lib/index.js', import.meta.url), 'utf8'), /engine\/sync\.js/)

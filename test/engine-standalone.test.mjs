@@ -9,10 +9,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { cmpVer, parseVer } from '../version.js'
-import * as registry from '../registry.js'
+import { cmpVer, parseVer } from '../src/version.js'
+import * as registry from '../src/registry.js'
 
-const read = (name) => readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), 'utf8')
+const read = (name) => readFileSync(fileURLToPath(new URL(`../src/${name}`, import.meta.url)), 'utf8')
 
 function importsOf(name) {
   return [...read(name).matchAll(/^import\s+.*?from\s+'([^']+)'/gm)].map((match) => match[1])

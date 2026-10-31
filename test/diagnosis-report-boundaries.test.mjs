@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createStartupDiagnosis, parseActivation } from '../startup-diagnosis.js'
+import { createStartupDiagnosis, parseActivation } from '../src/startup-diagnosis.js'
 
 test('flat report ends at its declared rows, not at the end of accumulated logs', () => {
   const collector = createStartupDiagnosis()

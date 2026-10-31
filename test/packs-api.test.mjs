@@ -11,8 +11,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { writeZip } from '../zip.js'
-import { parsePackArchive } from '../packs.js'
+import { writeZip } from '../src/zip.js'
+import { parsePackArchive } from '../src/packs.js'
 
 /** 找一个空闲端口：先绑 0 拿系统分配的，再放开。 */
 async function freePort() {
@@ -80,7 +80,7 @@ async function startManager() {
   process.env.APPDATA = join(root, 'appdata')
   process.env.DSH_VERSIONS_DATA = dataDir
   process.env.PORT = String(port)
-  const server = await import('../server.js')
+  const server = await import('../src/server.js')
   const origin = await server.startServer()
   const call = async (path, body) => {
     const res = await fetch(`${origin}${path}`, {

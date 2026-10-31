@@ -160,7 +160,7 @@ test('手工启动 / 重启（不带启动项 ID）也认得项目环境，仍�
 })
 
 test('settings：workdir 走绝对路径校验，坏值不留半截启动项', async () => {
-  const settings = await import('../settings.js')
+  const settings = await import('../src/settings.js')
   assert.equal(settings.safeWorkdir(''), '')
   assert.equal(settings.safeWorkdir(undefined), '')
   assert.throws(() => settings.safeWorkdir('proj'), /绝对路径/)

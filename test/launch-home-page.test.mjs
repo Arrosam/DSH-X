@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const page = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const page = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 const section = (from, to) => page.slice(page.indexOf(from), page.indexOf(to, page.indexOf(from)))
 const homes = section('    function paintLaunchHomePath()', '    function allVersionList()')
 // 目录下拉的候选列表和「环境」页共用一份实现，一起装进沙箱。

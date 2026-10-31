@@ -5,13 +5,13 @@
   "private": true,
   "type": "module",
   "description": "DeepSeek Harness 桌面启动器：启动项与多实例，版本、插件、整合包、MCP 和技能管理。",
-  "main": "start.js",
+  "main": "src/start.js",
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
-    "start": "node start.js",
-    "server": "node server.js",
+    "start": "node src/start.js",
+    "server": "node src/server.js",
     "electron": "electron shell/main.mjs",
     "test": "node --test",
     "dist": "node scripts/pack.mjs",

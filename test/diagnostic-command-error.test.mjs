@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
-import { describeDiagnosticCommandFailure } from '../diagnostic-command-error.js'
+import { describeDiagnosticCommandFailure } from '../src/diagnostic-command-error.js'
 
 const samples = JSON.parse(readFileSync(new URL('./command-errors.json', import.meta.url), 'utf8'))
 
@@ -50,7 +50,7 @@ test('identical continuation reasons remain attached to each different package',
 })
 
 test('sanitized error log replay renders multiline uninstall history as text, without executing a command', () => {
-  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
   function element(tag) {
     return {
       tag,

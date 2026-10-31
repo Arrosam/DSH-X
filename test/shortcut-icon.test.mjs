@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { refreshShortcuts } from '../server.js'
+import { refreshShortcuts } from '../src/server.js'
 
 const WINDOWS = process.platform === 'win32'
 

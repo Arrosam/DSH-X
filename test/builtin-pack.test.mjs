@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-const PACK_DIR = fileURLToPath(new URL('../packs/dsh-x-recommended', import.meta.url))
+const PACK_DIR = fileURLToPath(new URL('../src/packs/dsh-x-recommended', import.meta.url))
 const PACKAGES = ['dsh-config-manager', 'dsh-x-memory', 'dsh-x-sync', 'dsh-x-aquarium']
 
 async function freePort() {
@@ -59,7 +59,7 @@ async function startManager() {
   process.env.APPDATA = appData
   process.env.DSH_VERSIONS_DATA = dataDir
   process.env.PORT = String(port)
-  const server = await import('../server.js')
+  const server = await import('../src/server.js')
   const origin = await server.startServer()
   const call = async (path, body) => {
     const res = await fetch(`${origin}${path}`, {

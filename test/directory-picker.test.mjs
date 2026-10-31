@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import test from 'node:test'
-import { WindowsFileManager } from '../filemanager-windows.js'
+import { WindowsFileManager } from '../src/filemanager-windows.js'
 
 const directoryPickerWinScript = (path) => new WindowsFileManager().directoryScript(path)
 

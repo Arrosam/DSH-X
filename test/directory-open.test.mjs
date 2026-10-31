@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { PosixFileManager } from '../filemanager-base.js'
-import { MacFileManager } from '../filemanager-mac.js'
-import { WindowsFileManager } from '../filemanager-windows.js'
+import { PosixFileManager } from '../src/filemanager-base.js'
+import { MacFileManager } from '../src/filemanager-mac.js'
+import { WindowsFileManager } from '../src/filemanager-windows.js'
 
 /**
  * 打开目录 / 定位文件这类事交给了实现类，用例就按实现类来：execFile 和 statSync 都注进去，

@@ -19,7 +19,7 @@ import {
   readZipIndex,
   toDosTime,
   writeZip,
-} from '../zipfile.js'
+} from '../src/zipfile.js'
 
 const WIN = process.platform === 'win32'
 const write = (file, text) => {

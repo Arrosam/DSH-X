@@ -15,7 +15,7 @@ import {
   run,
 } from './pack-common.mjs'
 import { packager } from '@electron/packager'
-import { LAUNCHER_NAME, MAC_APP_NAME, MAC_BUNDLE_ID } from '../platform.js'
+import { LAUNCHER_NAME, MAC_APP_NAME, MAC_BUNDLE_ID } from '../src/platform.js'
 import { macSigningIdentity, signMacBundle } from './mac-signing.mjs'
 import { pruneMacElectron } from './electron-prune.mjs'
 
@@ -173,7 +173,7 @@ function buildIcon(dest) {
   const iconset = join(tmpdir(), `dsh-x-${process.pid}.iconset`)
   rmSync(iconset, { recursive: true, force: true })
   run('mkdir', ['-p', iconset])
-  const master = join(ROOT, 'assets', 'icon.png')
+  const master = join(ROOT, 'src', 'assets', 'icon.png')
   for (const size of ICON_SIZES) {
     run('sips', ['-z', String(size), String(size), master, '--out', join(iconset, `icon_${size}x${size}.png`)])
     run('sips', ['-z', String(size * 2), String(size * 2), master, '--out', join(iconset, `icon_${size}x${size}@2x.png`)])

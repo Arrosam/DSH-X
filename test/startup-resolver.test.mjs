@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
-import { createStartupResolver, installationRoots, patchProfileBoot } from '../perf/startup-resolver.mjs'
+import { createStartupResolver, installationRoots, patchProfileBoot } from '../src/perf/startup-resolver.mjs'
 
 const root = 'file:///installed/node_modules/'
 const context = (file = 'left.mjs', conditions = ['node', 'import']) => ({ parentURL: root + 'pkg/' + file, conditions })
@@ -108,7 +108,7 @@ test('真实 ESM 启动保留同一依赖实例，启动后删除文件会正常
     assert.equal(cache.stats().size, 0)
     assert.equal(cache.stats().active, false)
   `)
-  const hook = new URL('../perf/register.mjs', import.meta.url).href
+  const hook = new URL('../src/perf/register.mjs', import.meta.url).href
   const result = spawnSync(process.execPath, ['--import', hook, runner], { env: { ...process.env, DSH_BIN: join(lib, 'bin.js'), DSH_PERF_RESOLVE_CACHE: '1' }, encoding: 'utf8', windowsHide: true })
   assert.equal(result.status, 0, result.stderr)
   assert.ok(installationRoots(join(lib, 'bin.js')).some(url => pathToFileURL(join(parts, 'left.mjs')).href.startsWith(url)))

@@ -24,7 +24,7 @@ import {
   webdavDisplayUrl,
   webdavMissing,
   webdavErrorMessage,
-} from '../sync.js'
+} from '../src/sync.js'
 import { startFakeWebdav } from './fake-webdav.mjs'
 
 const write = (file, text) => {

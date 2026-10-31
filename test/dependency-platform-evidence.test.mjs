@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { join, relative } from 'node:path'
-import { dependencyRemovalScope } from '../repair-dependencies.js'
+import { dependencyRemovalScope } from '../src/repair-dependencies.js'
 import { createHash } from 'node:crypto'
 
 function fixture() {

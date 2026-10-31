@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { configurationEnvironment, configurationField, declaredService, configurationSources } from '../configuration-evidence.js'
-import { RuntimeDiagnostics, optionsDigest, schemaDisableReason, readRuntimeEvidence, RUNTIME_EVIDENCE_PREFIX } from '../runtime-diagnostics.mjs'
-import { buildRepairPresentation } from '../repair-evidence.js'
+import { configurationEnvironment, configurationField, declaredService, configurationSources } from '../src/configuration-evidence.js'
+import { RuntimeDiagnostics, optionsDigest, schemaDisableReason, readRuntimeEvidence, RUNTIME_EVIDENCE_PREFIX } from '../src/runtime-diagnostics.mjs'
+import { buildRepairPresentation } from '../src/repair-evidence.js'
 
 test('direct environment capture records presence only and never evaluates complex expressions', () => {
   const result = configurationEnvironment({ path: { __jsExpr: 'process.env.DATABASE_PATH' }, other: { __jsExpr: 'process.env.SECRET || dangerous()' } }, { DATABASE_PATH: 'private-value', SECRET: 'hidden' })

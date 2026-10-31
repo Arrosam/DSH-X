@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { FileManager, PosixFileManager } from '../filemanager-base.js'
-import { MacFileManager } from '../filemanager-mac.js'
-import { WindowsFileManager } from '../filemanager-windows.js'
-import { LinuxFileManager } from '../filemanager-linux.js'
+import { FileManager, PosixFileManager } from '../src/filemanager-base.js'
+import { MacFileManager } from '../src/filemanager-mac.js'
+import { WindowsFileManager } from '../src/filemanager-windows.js'
+import { LinuxFileManager } from '../src/filemanager-linux.js'
 import { copyAppFiles } from '../scripts/pack-common.mjs'
 
 /**

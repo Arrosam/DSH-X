@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { incompatibleDirectDeps } from '../server.js'
+import { incompatibleDirectDeps } from '../src/server.js'
 
 /** 造一个假 profile：直接依赖 + 各自的 package.json。 */
 function profile(deps) {

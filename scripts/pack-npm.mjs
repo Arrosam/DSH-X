@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { versionChannel } from '../version.js'
+import { versionChannel } from '../src/version.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SOURCE = join(ROOT, 'npm-package')
@@ -31,11 +31,11 @@ const electron = String(rootPkg.devDependencies?.electron || '').replace(/^[~^]/
 await rm(STAGE, { recursive: true, force: true })
 await mkdir(STAGE, { recursive: true })
 await cp(SOURCE, STAGE, { recursive: true })
-// 外壳：Electron 入口是包根的 shell/main.mjs；托盘图标在 assets/（Windows 用 tray.ico）
+// 外壳：Electron 入口是包根的 shell/main.mjs；托盘图标在 src/assets（Windows 用 tray.ico）
 await cp(join(ROOT, 'shell'), join(STAGE, 'shell'), { recursive: true })
 await mkdir(join(STAGE, 'assets'), { recursive: true })
 for (const icon of ['icon.png', 'tray.ico', 'tray.png']) {
-  await cp(join(ROOT, 'assets', icon), join(STAGE, 'assets', icon))
+  await cp(join(ROOT, 'src', 'assets', icon), join(STAGE, 'assets', icon))
 }
 const pkgPath = join(STAGE, 'package.json')
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))

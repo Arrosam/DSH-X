@@ -65,7 +65,7 @@ function installVersions(...versions) {
 
 const onDisk = () => readdirSync(ROOT).sort()
 
-const { pruneVersions, snapshot } = await import('../server.js')
+const { pruneVersions, snapshot } = await import('../src/server.js')
 
 // 受管 fixture 还未生成，必须只发现隔离目录中的全局版本。
 const initialVersions = (await snapshot()).versions
@@ -117,7 +117,7 @@ test('自定义保留数量实际控制清理；运行中的版本始终额外�
   installVersions('0.1.12', '0.1.13')
   assert.deepEqual(await pruneVersions({ versions: ['0.1.13', '0.1.12'] }), ['0.1.12'])
   assert.deepEqual(onDisk(), ['0.1.13'])
-  const { versionsToKeep } = await import('../server.js')
+  const { versionsToKeep } = await import('../src/server.js')
   assert.deepEqual([...versionsToKeep(['0.1.13', '0.1.12', '0.1.11'], ['0.1.11'], 1)], ['0.1.13', '0.1.11'])
   writeSettings({ keepVersions: 0 })
   installVersions('0.1.11', '0.1.12', '0.1.13')
@@ -140,7 +140,7 @@ test('启动时记下用的版本：当前用让位给上一次用；重复启�
   writeSettings({ launchPresets: [
     { id: 'c'.repeat(16), name: 'DSH', version: 'auto', profile: 'web', port: 0, usedVersion: '0.1.12' },
   ] })
-  const { recordLaunchUse } = await import('../server.js')
+  const { recordLaunchUse } = await import('../src/server.js')
   await recordLaunchUse('c'.repeat(16), '0.1.13')
   let stored = JSON.parse(readFileSync(join(APP, 'settings.json'), 'utf8'))
   assert.deepEqual(stored.launchPresets.find((item) => item.id === 'c'.repeat(16)), {
@@ -154,7 +154,7 @@ test('启动时记下用的版本：当前用让位给上一次用；重复启�
 
 test('设置页那一下开关走真接口：POST /api/settings 存下去，GET /api/settings 读回来', async () => {
   writeSettings()
-  const { startServer, stopAll } = await import('../server.js')
+  const { startServer, stopAll } = await import('../src/server.js')
   const base = await startServer()
   const read = () => fetch(`${base}/api/settings`).then((res) => res.json())
   const save = (body) => fetch(`${base}/api/settings`, {

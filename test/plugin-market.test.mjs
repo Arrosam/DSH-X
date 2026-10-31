@@ -7,11 +7,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { isolateUserHome } from './isolated-home.mjs'
-import { pluginMarketDefaultsPatch, load } from '../compat/plugin-market.mjs'
+import { pluginMarketDefaultsPatch, load } from '../src/compat/plugin-market.mjs'
 
 const root = mkdtempSync(join(tmpdir(), 'dsh-plugin-market-'))
 const app = isolateUserHome(root)
-const { DEFAULTS, safePluginMarketSources, loadSettings, loadSettingsSync, saveSettings } = await import('../settings.js')
+const { DEFAULTS, safePluginMarketSources, loadSettings, loadSettingsSync, saveSettings } = await import('../src/settings.js')
 test.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }))
 
 test('默认使用 Awesome DSH Plugin，旧预装开关不迁移；源校验、去重和持久化', async () => {
@@ -59,7 +59,7 @@ test('真实官方市场 schema：缺省、已有源和主动清空相互独立'
     assert.deepEqual(Market.Config({ indexes: [] }).indexes.get(), [])
     assert.deepEqual(Market.Config({ indexes: ['https://custom.example/index.json'] }).indexes.get(), ['https://custom.example/index.json'])
   `
-  const child = spawnSync(process.execPath, ['--import', new URL('../compat/register.mjs', import.meta.url).href, '--input-type=module', '-e', script], {
+  const child = spawnSync(process.execPath, ['--import', new URL('../src/compat/register.mjs', import.meta.url).href, '--input-type=module', '-e', script], {
     env: { ...process.env, DSH_X_PLUGIN_MARKET_SOURCES: JSON.stringify(urls) }, encoding: 'utf8', timeout: 15000,
   })
   assert.equal(child.status, 0, child.stderr)
@@ -92,7 +92,7 @@ test('管理页保存默认源只改设置，启动不再安装或重新启用 d
   await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve))
   process.env.PORT = String(probe.address().port)
   await new Promise(resolve => probe.close(resolve))
-  const server = await import('../server.js')
+  const server = await import('../src/server.js')
   const origin = await server.startServer()
   t.after(() => server.stopAll())
   const post = async (path, body) => {

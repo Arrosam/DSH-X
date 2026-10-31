@@ -50,7 +50,7 @@ test('Windows PATH API：开启生成可用入口，重复开关与无已安装�
     syncBuiltinESMExports()
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   })
-  manager = await import('../server.js')
+  manager = await import('../src/server.js')
   const origin = await manager.startServer()
   const binDir = manager.systemBinDir()
   async function call(enabled) {
@@ -134,7 +134,7 @@ test('macOS/Linux PATH API：重复开关、持久化与进程重启，shell 文
     })
   })
   async function start() {
-    const script = `import {startServer,stopAll} from ${JSON.stringify(new URL('../server.js', import.meta.url).href)}; process.on('SIGTERM',()=>stopAll().finally(()=>process.exit(0))); console.log('READY '+await startServer());`
+    const script = `import {startServer,stopAll} from ${JSON.stringify(new URL('../src/server.js', import.meta.url).href)}; process.on('SIGTERM',()=>stopAll().finally(()=>process.exit(0))); console.log('READY '+await startServer());`
     child = spawn(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: root, APPDATA: root, DSH_VERSIONS_DATA: join(root, 'data'), DSH_HOME: join(root, '.dsh'), PORT: String(port), PATH: '/usr/bin:/bin' }, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = '', errors = ''
     child.stderr.on('data', (b) => { errors += b })

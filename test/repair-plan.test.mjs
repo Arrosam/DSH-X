@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import vm from 'node:vm'
-import { bindDiagnosis, checkedRepairPlan, createRepairPlan, profileFingerprint, validatePlanBinding } from '../repair-plan.js'
+import { bindDiagnosis, checkedRepairPlan, createRepairPlan, profileFingerprint, validatePlanBinding } from '../src/repair-plan.js'
 
 test('方案优先required与旧包，明确遥测非整体修复，不生成执行命令', () => {
   const plan = createRepairPlan({
@@ -78,7 +78,7 @@ test('生成期间发生配置变化，或文件不可读，均拒绝当前方�
 })
 
 test('新证据未emit也使方案失效；stopping和runtime路径变化拒绝旧方案', () => {
-  const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
   const begin = source.indexOf('function diagnosticForAttempt(')
   const end = source.indexOf('\nconst REPAIR_OBSERVATION_MS', begin)
   const diagnosticContext = { attemptId: 'a'.repeat(32), version: '2', profile: 'desktop', home: '/home', entry: '/boot', harnessEntry: '/runtime', fingerprint: { digest: 'config' } }
@@ -103,7 +103,7 @@ test('新证据未emit也使方案失效；stopping和runtime路径变化拒绝�
 })
 
 test('方案轮询标记过期，旧异步响应不能覆盖新诊断，关闭清理timer', async () => {
-  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
   const begin = html.indexOf('    const REPAIR_PLAN_CHECK_DELAY')
   const end = html.indexOf('    function notify(', begin)
   let response
@@ -139,7 +139,7 @@ test('方案轮询标记过期，旧异步响应不能覆盖新诊断，关闭�
 })
 
 test('真实Escape绑定先清理方案再关闭弹窗', () => {
-  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
   const begin = html.indexOf("    document.addEventListener('keydown', (event) => {", html.indexOf("confirmDialogEl.onclick"))
   const end = html.indexOf('    })', begin) + '    })'.length
   const calls = []

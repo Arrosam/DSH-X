@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { crc32, readZip, writeZip } from '../zip.js'
+import { crc32, readZip, writeZip } from '../src/zip.js'
 import {
   applyInstall,
   backupDirFor,
@@ -21,7 +21,7 @@ import {
   safeRelPath,
   slugName,
   uninstallPack,
-} from '../packs.js'
+} from '../src/packs.js'
 
 function tempDir(prefix = 'dsh-pack-') {
   return mkdtempSync(join(tmpdir(), prefix))

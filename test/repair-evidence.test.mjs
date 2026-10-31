@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildRepairPresentation, recordedChanges, parseConfigurationIssue, waitingServiceEvidence } from '../repair-evidence.js'
+import { buildRepairPresentation, recordedChanges, parseConfigurationIssue, waitingServiceEvidence } from '../src/repair-evidence.js'
 
 const component = '@deepseek-ai/dsh-host-product-telemetry-otel'
 const target = { home: '/isolated', profile: 'desktop', version: '1.0.0' }

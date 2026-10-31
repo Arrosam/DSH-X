@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { setImmediate } from 'node:timers/promises'
 
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 const start = html.indexOf('    async function executeRepair(')
 const end = html.indexOf('    function verificationText(', start)
 

@@ -35,7 +35,7 @@ test('还有实例在跑时，退出先让管理页确认，不再直接把它�
 })
 
 test('管理页用样式化确认框回答外壳，换过的按钮文案会还原', () => {
-  const html = read('public/index.html')
+  const html = read('src/public/index.html')
   assert.match(html, /ipc\.onMessage\?\.\(/, '页面装了外壳消息的监听')
   assert.match(html, /askQuitWithInstances/, '退出询问走页面自己的确认框')
   assert.match(html, /title: t\('退出 DSH-X'\), okText: t\('停止并退出'\), cancelText: t\('保留运行'\)/, '按钮说清「停止并退出 / 保留运行」')

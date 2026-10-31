@@ -1,6 +1,6 @@
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { MAC_BUNDLE_ID } from '../platform.js'
+import { MAC_BUNDLE_ID } from '../src/platform.js'
 import { run } from './pack-common.mjs'
 
 /** 固定证书用 SHA-1 指纹选取，避免两台 CI runner 上同名证书误选到不同私钥。 */

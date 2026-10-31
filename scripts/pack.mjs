@@ -137,7 +137,7 @@ async function buildShellStage() {
   await mkdir(SHELL_STAGE, { recursive: true })
   await cp(SHELL_DIR, join(SHELL_STAGE, 'shell'), { recursive: true })
   // 托盘 / 窗口图标（shell/main.mjs 的 ICON_FILE 指向 app 根目录的 assets）
-  await cp(join(ROOT, 'assets'), join(SHELL_STAGE, 'assets'), { recursive: true })
+  await cp(join(ROOT, 'src', 'assets'), join(SHELL_STAGE, 'assets'), { recursive: true })
   await writeFile(join(SHELL_STAGE, 'package.json'), `${JSON.stringify({
     // 这个 name 就是 deb 的包名——electron-builder 读的是 app 目录这份 package.json，
     // 不是仓库根那个，所以 apt remove 后面的名字由这里决定。

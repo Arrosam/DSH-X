@@ -13,7 +13,7 @@ import { IN_ELECTRON, IS_WINDOWS, RUNTIME_NODE, RUNTIME_NODE_ENV } from './platf
 import { netFetch, proxyEnv } from './proxy.js'
 // 版本比较在 version.js（零依赖），这里转出去保持老调用方不用改
 import { cmpVer, parseVer } from './version.js'
-import pkg from './package.json' with { type: 'json' }
+import { CORE_VERSION } from './app-version.js'
 
 const APP_ROOT = dirname(fileURLToPath(import.meta.url))
 const LOCAL_NODE = join(APP_ROOT, 'node')
@@ -28,7 +28,7 @@ export function currentRegistry() {
   const name = loadSettingsSync().downloadSource
   return DOWNLOAD_SOURCES[name] || DOWNLOAD_SOURCES[DEFAULTS.downloadSource]
 }
-const USER_AGENT = `dsh-x/${pkg.version || '0.0.0'}`
+const USER_AGENT = `dsh-x/${CORE_VERSION}`
 let npmReady = null
 
 // npm/npx 的 Windows 包装。`node` 落在哪儿随安装方式变：源码运行就是系统 node；打包后

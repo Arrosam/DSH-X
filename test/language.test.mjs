@@ -12,11 +12,13 @@ const root = mkdtempSync(join(tmpdir(), 'dsh-language-'))
 const install = join(root, 'install'), app = isolateUserHome(join(root, 'user'))
 mkdirSync(install, { recursive: true })
 mkdirSync(app, { recursive: true })
-for (const file of readdirSync(new URL('../', import.meta.url))) {
-  if (/\.(js|mjs|cjs)$/.test(file) || file === 'package.json') copyFileSync(new URL(`../${file}`, import.meta.url), join(install, file))
+// 运行时在 src/，安装包里的核心是摊平的：按打包后的样子复制到临时安装目录。
+for (const file of readdirSync(new URL('../src', import.meta.url))) {
+  if (/\.(js|mjs|cjs)$/.test(file)) copyFileSync(new URL(`../src/${file}`, import.meta.url), join(install, file))
 }
+copyFileSync(new URL('../package.json', import.meta.url), join(install, 'package.json'))
 mkdirSync(join(install, 'public'))
-copyFileSync(new URL('../public/index.html', import.meta.url), join(install, 'public', 'index.html'))
+copyFileSync(new URL('../src/public/index.html', import.meta.url), join(install, 'public', 'index.html'))
 const settingsFile = join(app, 'settings.json'), languageFile = join(install, 'lang.txt')
 const initial = { dataDir: join(root, 'data'), dshHome: join(root, 'home'), seedMarket: false }
 writeFileSync(settingsFile, JSON.stringify(initial))

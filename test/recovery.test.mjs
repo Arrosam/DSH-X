@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { listPatchBackups, lockIsActive, nextBackupPath, restoreProfileBackup, sanitizeProfile, withProfileLock } from '../recovery.js'
+import { listPatchBackups, lockIsActive, nextBackupPath, restoreProfileBackup, sanitizeProfile, withProfileLock } from '../src/recovery.js'
 
 /** 一份最小 profile：清单（bundles）+ 可选的补丁层。 */
 function makeProfile({ bundles, patch } = {}) {

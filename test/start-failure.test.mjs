@@ -8,10 +8,10 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
-import { publicFailure } from '../server.js'
+import { publicFailure } from '../src/server.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const html = readFileSync(join(ROOT, 'public', 'index.html'), 'utf8')
+const html = readFileSync(join(ROOT, 'src', 'public', 'index.html'), 'utf8')
 
 test('没有失败记录时不往界面塞东西', () => {
   assert.equal(publicFailure(null), null)
@@ -131,7 +131,7 @@ test('dsh 起不来时，接口的报错和状态里都带着它退出前的输�
 
   const port = await freePort()
   const base = `http://127.0.0.1:${port}`
-  const manager = spawn(process.execPath, [join(ROOT, 'server.js')], {
+  const manager = spawn(process.execPath, [join(ROOT, 'src', 'server.js')], {
     cwd: ROOT,
     // 设置、日志、dsh 家目录全部指进临时目录，别碰这台机器上真正的那份
     env: { ...process.env, PORT: String(port), APPDATA: join(box, 'appdata'), HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config') },

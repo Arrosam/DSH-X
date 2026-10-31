@@ -18,9 +18,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import * as version from '../version.js'
-import * as settings from '../settings.js'
-import { cmpVer, parseVer } from '../version.js'
+import * as version from '../src/version.js'
+import * as settings from '../src/settings.js'
+import { cmpVer, parseVer } from '../src/version.js'
 
 const { versionChannel, channelIncludes } = version
 

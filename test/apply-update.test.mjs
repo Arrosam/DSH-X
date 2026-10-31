@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 const POSIX = process.platform !== 'win32'
-const HELPER = new URL('../apply-update.mjs', import.meta.url)
+const HELPER = new URL('../src/apply-update.mjs', import.meta.url)
 
 /**
  * 替换助手的行为测试：用一个假启动器代替 DSH.exe。

@@ -21,7 +21,7 @@ import {
   storeDisplayUrl,
   storeLabel,
   storeMissing,
-} from '../sync.js'
+} from '../src/sync.js'
 
 const write = (file, text) => {
   mkdirSync(dirname(file), { recursive: true })

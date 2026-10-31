@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildRepairPresentation } from '../repair-evidence.js'
-import { DiagnosticRepairs } from '../repair-actions.js'
+import { buildRepairPresentation } from '../src/repair-evidence.js'
+import { DiagnosticRepairs } from '../src/repair-actions.js'
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -39,7 +39,7 @@ test('history sorts before truncating and direct record lookup ignores the displ
 })
 
 test('package rollback resumes recording only with prior persisted intent and matching original bytes', async () => {
-  const { packageFingerprint } = await import('../diagnostic-repair.js')
+  const { packageFingerprint } = await import('../src/diagnostic-repair.js')
   for (const priorIntent of [false, true]) {
     const root = mkdtempSync(join(realpathSync.native(tmpdir()), 'd12-rollback-'))
     const target = { home: root, profile: 'desktop', version: '2', harnessEntry: '/runtime' }
@@ -82,7 +82,7 @@ test('package rollback resumes recording only with prior persisted intent and ma
 
 test('accepted patch trust is independent of the displayed history cap', async () => {
   const { createHash } = await import('node:crypto')
-  const { appendRowBlock } = await import('../plugins.js')
+  const { appendRowBlock } = await import('../src/plugins.js')
   const hash = text => createHash('sha256').update(text).digest('hex')
   const root = mkdtempSync(join(realpathSync.native(tmpdir()), 'd12-patch-history-'))
   const target = { home: root, profile: 'desktop', version: '2', harnessEntry: '/runtime' }

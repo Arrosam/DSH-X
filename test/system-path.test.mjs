@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -7,9 +7,11 @@ import vm from 'node:vm'
 import test from 'node:test'
 
 // 可指向验证基线，让同一组断言同时保留修前失败与修后通过的证据。
+// 源码目录的运行时在 src/；指向已装核心时还是平铺的，两种都认。
 const root = process.env.DSH_PATH_TEST_ROOT || resolve(import.meta.dirname, '..')
-const server = await import(pathToFileURL(resolve(root, 'server.js')))
-const html = readFileSync(resolve(root, 'public/index.html'), 'utf8')
+const core = existsSync(resolve(root, 'server.js')) ? root : resolve(root, 'src')
+const server = await import(pathToFileURL(resolve(core, 'server.js')))
+const html = readFileSync(resolve(core, 'public/index.html'), 'utf8')
 const showStart = html.indexOf('    function showSystemPathSettings(data) {')
 const showEnd = html.indexOf('    const openModeEl', showStart)
 const translate = (text, vars = {}) => Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, v), text)

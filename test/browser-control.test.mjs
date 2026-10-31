@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 
 const read = (path) => readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), 'utf8')
 
-const server = read('server.js')
+const server = read('src/server.js')
 const main = read('shell/main.mjs')
 const guests = read('shell/browser-guests.mjs')
 

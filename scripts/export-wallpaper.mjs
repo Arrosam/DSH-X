@@ -9,23 +9,23 @@ for (const name of ['index.html', 'terminal.css', 'wallpaper.js', 'spectrum.js',
   await copyFile(path.join(root, 'wallpaper', name), path.join(output, name));
 }
 for (const name of ['mascot.css', 'background-character.png']) {
-  await copyFile(path.join(root, 'public', name), path.join(output, 'assets', name));
+  await copyFile(path.join(root, 'src/public', name), path.join(output, 'assets', name));
 }
 for (const part of ['head', 'ear', 'tuft', 'bow']) {
   for (const version of [8, 9]) {
     const name = `${part}-v${version}.png`;
-    await copyFile(path.join(root, 'public/mascot', name), path.join(output, 'assets/mascot', name));
+    await copyFile(path.join(root, 'src/public/mascot', name), path.join(output, 'assets/mascot', name));
   }
 }
 // 只适配导出的副本，启动器动画仍按原有策略运行。
-let mascot = await readFile(path.join(root, 'public/mascot.js'), 'utf8');
+let mascot = await readFile(path.join(root, 'src/public/mascot.js'), 'utf8');
 const tick = '    const dt = last ? Math.min((now - last) / 1000, .035) : 1 / 60;';
 if (!mascot.includes(tick)) throw new Error('看板娘动画结构已变化，请更新壁纸 FPS 适配。');
 // rAF 时间戳有小幅误差，留半毫秒余量，防止 60 Hz 下误跳过正常的一帧。
 mascot = mascot.replace(tick, `    if (last && now - last < 1000 / window.wallpaperFPS - .5) { frame = requestAnimationFrame(tick); return; }
     const dt = last ? Math.min((now - last) / 1000, .1) : 1 / window.wallpaperFPS;`);
 await writeFile(path.join(output, 'assets/mascot.js'), mascot);
-let water = await readFile(path.join(root, 'public/water.js'), 'utf8');
+let water = await readFile(path.join(root, 'src/public/water.js'), 'utf8');
 if (!water.includes('1000/24')) throw new Error('水面动画结构已变化，请更新壁纸 FPS 适配。');
 water = water.replace('1000/24', '1000/window.wallpaperFPS-.5');
 // 壁纸副本将日夜水面混合，避免主题切换时 shader 突然跳色。

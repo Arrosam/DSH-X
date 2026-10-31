@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { autoCleanEnabled, versionsToKeep } from '../server.js'
-import { DEFAULTS } from '../settings.js'
+import { autoCleanEnabled, versionsToKeep } from '../src/server.js'
+import { DEFAULTS } from '../src/settings.js'
 
-const server = readFileSync(fileURLToPath(new URL('../server.js', import.meta.url)), 'utf8')
+const server = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8')
 
 const sorted = (set) => [...set].sort()
 

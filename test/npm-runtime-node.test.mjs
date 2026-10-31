@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { withRuntimeNode } from '../registry.js'
+import { withRuntimeNode } from '../src/registry.js'
 
 const BUNDLED = '/app/node'
 

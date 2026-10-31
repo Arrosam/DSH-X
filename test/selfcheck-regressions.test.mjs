@@ -6,7 +6,7 @@ import vm from 'node:vm'
 import { mask } from '../skills/dsh-x-selfcheck/scripts/selfcheck.mjs'
 
 const source = readFileSync(new URL('../skills/dsh-x-selfcheck/scripts/selfcheck.mjs', import.meta.url), 'utf8')
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 
 test('quoted JSON credentials including escaped strings and keys are fully masked', () => {
   const samples = [

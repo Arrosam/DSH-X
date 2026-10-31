@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createPackumentReader } from '../registry.js'
+import { createPackumentReader } from '../src/registry.js'
 
 test('元数据缓存合并并发请求，按源隔离，超过容量淘汰最久未使用的包', async () => {
   let base = 'http://first', calls = []

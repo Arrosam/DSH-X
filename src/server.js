@@ -12,8 +12,8 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { cmpVer, currentRegistry, describeNpmFailure, installSpec, listPackage, optimizeDependencies, parsePnpmProgress, parseVer } from './registry.js'
-import pkg from './package.json' with { type: 'json' }
 import { VERSION_CHANNEL, VERSION_CHANNELS, effectiveChannel, versionChannel, versionInChannel } from './version.js'
+import { CORE_VERSION } from './app-version.js'
 import { createLogWriter } from './log-writer.js'
 import { createStartupDiagnosis } from './startup-diagnosis.js'
 import { DESKTOP_ENHANCE_ID, DESKTOP_ENHANCE_NAME, DESKTOP_PLUGINS, versionAtLeast } from './desktop-plugins.js'
@@ -142,7 +142,8 @@ let DATA = resolveDataDir()
 const PUBLIC = join(ROOT, 'public')
 let CONFIG = join(DATA, 'config.json')
 const PKG = '@deepseek-ai/dsh'
-const APP_VERSION = String(pkg.version || '0.0.0')
+/** 核心版本：读取规则见 app-version.js（源码运行时在 src/ 上一级，打包后在核心根）。 */
+const APP_VERSION = CORE_VERSION
 /** 外壳版本：外壳加载核心前通过 DSH_SHELL_VERSION 传进来；拆包后和核心版本分开走。 */
 const SHELL_VERSION = String(process.env.DSH_SHELL_VERSION || APP_VERSION)
 const APP_REPO = 'yyh-001/DSH-X'

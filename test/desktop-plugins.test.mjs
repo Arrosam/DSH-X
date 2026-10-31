@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { DESKTOP_PLUGINS, parseDshVersion, versionAtLeast } from '../desktop-plugins.js'
+import { DESKTOP_PLUGINS, parseDshVersion, versionAtLeast } from '../src/desktop-plugins.js'
 
 test('版本解析：只认 x.y.z，预发布后缀丢掉', () => {
   assert.deepEqual(parseDshVersion('0.2.2-alpha.2'), [0, 2, 2])

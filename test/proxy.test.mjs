@@ -42,8 +42,8 @@ const PEM = readFileSync(join(ROOT, 'test', 'fixtures', 'localhost-tls.pem'), 'u
 // 自签证书的源站只能这么连；只影响这个测试进程
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
-const core = await import('../proxy.js')
-const settings = await import('../settings.js')
+const core = await import('../src/proxy.js')
+const settings = await import('../src/settings.js')
 const { startFakeProxy } = await import('./fake-proxy.mjs')
 
 const {
@@ -408,7 +408,7 @@ test('系统探测结果有缓存，改设置要能立刻失效', async () => {
 /* ---------------------------------------------------------------- 接线 */
 
 test('server.js：外网请求走 netFetch，回环请求不折腾', () => {
-  const server = read('server.js')
+  const server = read('src/server.js')
   assert.match(server, /import \{ netFetch, proxyEnv, resetProxyCache, resolveProxy \} from '\.\/proxy\.js'/)
   // 外网那几个点都换掉了
   for (const site of [
@@ -430,7 +430,7 @@ test('server.js：外网请求走 netFetch，回环请求不折腾', () => {
 })
 
 test('server.js：设置页拿得到代理状态，保存后探测缓存作废', () => {
-  const server = read('server.js')
+  const server = read('src/server.js')
   assert.match(server, /proxyMode: safeProxyMode\(stored\.proxyMode\)/)
   assert.match(server, /proxyUrl: stored\.proxyUrl \|\| ''/)
   assert.match(server, /proxyInUse: resolveProxy\(stored\)/)
@@ -446,18 +446,18 @@ test('server.js：设置页拿得到代理状态，保存后探测缓存作废',
 })
 
 test('registry.js / mcp.js：查版本、下 tarball、探测端点也带代理', () => {
-  const registry = read('registry.js')
+  const registry = read('src/registry.js')
   assert.match(registry, /import \{ netFetch, proxyEnv \} from '\.\/proxy\.js'/)
   assert.match(registry, /const res = await netFetch\(url, \{\s*headers: \{\s*accept: 'application\/vnd\.npm\.install-v1\+json, application\/json'/)
   assert.match(registry, /const res = await netFetch\(url, \{ headers: \{ 'user-agent': USER_AGENT \} \}\)/)
   assert.match(registry, /npm_config_registry: currentRegistry\(\),\s*\.\.\.proxyEnv\(\)/, 'npm 子进程也拿代理变量')
-  const mcp = read('mcp.js')
+  const mcp = read('src/mcp.js')
   assert.match(mcp, /import \{ netFetch \} from '\.\/proxy\.js'/)
   assert.match(mcp, /return netFetch\(url, \{\s*method: 'POST'/)
 })
 
 test('设置页：网络代理一行齐全，改动即保存，文案都有英文', () => {
-  const html = read('public/index.html')
+  const html = read('src/public/index.html')
   assert.match(html, /<span class="set-name" data-i18n="网络代理">网络代理<\/span>[\s\S]{0,400}?<select id="proxyMode">/, '一行里有模式下拉')
   assert.match(html, /<div class="set-row stacked">[\s\S]{0,900}?<select id="proxyMode"><\/select>[\s\S]{0,200}?<input id="proxyUrl" type="text"[\s\S]{0,200}?<button class="ghost" id="proxyTest"/, '模式 + 地址 + 自检挤在一行的控件区里')
   assert.match(html, /queueSetting\('proxyMode', proxyModeEl\.value\)/, '模式改动即保存')
@@ -484,7 +484,7 @@ test('设置页：网络代理一行齐全，改动即保存，文案都有英�
 })
 
 test('settings.js：默认值、保存、脏值都有交代', () => {
-  const src = read('settings.js')
+  const src = read('src/settings.js')
   assert.match(src, /export const PROXY_MODES = \['off', 'system', 'manual'\]/)
   assert.match(src, /proxyMode: DEFAULT_PROXY_MODE,\s*\n\s*proxyUrl: '',/)
   assert.match(src, /merged\.proxyMode = safeProxyMode\(merged\.proxyMode\)/)

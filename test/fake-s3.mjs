@@ -6,7 +6,7 @@
  * 单测过了），签错说明客户端「签的和发出去的不是同一个请求」——这是最容易出的那类错。
  */
 import { createServer } from 'node:http'
-import { SYNC_NAMESPACE, signV4 } from '../sync.js'
+import { SYNC_NAMESPACE, signV4 } from '../src/sync.js'
 
 const xmlEscape = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 

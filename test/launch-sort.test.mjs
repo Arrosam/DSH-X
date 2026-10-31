@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const source = readFileSync(new URL('../public/launch-list.js', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../src/public/launch-list.js', import.meta.url), 'utf8')
 
 function sortable(reduced = true) {
   const listeners = {}, saved = [], ghosts = [], animations = []

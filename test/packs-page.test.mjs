@@ -9,7 +9,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
-const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
+const html = readFileSync(fileURLToPath(new URL('../src/public/index.html', import.meta.url)), 'utf8')
 
 const slice = (from, to) => {
   const start = html.indexOf(from)

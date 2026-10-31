@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { ensureWritableDir } from '../settings.js'
+import { ensureWritableDir } from '../src/settings.js'
 
 test('能写的目录：建出来、探针文件不留痕', async () => {
   const base = mkdtempSync(join(tmpdir(), 'dsh-dir-'))

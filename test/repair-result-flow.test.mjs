@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 
 function element(tag) {
   return {
@@ -142,7 +142,7 @@ test('shared owner is linked once and blocked actions retain their actual names'
 })
 
 test('verification records names from observed report rather than inventing labels', () => {
-  const source = readFileSync(new URL('../repair-actions.js', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../src/repair-actions.js', import.meta.url), 'utf8')
   const start = source.indexOf('export function verificationSummary(')
   const end = source.indexOf('/** 预览、执行', start)
   const context = {}
@@ -154,7 +154,7 @@ test('verification records names from observed report rather than inventing labe
 })
 
 test('repair error response includes only matching persisted operation record', async () => {
-  const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
   const start = source.indexOf("  if (req.method === 'POST' && ['/api/diagnosis/repair/preview'")
   const end = source.indexOf("  if (req.method === 'POST' && ['/api/diagnosis/plan'", start)
   const id = 'a'.repeat(32)
@@ -181,7 +181,7 @@ test('repair error response includes only matching persisted operation record', 
 })
 
 test('rejected duplicate execute and rollback preconditions do not return old successful records', async () => {
-  const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
   const start = source.indexOf("  if (req.method === 'POST' && ['/api/diagnosis/repair/preview'")
   const end = source.indexOf("  if (req.method === 'POST' && ['/api/diagnosis/plan'", start)
   const id = 'b'.repeat(32)

@@ -6,9 +6,9 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { optimizeDependencies } from '../registry.js'
+import { optimizeDependencies } from '../src/registry.js'
 
-const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
 // 切片终点跟着 server.js 的函数签名走：killTree 改成 async 后这里会切到文件末尾，
 // 把 export 语句也带进来，vm 里就是「Unexpected token 'export'」。
 const code = source.slice(source.indexOf('async function optimizeVersion('), source.indexOf('\nasync function killTree('))

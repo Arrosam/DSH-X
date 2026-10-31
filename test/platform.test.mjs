@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { MAC_BUNDLE_ID, RUNTIME_NODE } from '../platform.js'
-import { MacFileManager } from '../filemanager-mac.js'
-import { WindowsFileManager } from '../filemanager-windows.js'
-import { LinuxFileManager } from '../filemanager-linux.js'
+import { MAC_BUNDLE_ID, RUNTIME_NODE } from '../src/platform.js'
+import { MacFileManager } from '../src/filemanager-mac.js'
+import { WindowsFileManager } from '../src/filemanager-windows.js'
+import { LinuxFileManager } from '../src/filemanager-linux.js'
 
 // 平台差异全在实现类里，所以这份用例直接把三套实现都 new 出来跑，不按当前系统 skip。
 const mac = (deps = {}) => new MacFileManager({ home: '/Users/a', env: {}, existsSync: () => false, ...deps })

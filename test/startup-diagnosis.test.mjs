@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import * as diagnosis from '../startup-diagnosis.js'
+import * as diagnosis from '../src/startup-diagnosis.js'
 
 const baseline = JSON.parse(readFileSync(new URL('./fixtures/nexus-diagnosis-samples.json', import.meta.url), 'utf8'))
 const realLog = readFileSync(new URL('./fixtures/startup-desktop-sanitized.txt', import.meta.url), 'utf8')

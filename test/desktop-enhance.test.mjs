@@ -10,10 +10,10 @@ import test from 'node:test'
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 
-const server = read('server.js')
-const page = read('public/index.html')
-const css = read('public/launcher.css')
-const settings = read('settings.js')
+const server = read('src/server.js')
+const page = read('src/public/index.html')
+const css = read('src/public/launcher.css')
+const settings = read('src/settings.js')
 
 test('启动不再自动补装任何插件', () => {
   assert.doesNotMatch(server, /ensureDesktopPlugins/, '启动路径里没有自动安装')

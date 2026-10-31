@@ -26,6 +26,7 @@ export const NODE_MIRRORS = [
 const APP_FILES = [
   'start.js',
   'server.js',
+  'app-version.js',
   'startup-diagnosis.js',
   'runtime-diagnostics.mjs',
   'repair-plan.js',
@@ -108,23 +109,28 @@ const FILE_MANAGERS = ['filemanager-windows.js', 'filemanager-mac.js', 'filemana
 /**
  * 核心层的内容与平台无关（除了 node/ 包装脚本，两套都由 pack.mjs 写进去）。
  * 安装包的外壳才按平台分开：Windows 出 NSIS，mac 出 dmg。
+ *
+ * 仓库里运行时都在 src/，这里把它摊平拷进 out：安装包 / npm 核心包里的布局
+ * 仍然是 server.js 在根，旧版外壳按老路径加载不受影响。
  */
 export async function copyAppFiles(out) {
   await mkdir(join(out, 'public'), { recursive: true })
   await mkdir(join(out, 'assets'), { recursive: true })
   for (const file of [...APP_FILES, ...FILE_MANAGERS]) {
-    await copyFile(join(ROOT, file), join(out, file))
+    // package.json 留在仓库根（版本、devDependencies 都在这），打包时再单独抄进去
+    const source = file === 'package.json' ? join(ROOT, file) : join(ROOT, 'src', file)
+    await copyFile(source, join(out, file))
   }
-  await cp(join(ROOT, 'public'), join(out, 'public'), {
+  await cp(join(ROOT, 'src', 'public'), join(out, 'public'), {
     recursive: true,
     filter: (src) => !SKIP_PUBLIC.has(basename(src)),
   })
-  await cp(join(ROOT, 'assets'), join(out, 'assets'), { recursive: true })
-  await cp(join(ROOT, 'perf'), join(out, 'perf'), { recursive: true })
-  await cp(join(ROOT, 'compat'), join(out, 'compat'), { recursive: true })
+  await cp(join(ROOT, 'src', 'assets'), join(out, 'assets'), { recursive: true })
+  await cp(join(ROOT, 'src', 'perf'), join(out, 'perf'), { recursive: true })
+  await cp(join(ROOT, 'src', 'compat'), join(out, 'compat'), { recursive: true })
   // 整合包配方（packs/）：随安装包发，插件页的「内置整合包」就地安装，不用联网去 Release 拿。
   // 插件本身不随包发（仓库的 plugins/ 只是源码与发布源，插件都从 npm 装）。
-  await cp(join(ROOT, 'packs'), join(out, 'packs'), { recursive: true })
+  await cp(join(ROOT, 'src', 'packs'), join(out, 'packs'), { recursive: true })
 }
 
 /**

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { createLogWriter } from '../log-writer.js'
+import { createLogWriter } from '../src/log-writer.js'
 
 test('批量日志按原顺序保留中文，导出前 flush 包含最后一行', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-log-writer-'))

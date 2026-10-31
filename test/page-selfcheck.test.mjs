@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createServer } from 'node:http'
 
-import { checkWebPage, pageBundleUrls } from '../server.js'
+import { checkWebPage, pageBundleUrls } from '../src/server.js'
 
 // issue #24 的附带发现：dsh 0.1.7 起页面里写的是**相对地址**（`plugins/…`），而启动器的
 // 页面自检原来只认带前导斜杠的 `/plugins/…`，于是 0.1.7 上一条都抓不到，还报「0 个全部正常」——

@@ -22,7 +22,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
-const page = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
+const page = readFileSync(fileURLToPath(new URL('../src/public/index.html', import.meta.url)), 'utf8')
 
 const FAKE_DSH = `import { createServer } from 'node:http'
 import { existsSync, writeFileSync } from 'node:fs'
@@ -82,7 +82,7 @@ writeFileSync(join(APP, 'settings.json'), JSON.stringify({
   seedMarket: false,
 }), 'utf8')
 
-const { startServer, stopAll } = await import('../server.js')
+const { startServer, stopAll } = await import('../src/server.js')
 const base = await startServer()
 
 async function api(path, body, launchId = '') {
@@ -340,7 +340,7 @@ test('同版本同 Profile 可在不同 DSH_HOME 并存，管理和停止按启�
   assert.equal(stored.instancePorts?.[`${A}@web`], undefined)
   assert.equal(stored.autoPorts[HOME][`${A}@web`], Number(new URL(first.url).port))
   assert.equal(stored.autoPorts[otherHome][`${A}@web`], Number(new URL(second.url).port), '同名实例的自动端口按目录分别记忆')
-  const { writePackState } = await import('../packs.js')
+  const { writePackState } = await import('../src/packs.js')
   writePackState(DATA, { packs: [{ name: 'only-default', profile: 'web' }] })
   assert.ok((await api('/api/packs')).packs.some((item) => item.records.some((record) => record.name === 'only-default')))
   assert.ok(!(await api('/api/packs', undefined, launchId)).packs.some((item) => item.records.some((record) => record.name === 'only-default')))

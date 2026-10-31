@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
 const TEST_PORT = 39127
 
 function functionSource(name) {

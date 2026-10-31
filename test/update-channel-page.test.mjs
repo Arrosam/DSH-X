@@ -31,7 +31,7 @@ import vm from 'node:vm'
 import { TYPES, expectedPlan, newestFirst } from './update-channel-fixture.mjs'
 
 // Windows checkout 会转成 CRLF；统一换行后再按行首缩进找顶层声明。
-const page = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const page = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const CLOSERS = { '(': ')', '{': '}' }
 
 function parses(code) {

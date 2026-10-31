@@ -5,11 +5,11 @@ import vm from 'node:vm'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { createInterface } from 'node:readline'
-import { createStartupDiagnosis } from '../startup-diagnosis.js'
-import { bindDiagnosis } from '../repair-plan.js'
+import { createStartupDiagnosis } from '../src/startup-diagnosis.js'
+import { bindDiagnosis } from '../src/repair-plan.js'
 
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
-const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
+const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
 
 test('运行中兼容拒绝只显示为rejected，不把报告外文本伪造为失败', () => {
   const fixture = readFileSync(new URL('./fixtures/startup-desktop-sanitized.txt', import.meta.url), 'utf8')

@@ -30,7 +30,7 @@ test('查看与开关指定 profile 的插件，不改变启动默认值或其�
     writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0', dsh: { bundle: { patch: 'cordis.patch.yml' } } }))
     writeFileSync(join(pkg, 'cordis.patch.yml'), '- insert:\n    - id: demo-row\n      name: demo-plugin\n')
   }
-  const server = await import('../server.js')
+  const server = await import('../src/server.js')
   const origin = await server.startServer()
   t.after(() => server.stopAll())
   const call = async (path, body) => {

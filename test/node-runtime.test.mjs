@@ -7,7 +7,7 @@ import { isolateUserHome } from './isolated-home.mjs'
 
 const folder = mkdtempSync(join(tmpdir(), 'dsh-node-runtime-'))
 isolateUserHome(folder)
-const { findSystemNode, nodeRuntimeView, parseNodeRange } = await import('../server.js')
+const { findSystemNode, nodeRuntimeView, parseNodeRange } = await import('../src/server.js')
 test.after(() => rmSync(folder, { recursive: true, force: true }))
 
 test('findSystemNode：显式路径优先，其次按 PATH 找，找不到返回空串', () => {

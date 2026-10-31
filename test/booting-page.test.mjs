@@ -16,9 +16,9 @@ import { packumentOf, startChannelServer } from './update-channel-fixture.mjs'
 const env = await startChannelServer({ prefix: 'dsh-booting-', packument: packumentOf({ latest: '1.0.0' }, ['1.0.0']) })
 test.after(() => env.cleanup())
 
-const page = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
-const booting = readFileSync(new URL('../public/booting.html', import.meta.url), 'utf8')
-const styles = readFileSync(new URL('../public/launcher.css', import.meta.url), 'utf8')
+const page = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
+const booting = readFileSync(new URL('../src/public/booting.html', import.meta.url), 'utf8')
+const styles = readFileSync(new URL('../src/public/launcher.css', import.meta.url), 'utf8')
 
 /** 页面里从 from 到 to 的那一段（含两端）：把要测的函数原样装进沙箱，不复制一份实现。 */
 const section = (from, to) => page.slice(page.indexOf(from), page.indexOf(to, page.indexOf(from)))

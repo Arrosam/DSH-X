@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { listMcpServers, parseMcpCommand, removeMcpServer, saveMcpServer, setMcpEnabled } from '../mcp.js'
-import { looksLikeEntryList } from '../plugins.js'
+import { listMcpServers, parseMcpCommand, removeMcpServer, saveMcpServer, setMcpEnabled } from '../src/mcp.js'
+import { looksLikeEntryList } from '../src/plugins.js'
 
 // MCP 条目是写进 profile 补丁层 cordis.patch.yml 的：只动自己那对标记之间的字节，
 // 别人的条目（包括 !!js 表达式）永远不碰。这几条钉的就是这个边界。

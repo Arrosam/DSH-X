@@ -8,10 +8,10 @@ DSH-X：DeepSeek Harness（`dsh`）的第三方启动器。`package.json` 的 `n
 
 ```
 Windows/macOS 外壳  shell/（Electron）  DSH.exe / DSH-X.app：Chromium 窗口与内部标签页、托盘、菜单栏、单实例；服务跑在同一进程里
-Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / 整合包 / 同步的全部业务
-管理界面   public/index.html           单页手写 HTML + 原生 JS，无框架、无构建步骤
-启动进度页 public/booting.html         点「启动」后新开的窗口：轮询 /api/state 显示阶段与安装进度，dsh 就绪后自己跳进去
-注入钩子   compat/  perf/              被注入 dsh 进程，修补运行时行为（见下）
+Node 服务  src/start.js → src/server.js   管理页后端 + 版本 / 插件 / 整合包 / 同步的全部业务
+管理界面   src/public/index.html          单页手写 HTML + 原生 JS，无框架、无构建步骤
+启动进度页 src/public/booting.html        点「启动」后新开的窗口：轮询 /api/state 显示阶段与安装进度，dsh 就绪后自己跳进去
+注入钩子   src/compat/  src/perf/         被注入 dsh 进程，修补运行时行为（见下）
 ```
 
 **零第三方运行时依赖**：服务与页面的 import 都是 `node:` 内置或相对路径，没有构建步骤。安装包不依赖用户机器环境：dsh 子进程默认用 Electron 自带的 Node（打包时只把 npm / pnpm 抄进 `node/`），旧安装包里的 `node/node.exe` 继续兼容；设置里可以改成系统装的 Node（`settings.json` 的 `nodeRuntime` / `systemNodePath`，`shell/env.mjs` 在 `platform.js` 求值前定好 `DSH_RUNTIME_NODE`，换档要重启启动器）。
@@ -27,7 +27,7 @@ Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / �
 | `node --test test/packs.test.mjs` | 单个用例文件 |
 | `npm run electron` | 用 Electron 外壳从源码起（Windows / macOS / Linux，先 `npm install`） |
 | `npm run dist` | 打安装包（都先 `npm install`；macOS 还要 Xcode CLT） |
-| `node scripts/make-pack.mjs` | 把 `packs/<名字>/` 打成 `.dspack`（产物在 `release/packs/`） |
+| `node scripts/make-pack.mjs` | 把 `src/packs/<名字>/` 打成 `.dspack`（产物在 `release/packs/`） |
 
 - **跑测试别把输出接管道**（`| head`、`| tail` 会把输出缓冲成 0 字节，等于白跑）；要留证据就重定向到文件。
 - 没有 lint / 格式化配置，**也别加**：风格靠已有代码和这份文档。
@@ -46,34 +46,36 @@ Node 服务  start.js → server.js        管理页后端 + 版本 / 插件 / �
 
 | 路径 | 是什么 |
 |---|---|
-| `start.js` | 入口：端口与日志（`server.js` 在 Electron 外壳里被直接 import，不再经过它） |
-| `server.js` | 管理页后端 + 全部业务（最大文件）：HTTP 路由、版本管理、插件安装、整合包、启动失败自愈 |
-| `settings.js` | 设置读写；`safe*` 一族是校验函数（端口、路径、代理、语言……都从这过） |
-| `registry.js` / `version.js` | dsh 版本发现、pnpm 交互（进度解析）、版本号比较；装版本失败时把 npm 的收尾报错换成具体提示（`describeNpmFailure`：ETARGET 发版不齐 / 404 没有这个包） |
-| `plugins.js` | 插件开关：直接改 profile 的 `cordis.patch.yml`，不需要 dsh 在跑 |
-| `mcp.js` / `skills.js` | MCP server 与技能的读写、探测、开关 |
-| `packs.js` | 整合包：`.dspack`（manifest v5 ZIP）的解析 / 检查 / 安装 / 导出 / 回滚 |
-| `zip.js` / `zipfile.js` | zip 的写与读（手写，无依赖） |
-| `sync.js` | 同步引擎：S3 / WebDAV / 本地目录 / ZIP 四种后端共用一个"远端"抽象 |
-| `proxy.js` | `netFetch`：Node 全局 fetch 不看系统代理，所有外网请求走它 |
-| `platform.js` | 平台常量与「Electron 本体当 node 用」的推导（`RUNTIME_NODE` / `RUNTIME_NODE_ENV`）；只有常量，没有行为 |
-| `filemanager.js` | 按平台挑一套文件管理实现，导出 `fileManager` 与 `APP_DIR`；业务代码只认它 |
-| `filemanager-base.js` | 那个接口本身：契约、默认实现、其他 POSIX 平台的 xdg-open 兜底（`PosixFileManager`） |
-| `filemanager-windows.js` / `filemanager-mac.js` / `filemanager-linux.js` | 三套实现类，都随跨平台核心包发，运行时按平台动态 import |
-| `plugin-tool.js` | 命令行开关插件（dsh 起不来时的救命工具），有可执行位 |
-| `stdio-unblock.cjs` | stdout/stderr 阻塞模式修补（`--require` 注入用） |
-| `public/` | 管理界面与看板娘素材（`index.html` 是主体；`booting.html` 是启动进度页，由 `/booting` 渲染） |
+| `src/` | 核心运行时，打进安装包的 `resources/core`；下面带 `src/` 前缀的行都在这里 |
+| `src/start.js` | 入口：端口与日志（`server.js` 在 Electron 外壳里被直接 import，不再经过它） |
+| `src/server.js` | 管理页后端 + 全部业务（最大文件）：HTTP 路由、版本管理、插件安装、整合包、启动失败自愈 |
+| `src/settings.js` | 设置读写；`safe*` 一族是校验函数（端口、路径、代理、语言……都从这过） |
+| `src/registry.js` / `src/version.js` | dsh 版本发现、pnpm 交互（进度解析）、版本号比较；装版本失败时把 npm 的收尾报错换成具体提示（`describeNpmFailure`：ETARGET 发版不齐 / 404 没有这个包） |
+| `src/plugins.js` | 插件开关：直接改 profile 的 `cordis.patch.yml`，不需要 dsh 在跑 |
+| `src/mcp.js` / `src/skills.js` | MCP server 与技能的读写、探测、开关 |
+| `src/packs.js` | 整合包：`.dspack`（manifest v5 ZIP）的解析 / 检查 / 安装 / 导出 / 回滚 |
+| `src/zip.js` / `src/zipfile.js` | zip 的写与读（手写，无依赖） |
+| `src/sync.js` | 同步引擎：S3 / WebDAV / 本地目录 / ZIP 四种后端共用一个"远端"抽象 |
+| `src/proxy.js` | `netFetch`：Node 全局 fetch 不看系统代理，所有外网请求走它 |
+| `src/platform.js` | 平台常量与「Electron 本体当 node 用」的推导（`RUNTIME_NODE` / `RUNTIME_NODE_ENV`）；只有常量，没有行为 |
+| `src/filemanager.js` | 按平台挑一套文件管理实现，导出 `fileManager` 与 `APP_DIR`；业务代码只认它 |
+| `src/filemanager-base.js` | 那个接口本身：契约、默认实现、其他 POSIX 平台的 xdg-open 兜底（`PosixFileManager`） |
+| `src/filemanager-windows.js` / `-mac.js` / `-linux.js` | 三套实现类，都随跨平台核心包发，运行时按平台动态 import |
+| `src/plugin-tool.js` | 命令行开关插件（dsh 起不来时的救命工具），有可执行位 |
+| `src/stdio-unblock.cjs` | stdout/stderr 阻塞模式修补（`--require` 注入用） |
+| `src/public/` | 管理界面与看板娘素材（`index.html` 是主体；`booting.html` 是启动进度页，由 `/booting` 渲染） |
+| `src/compat/` `src/perf/` | 注入 dsh 进程的钩子：兼容修补与加速 |
+| `src/assets/` | 图标 master（`icon.png` → `make-icons.py` 出全套） |
+| `src/packs/` | 随安装包发的整合包配方（插件页「内置整合包」就地安装） |
+| `plugins/` | 插件实现的源码与发布源（发 npm，不随安装包）；**别和 `src/packs/` 合并** |
 | `scripts/` | 打包（`pack.mjs` / `pack-mac.mjs` / `pack-common.mjs` / `electron-prune.mjs`）、图标（`make-icons.py`）、落地页素材、发版说明草稿（`release-notes.mjs`，按 commit 前缀拆块）、发版清单与 SBOM |
-| `plugins/` `packs/` | 插件源码（发 npm）与随包发的整合包配方（见「关键机制」，**两个目录别合并**） |
 | `skills/` | 给 AI 用的技能源码（随仓库分发，不进安装包）：`dsh-x-selfcheck` 只读自检 DSH-X 环境（环境/管理页/数据目录/DSH_HOME/profile/实例/插件/技能/同步/日志），`node skills/dsh-x-selfcheck/scripts/selfcheck.mjs`，零依赖；用例见 `test/selfcheck-skill.test.mjs` |
-| `compat/` `perf/` | 注入 dsh 进程的钩子：兼容修补与加速 |
 | `shell/` | Windows / macOS / Linux 的 Electron 外壳（`main.mjs` 窗口 / 托盘 / 菜单，`tabs.mjs` 内部标签页，`preload.cjs` 页面桥，`updater.mjs` electron-updater）；`package.json` 是外壳版本，核心版本在根 `package.json` |
 | `test/` | 用例与假服务器 |
 | `docs/` | GitHub Pages 落地页 + 看板娘设计稿（`mascot-design/`）+ `releases/`（入库的发版说明，格式见 `TEMPLATE.md`） |
-| `assets/` | 图标 master（`icon.png` → `make-icons.py` 出全套） |
 | `data/` `release/` `vendor/` | 运行时数据与产物，gitignored，可重建，**不用整理** |
 
-**顶层 .js 平铺是有意的，不是没整理**：核心文件按 `scripts/pack-common.mjs` 的 `APP_FILES` 原样拷进 `resources/core`（Windows：`<安装目录>/resources/core/`；macOS：`DSH-X.app/Contents/Resources/core/`），外壳在 `resources/app`，启动时动态 import 核心的 `server.js`。要把它们收进 `src/` 得同时改 `APP_FILES` 与拷贝目标、`platform.js`/`server.js` 的根路径推导、核心更新路径和 `scripts/pack.mjs`，并重新打包验证，别只挪文件。
+**运行时收在 `src/`，打包时摊平**：`scripts/pack-common.mjs` 的 `APP_FILES` 把 `src/` 里的文件拷到 `resources/core` 根（Windows `<安装目录>/resources/core/`；macOS `DSH-X.app/Contents/Resources/core/`），`public/` `assets/` `compat/` `perf/` `packs/` 同样从 `src/` 拷到核心根，外壳在 `resources/app`。所以安装包里的布局和以前完全一样，旧外壳按 `core/server.js` 加载不受影响。`package.json` 留在仓库根，打包时单独抄一份进核心；`src/server.js` 先找核心自己的 `package.json`，找不到再回退到 `../package.json`，源码运行不用复制。**新增运行时文件要同时放进 `src/` 和 `APP_FILES`，别只挪文件不改编排。**
 
 ## 关键机制
 

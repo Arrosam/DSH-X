@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { isolateUserHome } from './isolated-home.mjs'
-import { readPackState, rememberPack, uninstallPack } from '../packs.js'
+import { readPackState, rememberPack, uninstallPack } from '../src/packs.js'
 
 test('目录显示名与 Profile 改名按用户目录隔离，依赖与启动引用完整保留', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-profile-rename-'))
@@ -54,7 +54,7 @@ server.listen(0, '127.0.0.1', () => console.log('dsh web: http://127.0.0.1:' + s
   await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve))
   process.env.PORT = String(probe.address().port)
   await new Promise((resolve) => probe.close(resolve))
-  const server = await import('../server.js')
+  const server = await import('../src/server.js')
   const origin = await server.startServer()
   t.after(() => server.stopAll())
   const api = async (path, body, target = '') => {

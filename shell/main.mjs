@@ -66,8 +66,8 @@ const APP_DATA = IS_MAC
 const APP_DIR = join(APP_DATA, 'DSH')
 /** 用户目录里的活动核心（npm 核心更新换的就是这个目录）。 */
 const ACTIVE_CORE = join(APP_DIR, 'core', 'current')
-/** 安装包内置的基线核心（resources/core）；源码运行时就是仓库根目录（server.js 所在处）。 */
-const BASELINE_CORE = existsSync(join(ROOT, 'server.js')) ? ROOT : join(dirname(ROOT), 'core')
+/** 安装包内置的基线核心（resources/core）；源码运行时就是仓库的 src/（server.js 所在处）。 */
+const BASELINE_CORE = existsSync(join(ROOT, 'src', 'server.js')) ? join(ROOT, 'src') : join(dirname(ROOT), 'core')
 /** 和 preload.cjs 的 IPC_CHANNEL 一致。 */
 const IPC_CHANNEL = 'dsh-x:ipc'
 /** 外壳 → 管理页：退出前的询问（preload.cjs 的 onMessage 收这条）。 */
@@ -99,12 +99,14 @@ const TRAY_ACTION_TIMEOUT_MS = 120_000
 const QUIT_CONFIRM_TIMEOUT_MS = 30_000
 /** 菜单栏 / 托盘图标按 18pt（macOS）或 16px（Windows 托盘）显示，给 2 倍图才不糊。 */
 const TRAY_ICON_POINTS = IS_MAC ? 18 : 16
-const ICON_FILE = join(ROOT, 'assets', 'icon.png')
+/** 图标目录：源码运行时在仓库的 src/assets；安装包由 pack.mjs 放到 resources/app/assets。 */
+const ASSET_DIR = existsSync(join(ROOT, 'src', 'assets')) ? join(ROOT, 'src', 'assets') : join(ROOT, 'assets')
+const ICON_FILE = join(ASSET_DIR, 'icon.png')
 /**
  * 托盘图标用带圆角/透明边的版本，不用 icon.png——后者是不透明的方形母版，
  * 直接塞进 Windows 托盘会是一个方块。Windows 用 tray.ico，mac/Linux 用 tray.png。
  */
-const TRAY_ICON_FILE = IS_WINDOWS ? join(ROOT, 'assets', 'tray.ico') : join(ROOT, 'assets', 'tray.png')
+const TRAY_ICON_FILE = IS_WINDOWS ? join(ASSET_DIR, 'tray.ico') : join(ASSET_DIR, 'tray.png')
 /** 页面进程崩溃时 Chromium 报的原因：这几种是正常结束，不用重装。 */
 const CLEAN_EXITS = new Set(['clean-exit', 'killed'])
 /** dsh 页面能申请的权限：只放行本机地址的麦克风 / 摄像头（询问用户），其余一律拒绝。 */

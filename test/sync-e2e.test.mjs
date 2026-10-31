@@ -8,7 +8,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
-import { runSync } from '../sync.js'
+import { runSync } from '../src/sync.js'
 import { startFakeS3 } from './fake-s3.mjs'
 
 const write = (file, text) => {

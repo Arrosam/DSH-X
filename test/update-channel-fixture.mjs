@@ -17,7 +17,7 @@ import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { cmpVer, parseVer } from '../version.js'
+import { cmpVer, parseVer } from '../src/version.js'
 import { isolateUserHome } from './isolated-home.mjs'
 
 export const PACKAGE_PATH = '/@deepseek-ai/dsh'
@@ -164,9 +164,9 @@ export async function startChannelServer({ prefix, packument, installed = [], pr
   process.env.npm_config_registry = registryBase()
   process.env.PORT = String(await freePort())
 
-  const server = await import('../server.js')
-  const settings = await import('../settings.js')
-  const version = await import('../version.js')
+  const server = await import('../src/server.js')
+  const settings = await import('../src/settings.js')
+  const version = await import('../src/version.js')
   let origin = await server.startServer()
 
   async function call(path, body, headers = {}) {

@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const read = (name) => readFileSync(new URL(`../public/${name}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const read = (name) => readFileSync(new URL(`../src/public/${name}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const page = read('index.html')
 const css = read('launcher.css')
 

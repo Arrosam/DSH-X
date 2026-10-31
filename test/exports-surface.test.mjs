@@ -3,8 +3,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import * as filemanager from '../filemanager.js'
-import * as platform from '../platform.js'
+import * as filemanager from '../src/filemanager.js'
+import * as platform from '../src/platform.js'
 
 /**
  * platform.js / filemanager.js 的导出被谁具名导入，逐个对照现存导出。

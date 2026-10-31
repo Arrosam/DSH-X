@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { RuntimeDiagnostics, importDisableReason, schemaDisableReason } from '../runtime-diagnostics.mjs'
+import { RuntimeDiagnostics, importDisableReason, schemaDisableReason } from '../src/runtime-diagnostics.mjs'
 
 test('initialization waiting does not become a settled required failure or a disable target', () => {
   const row = { state: 'failed', unique: true, topLevel: true, leaf: true, required: false, fatalImport: true, importBeforeApply: true, executions: 0, descendants: 0, ownedServices: 0 }

@@ -12,7 +12,7 @@ import { PREF_DEFAULTS } from '../shell/prefs.mjs'
 
 const folder = mkdtempSync(join(tmpdir(), 'dsh-system-prefs-'))
 isolateUserHome(folder)
-const { saveSettings, loadSettings, DEFAULTS } = await import('../settings.js')
+const { saveSettings, loadSettings, DEFAULTS } = await import('../src/settings.js')
 test.after(() => rmSync(folder, { recursive: true, force: true }))
 
 const KEYS = Object.keys(PREF_DEFAULTS)

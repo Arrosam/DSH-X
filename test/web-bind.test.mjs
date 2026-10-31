@@ -7,10 +7,10 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
-import { DEFAULT_WEB_BIND, lanBindFromYaml, lanBindToggleOn, safeWebBind } from '../settings.js'
-import { lanBindActive } from '../server.js'
+import { DEFAULT_WEB_BIND, lanBindFromYaml, lanBindToggleOn, safeWebBind } from '../src/settings.js'
+import { lanBindActive } from '../src/server.js'
 
-const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
+const html = readFileSync(fileURLToPath(new URL('../src/public/index.html', import.meta.url)), 'utf8')
 
 /** 造一个临时 dsh home，写一份 settings.yaml 进去。 */
 function homeWithSettings(text) {

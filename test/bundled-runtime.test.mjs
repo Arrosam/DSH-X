@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, dirname, isAbsolute, join } from 'node:path'
 import test from 'node:test'
 
-import { decodeProcessOutput, describePluginFailure, dshArgs, dshEnv, nodeOptionsPath, orderRuntimePaths, pathWithEntry, pickPnpmDir, pnpmCandidates, profileStoreVersion, withBundledRuntime, withVersionBin, writeDshShims } from '../server.js'
+import { decodeProcessOutput, describePluginFailure, dshArgs, dshEnv, nodeOptionsPath, orderRuntimePaths, pathWithEntry, pickPnpmDir, pnpmCandidates, profileStoreVersion, withBundledRuntime, withVersionBin, writeDshShims } from '../src/server.js'
 
 const BUNDLED = 'E:\\DSH\\node'
 

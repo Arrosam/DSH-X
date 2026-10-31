@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const source = readFileSync(new URL('../public/launch-list.js', import.meta.url), 'utf8')
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../src/public/launch-list.js', import.meta.url), 'utf8')
+const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 const saveCode = html.slice(html.indexOf('    launchFormEl.onsubmit = async'), html.indexOf('    launchDeleteEl.onclick = async'))
 const deleteCode = html.slice(html.indexOf('    launchDeleteEl.onclick = async'), html.indexOf('    function render()'))
 const updateCode = html.slice(html.indexOf('    function updateLaunchEntry('), html.indexOf('    /** 自动项'))

@@ -3,14 +3,14 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { currentRegistry } from '../registry.js'
-import { dshEnv } from '../server.js'
-import { DEFAULTS, DEFAULT_SOURCE, DEFAULT_UPDATE_SOURCE, DOWNLOAD_SOURCES, safeDownloadSource, safeUpdateSource, updateSourceForDownload, updateUrlCandidates } from '../settings.js'
+import { currentRegistry } from '../src/registry.js'
+import { dshEnv } from '../src/server.js'
+import { DEFAULTS, DEFAULT_SOURCE, DEFAULT_UPDATE_SOURCE, DOWNLOAD_SOURCES, safeDownloadSource, safeUpdateSource, updateSourceForDownload, updateUrlCandidates } from '../src/settings.js'
 
 const read = (name) => readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), 'utf8')
-const html = read('public/index.html')
-const server = read('server.js')
-const registry = read('registry.js')
+const html = read('src/public/index.html')
+const server = read('src/server.js')
+const registry = read('src/registry.js')
 
 // 下载源：镜像源同步官方有延迟（「检查到更新却装不上」就是这么来的），所以给用户一个
 // 切官方源的开关。这几条钉的是「切了真的全链路都换源」和「脏值不会把源弄丢」。
@@ -115,7 +115,7 @@ test('统一下载源映射到兼容的 GitHub 更新源', () => {
   assert.match(server, /'updateSource' in body \? \{ downloadSource: safeUpdateSource\(body\.updateSource\) === 'direct' \? 'official' : 'mirror' \}/, '旧 API 写入会映射回统一下载源')
   assert.match(server, /if \('downloadSource' in body \|\| 'updateSource' in body\)/, '兼容 API 也刷新下载与更新缓存')
   assert.match(server, /UPDATE_SOURCE = updateSourceForDownload\(stored\.downloadSource\)/, 'GitHub 更新源跟随保存后的统一源')
-  const settings = read('settings.js')
+  const settings = read('src/settings.js')
   assert.match(settings, /merged\.updateSource = updateSourceForDownload\(merged\.downloadSource\)/, '保存配置时写兼容副本')
   assert.match(settings, /const updateSource = updateSourceForDownload\(stored\.downloadSource\)/, '旧配置读取时修复兼容副本')
 })

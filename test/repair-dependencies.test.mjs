@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assessIntroducer, dependencyOrigins, packageStateChanges } from '../repair-dependencies.js'
+import { assessIntroducer, dependencyOrigins, packageStateChanges } from '../src/repair-dependencies.js'
 import { join } from 'node:path'
 
 function fixture() {

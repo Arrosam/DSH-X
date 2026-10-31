@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { listSkills } from '../skills.js'
+import { listSkills } from '../src/skills.js'
 import { mask } from '../skills/dsh-x-selfcheck/scripts/selfcheck.mjs'
 
 // 这个 skill 是给 AI 用来「先看清环境」的，因此有两条不能退的底线在这里守着：

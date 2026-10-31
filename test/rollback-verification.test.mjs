@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
 test('verification status distinguishes active, completed and missing evidence', () => {
-  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
   const start = html.indexOf('    function verificationText(')
   assert.notEqual(start, -1)
   const end = html.indexOf('    function showRepairHistory', start)

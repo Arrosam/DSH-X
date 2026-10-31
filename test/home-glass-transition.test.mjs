@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 const source = html.slice(html.indexOf('    async function showPane('), html.indexOf('    navItems.forEach((item) => { item.onclick'))
 
 function harness({ reduced = false, from = 'settings' } = {}) {

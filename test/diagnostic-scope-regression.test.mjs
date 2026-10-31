@@ -5,8 +5,8 @@ import test from 'node:test'
 import vm from 'node:vm'
 
 const script = readFileSync(new URL('../skills/dsh-x-selfcheck/scripts/selfcheck.mjs', import.meta.url), 'utf8')
-const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
+const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 
 function functionText(source, name) {
   const start = source.search(new RegExp(`(?:async )?function ${name}\\(`))

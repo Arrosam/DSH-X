@@ -2,9 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
-import { verificationSummary } from '../repair-actions.js'
+import { verificationSummary } from '../src/repair-actions.js'
 
-const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
 const body = server.slice(server.indexOf('  async verify(target) {'), server.indexOf('\n})', server.indexOf('  async verify(target) {')))
 const target = { home: '/isolated', profile: 'desktop', version: '1.0.0' }
 const clean = { failed: [], rejected: [], blockingChains: [], waiting: [], skipped: { entries: [] } }

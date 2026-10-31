@@ -10,7 +10,7 @@ import vm from 'node:vm'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const fixture = readFileSync(new URL('./fixtures/startup-desktop-sanitized.txt', import.meta.url), 'utf8')
-const html = readFileSync(join(ROOT, 'public/index.html'), 'utf8')
+const html = readFileSync(join(ROOT, 'src', 'public/index.html'), 'utf8')
 
 function write(file, content) {
   mkdirSync(join(file, '..'), { recursive: true })
@@ -59,7 +59,7 @@ export async function runProfile() {
   write(join(home, '.config/DSH/settings.json'), settings)
   const port = await freePort()
   const origin = `http://127.0.0.1:${port}`
-  const manager = spawn(process.execPath, [join(ROOT, 'server.js')], {
+  const manager = spawn(process.execPath, [join(ROOT, 'src', 'server.js')], {
     cwd: ROOT,
     env: {
       ...process.env,
@@ -105,7 +105,7 @@ export async function runProfile() {
     assert.equal((await planRequest(failure.binding, true)).status, 409, '外部配置变化使已生成方案过期')
     assert.equal((await planRequest(failure.binding)).status, 409, '不能将点击时配置重新认作诊断基线')
     write(profileManifest, originalManifest)
-    assert.equal(report.context.entry, join(ROOT, 'reserved-profile-boot.mjs'))
+    assert.equal(report.context.entry, join(ROOT, 'src', 'reserved-profile-boot.mjs'))
     assert.equal(report.context.harnessEntry, cli)
     assert.equal(report.context.clientVersionPresent, false)
     assert.ok(!failure.tail.some(line => line.includes('serviceVersion')))

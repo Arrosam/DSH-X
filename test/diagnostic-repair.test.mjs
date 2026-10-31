@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, symlinkSync, lstatSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { archivePackage, restorePackage, packageFingerprint } from '../diagnostic-repair.js'
-import { DiagnosticRepairs, verificationSummary } from '../repair-actions.js'
+import { archivePackage, restorePackage, packageFingerprint } from '../src/diagnostic-repair.js'
+import { DiagnosticRepairs, verificationSummary } from '../src/repair-actions.js'
 import vm from 'node:vm'
 
 function fixture() {
@@ -180,7 +180,7 @@ test('unknown actions and changed preview fingerprint cannot stop or mutate the 
 })
 
 test('production exclusive rechecks a competing startup before acquiring maintenance ownership', async () => {
-  const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
   const begin = source.indexOf('const REPAIR_OBSERVATION_MS')
   const end = source.indexOf('\n/**', begin)
   const key = '/isolated\0desktop'
@@ -206,7 +206,7 @@ test('production exclusive rechecks a competing startup before acquiring mainten
 })
 
 test('repair confirmation Escape cancels the child and preserves its diagnostic parent', () => {
-  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
   const begin = html.indexOf("    document.addEventListener('keydown', (event) => {", html.indexOf('confirmDialogEl.onclick'))
   const end = html.indexOf('    })', begin) + '    })'.length
   const calls = []
@@ -232,7 +232,7 @@ test('ordinary launch no longer reads saved adapters', () => {
 })
 
 test('repair labels do not invent causes and proposals use supplied structured steps', () => {
-  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
   const begin = html.indexOf('    function repairLabel(')
   const end = html.indexOf('    async function showRepairCards', begin)
   const context = { t: value => value }
@@ -254,7 +254,7 @@ test('repair labels do not invent causes and proposals use supplied structured s
 })
 
 test('repair version selection rejects downgrade and unreliable semver comparisons', async () => {
-  const { compatibleUpgrade } = await import('../diagnostic-repair.js')
+  const { compatibleUpgrade } = await import('../src/diagnostic-repair.js')
   assert.equal(compatibleUpgrade('0.1.1-rc.2', '0.2.1-rc.2'), true)
   assert.equal(compatibleUpgrade('1.0.0-rc.9', '1.0.0-rc.10'), true)
   assert.equal(compatibleUpgrade('1.0.0', '1.0.0'), true)
@@ -361,7 +361,7 @@ test('runtime-confirmed single row disable preserves bad config and never select
 })
 
 test('optional proof fingerprints files without service references, and rejects later changes', async () => {
-  const { optionalAnalyticsProof } = await import('../optional-analytics-proof.js')
+  const { optionalAnalyticsProof } = await import('../src/optional-analytics-proof.js')
   const item = fixture()
   const modules = join(item.root, 'runtime')
   const packageDir = join(modules, '@deepseek-ai/example')
@@ -416,7 +416,7 @@ test('optional patch rollback resumes after either rename boundary without overw
 })
 
 test('one component renders one fault card with two adjacent alternatives and unchanged action IDs', () => {
-  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
   assert.match(html, /function renderRepairActionGroups/)
   class Element {
     constructor(tag) {
@@ -482,7 +482,7 @@ test('one component renders one fault card with two adjacent alternatives and un
 })
 
 test('repair routes publish final history before success or failure response, but previews do not publish', async () => {
-  const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8')
   const begin = source.indexOf("  if (req.method === 'POST' && ['/api/diagnosis/repair/preview'")
   const end = source.indexOf("  if (req.method === 'POST' && ['/api/diagnosis/plan'", begin)
   for (const route of ['preview', 'execute', 'rollback']) {

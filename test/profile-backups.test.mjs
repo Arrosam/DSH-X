@@ -30,7 +30,7 @@ test('Profile 配置层备份：快照去重、列表、回退与参数校验', 
   process.env.PORT = String(port)
   process.env.DSH_VERSIONS_DATA = data
   process.env.DSH_AGENTS_HOME = join(root, 'agents')
-  const server = await import('../server.js')
+  const server = await import('../src/server.js')
   const base = await server.startServer()
   t.after(async () => {
     await server.stopAll()

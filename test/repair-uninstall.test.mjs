@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DiagnosticRepairs } from '../repair-actions.js'
+import { DiagnosticRepairs } from '../src/repair-actions.js'
 
 function fixture() {
   const home = mkdtempSync(join(realpathSync.native(tmpdir()), 'diagnostic-uninstall-'))

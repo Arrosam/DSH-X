@@ -25,7 +25,7 @@ import {
   windowMode,
   surfaceInk,
 } from '../shell/model.mjs'
-import { runtimeNode, runtimeNodeEnv } from '../platform.js'
+import { runtimeNode, runtimeNodeEnv } from '../src/platform.js'
 import { resolveDark, stoppedPage } from '../shell/pages.mjs'
 
 test('停止页跟随主题与系统深浅色（#58，和 tabs.rs 的同名用例一致）', () => {

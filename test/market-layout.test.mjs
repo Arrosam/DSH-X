@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const source = readFileSync(new URL('../public/market-layout.js', import.meta.url), 'utf8')
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../src/public/market-layout.js', import.meta.url), 'utf8')
+const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 
 test('市场完整展示超过旧分页上限的整合包，排序和搜索后安装仍指向原条目', () => {
   const entries = Array.from({ length: 30 }, (_, index) => ({

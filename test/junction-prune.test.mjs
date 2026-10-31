@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { pruneDanglingLinks } from '../server.js'
+import { pruneDanglingLinks } from '../src/server.js'
 
 /** 链接本身在不在（existsSync 会跟随链接，悬空时返回 false，看不出链接是否还在）。 */
 function linkExists(path) {

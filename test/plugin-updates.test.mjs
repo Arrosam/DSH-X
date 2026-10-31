@@ -4,10 +4,10 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
-import { parsePnpmProgress } from '../registry.js'
+import { parsePnpmProgress } from '../src/registry.js'
 
-const html = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
-const server = readFileSync(fileURLToPath(new URL('../server.js', import.meta.url)), 'utf8')
+const html = readFileSync(fileURLToPath(new URL('../src/public/index.html', import.meta.url)), 'utf8')
+const server = readFileSync(fileURLToPath(new URL('../src/server.js', import.meta.url)), 'utf8')
 
 // 插件更新：查的是 registry 上真实的最新版，升级复用 addPlugin（装和升同一条路）。
 // 这几条钉的都是「容易在重构里悄悄丢掉的意图」，不是实现细节。

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
 const installCode = html.slice(html.indexOf('    async function manualInstallVersion('), html.indexOf('    function paintVersionManager('))
 const paintCode = html.slice(html.indexOf('    function paintVersionManager('), html.indexOf('    manageVersionsEl.onclick ='))
 

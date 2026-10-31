@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { dependencyRemovalScope } from '../repair-dependencies.js'
+import { dependencyRemovalScope } from '../src/repair-dependencies.js'
 
 function fixture(manifest) {
   const profile = join(process.cwd(), 'memory-only-manifest')

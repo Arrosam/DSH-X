@@ -5,7 +5,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { readPackState, rememberPack } from '../packs.js'
+import { readPackState, rememberPack } from '../src/packs.js'
 
 test('环境操作保护：多实例、写锁、恢复目标与托盘状态', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-profile-ops-'))
@@ -43,7 +43,7 @@ setTimeout(() => server.listen(0, '127.0.0.1', () => console.log('dsh web: http:
   process.env.PORT = String(port)
   process.env.DSH_VERSIONS_DATA = data
   process.env.DSH_AGENTS_HOME = join(root, 'agents')
-  const server = await import('../server.js')
+  const server = await import('../src/server.js')
   const base = await server.startServer()
   t.after(async () => {
     await server.stopAll()

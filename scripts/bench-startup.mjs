@@ -20,7 +20,9 @@ const runs = Number(option('runs', 3))
 const realVersion = option('version', '')
 if (realVersion && !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(realVersion)) throw new Error('非法内核版本')
 const version = realVersion || '9.9.9'
-const serverRoot = option('server-root', root)
+// 源码目录现在把运行时放在 src/；旧 checkout / 已装核心还是平铺的，两种都认
+const coreRoot = (dir) => (existsSync(join(dir, 'server.js')) ? dir : join(dir, 'src'))
+const serverRoot = coreRoot(option('server-root', root))
 const compareRoot = option('compare-root', '')
 if (!Number.isInteger(lines) || lines < 0 || lines > 100000 || !Number.isInteger(runs) || runs < 1 || runs > 20) throw new Error('lines: 0-100000; runs: 1-20')
 

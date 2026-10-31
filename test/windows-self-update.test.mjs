@@ -40,12 +40,12 @@ class Probe {
 `)
   const built = spawnSync(compiler, ['/nologo', '/target:winexe', `/out:${ready}`, source], { encoding: 'utf8', windowsHide: true })
   assert.equal(built.status, 0, built.stdout + built.stderr)
-  const { launchWindowsInstaller } = await import('../server.js')
+  const { launchWindowsInstaller } = await import('../src/server.js')
   // detached 的探针最长运行 1.2 秒；等其结束再清理，Windows 才能释放 exe。
   t.after(async () => { await new Promise(resolve => setTimeout(resolve, 1500)); await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) })
 
   const log = join(root, 'installation log.txt')
-  const parentScript = `import {launchWindowsInstaller} from ${JSON.stringify(new URL('../server.js', import.meta.url).href)};
+  const parentScript = `import {launchWindowsInstaller} from ${JSON.stringify(new URL('../src/server.js', import.meta.url).href)};
     const info=await launchWindowsInstaller(${JSON.stringify(ready)},${JSON.stringify(log)});
     console.log(JSON.stringify(info));process.exit(0);`
   const parent = spawn(process.execPath, ['--input-type=module', '-e', parentScript], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })

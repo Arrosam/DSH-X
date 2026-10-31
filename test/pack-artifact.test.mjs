@@ -11,10 +11,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { parsePackArchive, parsePackDir, planInstall, packSummary } from '../packs.js'
-import { writeZip } from '../zip.js'
+import { parsePackArchive, parsePackDir, planInstall, packSummary } from '../src/packs.js'
+import { writeZip } from '../src/zip.js'
 
-const PACK_DIR = fileURLToPath(new URL('../packs/dsh-x-recommended', import.meta.url))
+const PACK_DIR = fileURLToPath(new URL('../src/packs/dsh-x-recommended', import.meta.url))
 
 test('推荐整合包：清单合法、层栈与依赖对得上、装的是那份配置管理插件', () => {
   const pack = parsePackDir(PACK_DIR)

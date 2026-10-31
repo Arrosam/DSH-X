@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { load as compatLoad } from '../compat/session-events.mjs'
-import { load as perfLoad } from '../perf/patch-hooks.mjs'
+import { load as compatLoad } from '../src/compat/session-events.mjs'
+import { load as perfLoad } from '../src/perf/patch-hooks.mjs'
 
 test('同步补丁不解码无关模块的源码，也不改变下一层的结果', () => {
   const result = { format: 'module', source: { toString() { throw new Error('不应读取无关源码') } } }

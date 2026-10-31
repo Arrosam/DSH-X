@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createMarketStatsReader, marketRepository } from '../pack-market.js'
+import { createMarketStatsReader, marketRepository } from '../src/pack-market.js'
 
 test('市场仓库只接受有效 GitHub 来源', () => {
   assert.deepEqual(marketRepository({ downloadUrl: 'https://github.com/user/pack/releases/download/v1/a.dspack' }), { owner: 'user', repo: 'pack', url: 'https://github.com/user/pack' })

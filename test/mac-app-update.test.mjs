@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { MAC_APP_SWAP_SCRIPT, macSignatureAllowsIncremental } from '../server.js'
+import { MAC_APP_SWAP_SCRIPT, macSignatureAllowsIncremental } from '../src/server.js'
 
 const POSIX = process.platform !== 'win32'
 const tempRoot = () => mkdtempSync(join(realpathSync.native(tmpdir()), 'dsh-mac-apply-'))

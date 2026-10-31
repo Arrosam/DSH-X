@@ -20,7 +20,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
-const page = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8')
+const page = readFileSync(fileURLToPath(new URL('../src/public/index.html', import.meta.url)), 'utf8')
 
 const FAKE_DSH = `import { appendFileSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -108,8 +108,8 @@ writeFileSync(join(APP, 'settings.json'), JSON.stringify({
   seedMarket: false,
 }), 'utf8')
 
-const { startServer, stopAll } = await import('../server.js')
-const { safeInstancePorts, safeLaunchPresets } = await import('../settings.js')
+const { startServer, stopAll } = await import('../src/server.js')
+const { safeInstancePorts, safeLaunchPresets } = await import('../src/settings.js')
 let base = await startServer()
 
 async function api(path, body) {

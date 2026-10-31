@@ -31,7 +31,7 @@ test('按用户目录查看和修改同名 Profile；中文目录、空目录和
     writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'demo-plugin', version: '1.0.0', dsh: { bundle: { patch: 'cordis.patch.yml' } } }))
     writeFileSync(join(pkg, 'cordis.patch.yml'), '- insert:\n    - id: demo-row\n      name: demo-plugin\n')
   }
-  const server = await import('../server.js')
+  const server = await import('../src/server.js')
   const origin = await server.startServer()
   t.after(() => server.stopAll())
   const call = async (path, target, body) => {
@@ -58,7 +58,7 @@ test('按用户目录查看和修改同名 Profile；中文目录、空目录和
     assert.equal(rejected.status, 500)
     assert((await rejected.json()).error)
   }
-  const { saveSettings } = await import('../settings.js')
+  const { saveSettings } = await import('../src/settings.js')
   for (const home of ['relative/path', join(root, 'unregistered'), emptyHome]) {
     const rejected = await fetch(origin + '/api/dsh-homes/open', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ home }) })
     assert.equal(rejected.status, 500, '无效、未登记和不存在的目录不能交给系统打开')

@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { CORE_PACKAGE, coreDistTag, coreMetadataUrl, extractCoreTarball, resolveCoreRelease, stagingStats, tarCommand } from '../core-npm.js'
-import { VERSION_CHANNEL } from '../version.js'
+import { CORE_PACKAGE, coreDistTag, coreMetadataUrl, extractCoreTarball, resolveCoreRelease, stagingStats, tarCommand } from '../src/core-npm.js'
+import { VERSION_CHANNEL } from '../src/version.js'
 
 const tempRoot = () => mkdtempSync(join(realpathSync.native(tmpdir()), 'dsh-core-npm-'))
 

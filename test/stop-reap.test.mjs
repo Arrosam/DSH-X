@@ -125,7 +125,7 @@ writeFileSync(join(APP, 'settings.json'), JSON.stringify({
   seedMarket: false,
 }), 'utf8')
 
-const { startServer, stopAll } = await import('../server.js')
+const { startServer, stopAll } = await import('../src/server.js')
 const base = await startServer()
 
 async function api(path, body, launchId = '') {

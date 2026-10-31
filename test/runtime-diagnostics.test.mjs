@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { RuntimeDiagnostics, optionsDigest, readRuntimeEvidence, RUNTIME_EVIDENCE_PREFIX, schemaDisableReason } from '../runtime-diagnostics.mjs'
-import { diagnosticSource } from '../compat/diagnostics.mjs'
+import { RuntimeDiagnostics, optionsDigest, readRuntimeEvidence, RUNTIME_EVIDENCE_PREFIX, schemaDisableReason } from '../src/runtime-diagnostics.mjs'
+import { diagnosticSource } from '../src/compat/diagnostics.mjs'
 
 function fixture() {
   const tracker = new RuntimeDiagnostics()

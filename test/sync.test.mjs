@@ -24,7 +24,7 @@ import {
   shortKey,
   signV4,
   uriEncode,
-} from '../sync.js'
+} from '../src/sync.js'
 
 test('SigV4 签名对得上 AWS 文档里的 GET 例子', () => {
   // 官方文档「Signature Calculation Examples」里那只桶：AKIAIOSFODNN7EXAMPLE /

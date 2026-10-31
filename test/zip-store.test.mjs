@@ -9,8 +9,8 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
-import { ZipStore, runSync, safeZipConfig, storeClient, storeConfigured, storeDisplayUrl, storeLabel, storeMissing } from '../sync.js'
-import { readZipEntry, readZipIndex } from '../zipfile.js'
+import { ZipStore, runSync, safeZipConfig, storeClient, storeConfigured, storeDisplayUrl, storeLabel, storeMissing } from '../src/sync.js'
+import { readZipEntry, readZipIndex } from '../src/zipfile.js'
 
 const WIN = process.platform === 'win32'
 const write = (file, text) => {

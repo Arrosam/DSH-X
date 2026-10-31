@@ -3,9 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { installSkillPackages, parseSkillGithub, prepareSkillImport, previewSkillFiles } from '../skills.js'
-import { writeZip } from '../zip.js'
-import { safeLaunchIcon, safeLaunchPresets } from '../settings.js'
+import { installSkillPackages, parseSkillGithub, prepareSkillImport, previewSkillFiles } from '../src/skills.js'
+import { writeZip } from '../src/zip.js'
+import { safeLaunchIcon, safeLaunchPresets } from '../src/settings.js'
 const text = (name) => `---\nname: ${name}\ndescription: A skill with resources\n---\n# Instructions\n`
 const files = [
   { path: 'repo/skills/demo/SKILL.md', data: Buffer.from(text('demo')) },
