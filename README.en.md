@@ -40,6 +40,7 @@
 - 🚀 **Launch entries and multiple instances** — choose a home directory, profile, version and port per entry; start entries concurrently and add entries while DSH is running.
 - 📦 **Version management** — a dedicated manager for detecting new releases, manually installing, removing and assigning versions to launch entries.
 - 🧩 **Plugins and packs** — install, toggle and update plugins by environment and configure default indexes for the official custom plugin market; browse, search and sort the masonry-style community market, or import and export packs.
+- 🖥️ **Desktop enhancements** — install three first-party plugins from Settings → General in one click: native notifications, context menu and sidebar browser; toggle or update them individually on the Plugins page.
 - 🛠️ **MCP and skills** — configure MCP servers and import, manage and toggle skills.
 - 🪟 **Opening modes** — tabs inside DSH-X, a system browser tab, a standalone browser window or a desktop window.
 - 🎨 **Appearance** — light / dark themes, transparency, opening and launch-entry animations, and separate background and Big Fish switches.
@@ -188,8 +189,14 @@ Packs install a group of plugins and configuration into a selected environment (
 
 There are two pack recipes:
 
-- [Recommended pack](packs/dsh-x-recommended/manifest.json) — configuration, memory, sync and Big Fish decoration plugins, all installed from npm (sync via the optional `dsh-x-sync` plugin).
-- [Desktop workbench](packs/dsh-x-workbench/README.md) — brings dsh-tauri desktop's sidebar workbench, worktrees, scheduler, archive and notifications to plain dsh, plus ZCode's `agent-browser` and `electron` skills.
+- [Recommended pack](src/packs/dsh-x-recommended/manifest.json) — configuration, memory, sync and Big Fish decoration plugins, all installed from npm (sync via the optional `dsh-x-sync` plugin).
+- [Desktop workbench](src/packs/dsh-x-workbench/README.md) — brings dsh-tauri desktop's sidebar workbench, worktrees, scheduler, archive and notifications to plain dsh, plus ZCode's `agent-browser` and `electron` skills.
+
+Settings → General → Desktop enhancements also installs three first-party plugins in one click (from npm, not bundled with the installer; toggle them individually on the Plugins page):
+
+- **Native notifications** (`dsh-x-desktop-notify`) — system notifications when a turn ends or a tool waits for confirmation.
+- **Context menu** (`dsh-x-context-menu`) — right-click menus for sessions, workspaces, selected text, links and inputs.
+- **Sidebar browser** (`dsh-x-sidebar-browser`) — agent tools for dsh's right-sidebar Browser: snapshot, click, type and screenshot.
 
 Run `node scripts/make-pack.mjs` to build a `.dspack`, then import it as a local file.
 
