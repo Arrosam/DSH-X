@@ -117,3 +117,13 @@ test('入场途中切换减少动画，会取消位移并清理定时器', () =>
 test('英文控制台的加载文案随语言切换', () => {
   assert.equal(boot({ lang: 'en' }).status.textContent, 'Loading console…')
 })
+
+test('开场样式不给字标写 display，标签形态藏字标的规则不会被它盖掉', () => {
+  const css = readFileSync(new URL('../src/public/launcher-boot.css', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  for (const [, selectors, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (/\.brand(?![-\w])|\.app-ver/.test(selectors)) {
+      assert.doesNotMatch(body, /(^|;)\s*display\s*:/, `${selectors.trim()} 不应该设置 display`)
+    }
+  }
+})
