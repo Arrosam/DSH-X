@@ -33,8 +33,10 @@ html.launcher-loading .mascot { visibility: hidden; opacity: 0; pointer-events: 
 /* 开场只执行一次；状态推送和返回主页不再重新播放大肥鱼的入场。 */
 html.launcher-ready .mascot { animation: none; }
 html.launcher-entering .backdrop { animation: launcher-scene-in 600ms ease both; }
-/* 只展开字标，保留整块返回主页的点击范围；版本号稍后跟进。 */
-.brand-home .brand { display: inline-block; }
+/* 只展开字标，保留整块返回主页的点击范围；版本号稍后跟进。
+   .brand 是 .brand-home（flex / 标签形态下是 grid）的子项，本来就按块级排，transform 与 clip-path 直接生效，
+   这里别再给它写 display：这份样式表最后加载，同特异性的 display 会盖掉 launcher.css 里
+   「标签形态藏起字标」那条——0.1.22 就是这样，回主页图标和挤成两行的「DSH-X」叠在左上角。 */
 html.launcher-entering .brand-home .brand { animation: launcher-wordmark-in 700ms 30ms cubic-bezier(.16, 1, .3, 1) both; }
 html.launcher-entering .brand-home .app-ver,
 html.launcher-entering .brand-block .self-update { animation: launcher-module-in 450ms 220ms cubic-bezier(.16, 1, .3, 1) both; }
