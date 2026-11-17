@@ -300,7 +300,7 @@ test('已有 profile：保留用户自己的依赖与其它字段，只并包里
   assert.match(plan.warnings.join(), /重启 dsh/)
 })
 
-test('安装计划：home 文件进白名单，敏感文件不进', () => {
+test('安装计划：home 文件进白名单，敏感文件不进；技能改装进实例', () => {
   const home = tempDir()
   const pack = parsePackArchive(makePack({
     entries: [
@@ -312,7 +312,8 @@ test('安装计划：home 文件进白名单，敏感文件不进', () => {
   }))
   const plan = planInstall(pack, { home, profile: 'demo' })
   const rels = plan.writes.map((write) => write.rel)
-  assert.ok(rels.includes('skills/a/SKILL.md'))
+  assert.ok(rels.includes('profiles/demo/skills/a/SKILL.md'), '技能跟着实例走')
+  assert.ok(!rels.includes('skills/a/SKILL.md'), '技能不再写进 DSH_HOME')
   assert.ok(rels.includes('AGENTS.md'))
   assert.ok(!rels.includes('sessions/2026/x.jsonl'))
   assert.ok(!rels.includes('settings.yaml'))

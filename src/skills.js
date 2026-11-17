@@ -42,10 +42,15 @@ export const LOCAL_SKILL_ROWS = ['skill-filesystem', 'tool-skill']
 /** 老版本误当成"本地技能三件套"的一员，跟本地技能无关，关闭时顺手清掉残留覆盖。 */
 export const LEGACY_SKILL_ROWS = ['skill-badge']
 
-/** 技能根目录（受管的两层，项目根不归启动器管）。 */
-export function skillRoots(dshHome) {
+/**
+ * 技能根目录（受管的几层，项目根不归启动器管）。
+ * 给了 `profileDir` 就多一层 `instance`：整合包带来的技能装在实例自己的 skills/ 里
+ * （见 packs.js 的 INSTANCE_SKILLS_DIR），技能页得看得到、能开关，不然装完像没装。
+ */
+export function skillRoots(dshHome, { profileDir = '' } = {}) {
   const agentsHome = process.env.DSH_AGENTS_HOME || join(homedir(), '.agents')
   return [
+    ...(profileDir ? [{ key: 'instance', dir: join(profileDir, 'skills') }] : []),
     { key: 'dsh', dir: join(dshHome, 'skills') },
     { key: 'agents', dir: join(agentsHome, 'skills') },
   ]

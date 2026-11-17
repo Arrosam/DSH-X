@@ -12,7 +12,7 @@
  * - 敏感文件（.env / 私钥 / 凭据 / settings.yaml / .npmrc）不落盘，只报告；
  * - 每次安装前备份被覆盖的文件，失败就回滚，卸载也靠这份备份还原。
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, posix, relative, sep } from 'node:path'
 
 import { readZip, writeZip } from './zip.js'
@@ -32,6 +32,87 @@ export const PROFILE_SKELETON_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/
 
 /** home 根下允许整合包写入的位置（其余一律跳过：settings.yaml、sessions、凭据都在那边）。 */
 const HOME_ALLOWED = ['skills/', '.agent-presets/', 'presets/', 'AGENTS.md', 'cordis.patch.yml']
+
+/**
+ * 整合包带的技能跟着实例走：`home/skills/**` 装进 `profiles/<实例>/skills/`，不进 DSH_HOME。
+ *
+ * 为什么：DSH_HOME 是「用户」那一层（会话、凭据），同一用户下的每个实例都会扫到
+ * `<DSH_HOME>/skills`，A 包的技能会漏进 B 实例，卸载 A 也说不清该不该删。
+ *
+ * dsh（0.2.x）本身没有 profile 级的技能目录，只扫项目根、`customSkillDirs`、`<DSH_HOME>/skills`
+ * 和 `~/.agents/skills`。所以用补丁层 `insert` 在 host 层多挂一行 `dsh-skill-filesystem`：
+ * 只扫本实例的 `skills/`（`includeDefaultRoots: false`，不和预设里那行抢 DSH_HOME / 项目根）。
+ * 技能注册表按 host + 预设分层合并，host 层这行登记的技能每个预设的 agent 都看得到。
+ * 路径用 `!!js` 从 `baseUrl`（= profile 目录，cordis-plugin-include 取的是 profile 根
+ * cordis.yml 所在目录）现算：实例目录被同步到别的机器、换了 DSH_HOME 也不失效。
+ *
+ * `.agent-presets/`、`presets/` 照旧进 DSH_HOME：dsh 0.2.x 已经不读这两个目录，profile 里也
+ * 没有对应位置，挪了也没人读；`AGENTS.md`、home 级补丁层本来就是用户级的东西。
+ *
+ * 新启动器（实例 = 用户 × 整合包）用同一套布局，两边行为保持一致。
+ */
+export const INSTANCE_SKILLS_DIR = 'skills'
+/** 补丁层里那行 insert 的 id（固定，用来认出「已经挂过了」）。 */
+export const INSTANCE_SKILLS_ROW = 'dsh-x-instance-skills'
+const INSTANCE_SKILLS_BLOCK = [
+  `# DSH-X：整合包带来的技能装在本实例的 ${INSTANCE_SKILLS_DIR}/ 里（不进 DSH_HOME），这一行让 dsh 去那里找`,
+  '- insert:',
+  `    - id: ${INSTANCE_SKILLS_ROW}`,
+  "      name: '@deepseek-ai/dsh-skill-filesystem'",
+  '      config:',
+  '        providerName: dsh-x-instance',
+  '        includeDefaultRoots: false',
+  '        customSkillDirs:',
+  `          - !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('${INSTANCE_SKILLS_DIR}/', baseUrl))`,
+  '',
+].join('\n')
+
+/** 补丁层里是否已经挂了实例技能那一行。 */
+export function hasInstanceSkillsRow(text) {
+  return new RegExp(`^ {4}- id:\\s*['"]?${INSTANCE_SKILLS_ROW}['"]?\\s*$`, 'm').test(String(text ?? ''))
+}
+
+/**
+ * 往补丁层文本末尾追加实例技能那一行（已有就原样返回）。
+ *
+ * 纯文本追加，不重排用户的 YAML；策略和 plugins.js 的 `appendRowBlock` 一致：
+ * 只有模板的 `[]` 占位会被注释掉换成条目，行内数组 / 不像条目列表的一律拒绝，宁可不挂也不写坏。
+ * @returns {{ ok: boolean, text: string, changed: boolean, reason?: string }}
+ */
+export function withInstanceSkillsRow(text) {
+  const source = String(text ?? '')
+  if (hasInstanceSkillsRow(source)) return { ok: true, text: source, changed: false }
+  const body = source.replace(/^[ \t]*#.*$/gmu, '').trim()
+  if (!body) {
+    const head = !source || source.endsWith('\n') ? source : `${source}\n`
+    return { ok: true, text: `${head}${INSTANCE_SKILLS_BLOCK}`, changed: true }
+  }
+  if (/^\[\s*\]$/.test(body)) {
+    const commented = source.replace(/^[ \t]*\[[ \t]*\][ \t]*(?:#.*)?(?:\r?\n|$)/mu, '# []\n')
+    const head = commented.endsWith('\n') ? commented : `${commented}\n`
+    return { ok: true, text: `${head}${INSTANCE_SKILLS_BLOCK}`, changed: true }
+  }
+  const lines = source.split(/\r?\n/).filter((line) => line.trim() !== '' && !line.trim().startsWith('#'))
+  if (lines.some((line) => /^\S/.test(line) && !line.startsWith('- ')) || /^[[{]/.test(lines.at(-1).trim())) {
+    return { ok: false, text: source, changed: false, reason: '补丁层不是逐行 `- ` 的条目列表（可能是行内数组），启动器没法安全地追加实例技能那一行；先把 cordis.patch.yml 整理成条目列表再装' }
+  }
+  const head = source.endsWith('\n') ? source : `${source}\n`
+  return { ok: true, text: `${head}${INSTANCE_SKILLS_BLOCK}`, changed: true }
+}
+
+/** `home/` 里的条目是不是技能（要改装进实例）。 */
+function isHomeSkill(path) {
+  return path.startsWith(`${INSTANCE_SKILLS_DIR}/`)
+}
+
+/** 实例自己的技能目录里有没有东西（重装 / 换补丁层时别把之前装的技能弄丢）。 */
+function instanceHasSkills(profileDir) {
+  try {
+    return readdirSync(join(profileDir, INSTANCE_SKILLS_DIR)).length > 0
+  } catch {
+    return false
+  }
+}
 
 /**
  * 不理会的文件：凭据与密钥不该跟着整合包走，`.npmrc` 会改 registry（等于把包源换掉），
@@ -490,6 +571,8 @@ export function planInstall(pack, { home, profile, hostProfile = '' }) {
   const existed = existsSync(join(profileDir, 'package.json'))
   const writes = []
   bundledSpecErrors(fields.dependencies, errors)
+  const skills = pack.home.filter((item) => isHomeSkill(item.path))
+  const userFiles = pack.home.filter((item) => !isHomeSkill(item.path))
 
   if (fields.type === 'dshhome') {
     warnings.push('这是整机快照形态（dshhome）：只安装它声明的 profile 与允许的用户级文件，其余内容跳过')
@@ -511,12 +594,11 @@ export function planInstall(pack, { home, profile, hostProfile = '' }) {
         warnings.push(`dshhome 里的 profile ${name} 没有声明组成，跳过`)
         continue
       }
-      writes.push(...profileWrites({ home, profile: target, bundles, specs: installSpecs(bundles, dependencies).specs, patch: null, overrides: [], notes, warnings, hostProfile }))
       // 该 profile 自己带的补丁层：包里的 profiles/<名字>/cordis.patch.yml
       const own = pack.profiles.get(name)?.get('cordis.patch.yml')
-      if (own) {
-        writes.push({ rel: posix.join('profiles', target, 'cordis.patch.yml'), kind: 'patch', data: own, note: `profile ${target} 的补丁层` })
-      }
+      const patch = own ? { source: `profile ${target} 的补丁层`, text: own.toString('utf8') } : null
+      // 整机快照里的技能每个 profile 各装一份：技能跟实例走，不再有「所有 profile 共用」的那一层
+      writes.push(...profileWrites({ home, profile: target, bundles, specs: installSpecs(bundles, dependencies).specs, patch, overrides: [], skills, files: pack.files, notes, warnings, errors, hostProfile }))
     }
   } else {
     if (!profile) {
@@ -530,14 +612,16 @@ export function planInstall(pack, { home, profile, hostProfile = '' }) {
       specs: pack.installSpecs || fields.dependencies,
       patch: pack.patch,
       overrides: pack.overrides,
+      skills,
+      files: pack.files,
       notes,
       warnings,
-      existed,
+      errors,
       hostProfile,
     }))
   }
 
-  for (const item of pack.home) {
+  for (const item of userFiles) {
     writes.push({ rel: item.path, kind: 'home', data: pack.files.get(`home/${item.path}`), note: '用户级文件' })
   }
   const createsProfile = !existed
@@ -545,8 +629,8 @@ export function planInstall(pack, { home, profile, hostProfile = '' }) {
   return { ok: errors.length === 0, errors, warnings, notes, writes, profile, profileDir, existed, createsProfile }
 }
 
-/** 一个 profile 要写的那几样：清单、补丁层、overrides 文件。 */
-function profileWrites({ home, profile, bundles, specs, patch, overrides, notes, warnings, hostProfile = '' }) {
+/** 一个 profile 要写的那几样：清单、补丁层、overrides 文件、实例技能。 */
+function profileWrites({ home, profile, bundles, specs, patch, overrides, skills = [], files = new Map(), notes, warnings, errors = [], hostProfile = '' }) {
   const relProfile = posix.join('profiles', profile)
   const manifestPath = join(home, relProfile, 'package.json')
   let manifest = {}
@@ -596,11 +680,32 @@ function profileWrites({ home, profile, bundles, specs, patch, overrides, notes,
   if (!existsSync(join(home, relProfile, 'cordis.yml'))) {
     writes.push({ rel: posix.join(relProfile, 'cordis.yml'), kind: 'root', data: '# dsh profile root — an empty entry list. The tree is composed as patches:\n# each bundle in package.json\'s dsh.profile.bundles, then cordis.patch.yml.\n[]\n', note: '空条目根' })
   }
-  if (patch?.text) {
-    writes.push({ rel: posix.join(relProfile, 'cordis.patch.yml'), kind: 'patch', data: patch.text, note: `补丁层（${patch.source}）`, overwrite: true })
+  // 实例技能那一行要挂在最终的补丁层上：包自带补丁层会整份覆盖，所以挂在它后面；
+  // 包没带补丁层就挂在现有的那份上。这个实例之前已经有实例技能（上一个包装的）时也照挂，
+  // 否则新包的补丁层一覆盖，旧技能就悄悄不加载了。
+  const patchRel = posix.join(relProfile, 'cordis.patch.yml')
+  const patchFile = join(home, patchRel)
+  const currentPatch = existsSync(patchFile) ? readFileSync(patchFile, 'utf8') : ''
+  const wantsSkillsRow = skills.length > 0 || instanceHasSkills(join(home, relProfile)) || hasInstanceSkillsRow(currentPatch)
+  let patchText = patch?.text ? patch.text : null
+  if (wantsSkillsRow) {
+    const result = withInstanceSkillsRow(patchText ?? currentPatch)
+    if (!result.ok) errors.push(result.reason)
+    else if (result.changed || patchText !== null) patchText = result.text
+  }
+  if (patchText !== null) {
+    const note = patch?.text ? `补丁层（${patch.source}）` : '补丁层（挂上本实例的技能目录）'
+    writes.push({ rel: patchRel, kind: 'patch', data: patchText, note, overwrite: true })
   }
   for (const item of overrides) {
     writes.push({ rel: posix.join(relProfile, item.path), kind: 'override', source: `overrides/${item.path}`, note: '覆盖文件' })
+  }
+  for (const item of skills) {
+    writes.push({ rel: posix.join(relProfile, item.path), kind: 'skill', data: files.get(`home/${item.path}`), note: '实例技能' })
+  }
+  if (skills.length) {
+    const names = [...new Set(skills.map((item) => item.path.split('/')[1]).filter(Boolean))]
+    notes.push({ kind: 'instance-skills', profile, skills: names })
   }
   if (hostProfile && hostProfile === profile) {
     warnings.push(`装的正是 dsh 当前在用的 profile「${profile}」：装完要重启 dsh 才生效`)
@@ -715,6 +820,33 @@ export async function applyInstall(plan, {
   }
 }
 
+/**
+ * 删掉技能文件后，顺手把变空的技能目录（含 references/ 这类子目录）一起删掉，删到 `stop` 为止：
+ * 只剩空目录的技能 dsh 虽然不认，但技能页里会留个没有 SKILL.md 的空壳，让人以为没卸干净。
+ * `includeStop` 只给实例的 skills/ 用——DSH_HOME/skills 是用户自己的目录，空了也留着。
+ */
+function pruneEmptyDirs(file, stop, { includeStop = false } = {}) {
+  let dir = dirname(file)
+  while (dir.length > stop.length && dir.startsWith(stop + sep)) {
+    try {
+      if (readdirSync(dir).length) return
+      rmdirSync(dir)
+    } catch {
+      return
+    }
+    dir = dirname(dir)
+  }
+  if (!includeStop) return
+  try {
+    if (!readdirSync(stop).length) rmdirSync(stop)
+  } catch { /* 删不掉就留着，空目录不碍事 */ }
+}
+
+/** 实例技能文件 `profiles/<实例>/skills/...` 对应的 skills 目录。 */
+function instanceSkillsRootOf(home, rel) {
+  return join(home, ...rel.split('/').slice(0, 3))
+}
+
 /** 按安装记录还原文件：原来有的从备份拷回，原来没有的删掉。 */
 export function rollbackFiles(record, home, log = () => {}) {
   let ok = true
@@ -722,7 +854,10 @@ export function rollbackFiles(record, home, log = () => {}) {
     const target = join(home, item.rel)
     try {
       if (item.existed) copyInto(readFileSync(join(record.backupDir, 'files', item.rel)), target)
-      else if (existsSync(target)) rmSync(target, { force: true })
+      else if (existsSync(target)) {
+        rmSync(target, { force: true })
+        if (item.kind === 'skill') pruneEmptyDirs(target, instanceSkillsRootOf(home, item.rel), { includeStop: true })
+      }
       log(`还原 ${item.rel}`)
     } catch (error) {
       ok = false
@@ -738,6 +873,97 @@ export function uninstallPack(record, { home, log = () => {} }) {
   // 还原不完整时保留安装记录，用户修复备份后仍可重试，不能当成卸载成功。
   if (!ok) throw new Error(`有文件未能还原，请检查备份后重试：${record.backupDir}`)
   return { ok, restored: record.files.length }
+}
+
+/**
+ * 老版本装的整合包把技能写进了 `<DSH_HOME>/skills`（同一用户的所有实例共用）。
+ * 从安装记录里把它们认出来：记录里 kind 为 home、路径在 skills/ 下、文件现在还在的那些。
+ * 只认不动——要不要挪由用户点「迁移」决定（`migratePackSkills`），启动器不静默删用户目录里的东西。
+ */
+export function legacyPackSkills(record, home) {
+  const files = (Array.isArray(record?.files) ? record.files : [])
+    .filter((item) => item && item.kind === 'home' && isHomeSkill(String(item.rel || '')) && existsSync(join(home, item.rel)))
+  const skills = [...new Set(files.map((item) => item.rel.split('/')[1]).filter(Boolean))]
+  return { files, skills }
+}
+
+/**
+ * 把一条安装记录里留在 DSH_HOME 的技能挪进它的实例：
+ * 1. 当前内容（用户改过就带着改过的）拷进 `profiles/<实例>/skills/`；
+ * 2. 补丁层挂上实例技能那一行（改前先备份进这条记录的备份目录，卸载时一起还原）；
+ * 3. DSH_HOME 那边回到装包前：包新建的文件删掉，包覆盖过的文件从备份还原；
+ * 4. 记录里换成实例路径，之后卸载 / 删实例就能一并清掉。
+ * 前两步失败就整体撤回，DSH_HOME 一个文件都不动。
+ * @returns {{ record: object, skills: string[], moved: string[] }}
+ */
+export function migratePackSkills(record, { home, log = () => {} }) {
+  const { files, skills } = legacyPackSkills(record, home)
+  if (!files.length) return { record, skills: [], moved: [] }
+  const relProfile = posix.join('profiles', record.profile)
+  if (!existsSync(join(home, relProfile, 'package.json'))) throw new Error(`实例「${record.profile}」已经不在了，没法把技能挪进去`)
+  const backupDir = record.backupDir
+  if (!backupDir) throw new Error('这条安装记录没有备份目录，没法安全迁移')
+  const known = new Map(record.files.map((item) => [item.rel, item]))
+  const added = []
+  const undo = []
+  try {
+    const patchRel = posix.join(relProfile, 'cordis.patch.yml')
+    const patchFile = join(home, patchRel)
+    const patchExisted = existsSync(patchFile)
+    const current = patchExisted ? readFileSync(patchFile, 'utf8') : ''
+    const patched = withInstanceSkillsRow(current)
+    if (!patched.ok) throw new Error(patched.reason)
+    if (patched.changed) {
+      // 补丁层若已在记录里，备份里存的是装包前那份，卸载还原它就对了；不在记录里才补一份备份。
+      if (!known.has(patchRel)) {
+        if (patchExisted) copyInto(Buffer.from(current, 'utf8'), join(backupDir, 'files', patchRel))
+        added.push({ rel: patchRel, existed: patchExisted, kind: 'patch', note: '补丁层（挂上本实例的技能目录）' })
+      }
+      undo.push(() => (patchExisted ? writeFileSync(patchFile, current) : rmSync(patchFile, { force: true })))
+      writeFileSync(patchFile, patched.text)
+      log(`补丁层挂上实例技能：${patchRel}`)
+    }
+    for (const item of files) {
+      const rel = posix.join(relProfile, item.rel)
+      const target = join(home, rel)
+      const existed = existsSync(target)
+      if (existed && !known.has(rel)) copyInto(readFileSync(target), join(backupDir, 'files', rel))
+      const previous = existed ? readFileSync(target) : null
+      undo.push(() => (previous ? writeFileSync(target, previous) : rmSync(target, { force: true })))
+      copyInto(readFileSync(join(home, item.rel)), target)
+      if (!known.has(rel)) added.push({ rel, existed, kind: 'skill', note: '实例技能（从 DSH_HOME 迁来）' })
+    }
+  } catch (error) {
+    for (const step of undo.reverse()) {
+      try { step() } catch { /* 尽力撤回 */ }
+    }
+    throw error
+  }
+  // 实例那边齐了，再让 DSH_HOME 回到装包前；这一步失败的文件留在原处，下次还能再迁。
+  const moved = []
+  const kept = []
+  for (const item of files) {
+    const target = join(home, item.rel)
+    try {
+      if (item.existed) copyInto(readFileSync(join(backupDir, 'files', item.rel)), target)
+      else {
+        rmSync(target, { force: true })
+        pruneEmptyDirs(target, join(home, INSTANCE_SKILLS_DIR))
+      }
+      moved.push(item.rel)
+    } catch (error) {
+      kept.push(item.rel)
+      log(`DSH_HOME 里的 ${item.rel} 没能还原：${error.message}`)
+    }
+  }
+  const movedSet = new Set(moved)
+  const next = {
+    ...record,
+    files: [...record.files.filter((item) => !movedSet.has(item.rel)), ...added],
+    migratedSkillsAt: new Date().toISOString(),
+  }
+  log(`已把 ${skills.join('、')} 从 DSH_HOME 挪进实例「${record.profile}」${kept.length ? `（${kept.length} 个文件没能从 DSH_HOME 清掉）` : ''}`)
+  return { record: next, skills, moved }
 }
 
 /** 已装的整合包清单（存在启动器数据目录里，和 dsh 自己无关）。 */
@@ -768,6 +994,14 @@ export function rememberPack(dataDir, record) {
   return packs
 }
 
+/** 原地更新一条记录（不挪位置：撤销顺序就是清单顺序，迁移技能不能把老记录挪到最后）。 */
+export function replacePack(dataDir, record) {
+  const state = readPackState(dataDir)
+  const packs = state.packs.map((item) => (item.name === record.name && item.profile === record.profile ? record : item))
+  writePackState(dataDir, { packs })
+  return packs
+}
+
 export function forgetPack(dataDir, name, profile) {
   const state = readPackState(dataDir)
   const packs = state.packs.filter((item) => !(item.name === name && item.profile === profile))
@@ -794,10 +1028,11 @@ function pinSpec(profileDir, name, spec) {
 
 const EXPORT_BLOCKED = /(^|\/)(?:node_modules|\.git|sessions|attachments|storages|memory|data)(?:\/|$)/i
 
-function collectHomeFiles(home) {
+/** 收一棵目录下可导出的文件，路径相对 `base`（导出进包时再挂到 home/ 下）。 */
+function collectTree(base, prefixes) {
   const files = []
-  for (const prefix of ['skills', '.agent-presets', 'presets']) {
-    const root = join(home, prefix)
+  for (const prefix of prefixes) {
+    const root = join(base, prefix)
     const walk = (dir, depth) => {
       if (depth > 6) return
       let items = []
@@ -808,7 +1043,7 @@ function collectHomeFiles(home) {
       }
       for (const item of items) {
         const full = join(dir, item.name)
-        const rel = relative(home, full).split(sep).join('/')
+        const rel = relative(base, full).split(sep).join('/')
         if (EXPORT_BLOCKED.test(rel) || blockedReason(rel)) continue
         if (item.isDirectory()) { walk(full, depth + 1); continue }
         if (!item.isFile()) continue
@@ -822,6 +1057,11 @@ function collectHomeFiles(home) {
     }
     walk(root, 0)
   }
+  return files
+}
+
+function collectHomeFiles(home) {
+  const files = collectTree(home, ['skills', '.agent-presets', 'presets'])
   const agentsFile = join(home, 'AGENTS.md')
   if (existsSync(agentsFile)) {
     try {
@@ -901,7 +1141,11 @@ export function exportPack({
     if (statSync(full).size > 2 * 1024 * 1024) { skipped.push(item.name); continue }
     entries.push({ name: `overrides/${item.name}`, data: readFileSync(full) })
   }
-  const homeFiles = includeHome ? collectHomeFiles(home) : []
+  // 实例技能是这个实例组成的一部分，总是导出（装回去还是进实例）；DSH_HOME 那层要勾选才带，
+  // 同名路径以实例里的为准——那才是这个实例真正在用的版本。
+  const instanceSkills = collectTree(profileDir, [INSTANCE_SKILLS_DIR])
+  const taken = new Set(instanceSkills.map((file) => file.path))
+  const homeFiles = [...instanceSkills, ...(includeHome ? collectHomeFiles(home).filter((file) => !taken.has(file.path)) : [])]
   for (const file of homeFiles) entries.push({ name: `home/${file.path}`, data: file.data })
   const buffer = writeZip(entries, { date: now })
   return {
@@ -913,6 +1157,7 @@ export function exportPack({
     dependencies,
     bundles,
     homeFiles: homeFiles.map((file) => file.path),
+    instanceSkills: instanceSkills.map((file) => file.path),
     skipped,
   }
 }

@@ -16,7 +16,7 @@ DSH-X 的第二套整合包：**把 [dsh-tauri 桌面版](https://github.com/dsh
 | [`dsh-archived-conversations`](https://github.com/AKS1st/dsh-archived-conversations) | 设置页里的「已归档对话」列表与只读预览（最近 6 条消息）。dsh 目前没有取消归档 API，所以只读、不恢复 | `dsh-tauri-archive` |
 | [`dsh-plugin-notify-sounds`](https://github.com/BillCx330/dsh-plugin-notify-sounds) | 需要你决策或任务完成时的提示音 + 系统通知（点通知跳回窗口），任务栏标题标记「等待你 / 已完成」，看过就安静 | `dsh-tauri-notification` |
 
-### 技能（写到 `~/.dsh/skills`，所有 profile 共用）
+### 技能（装进 `workbench` 自己的 `skills/`，别的 profile 看不到）
 
 | 技能 | 干什么 | 来源 |
 |---|---|---|
@@ -29,7 +29,7 @@ DSH-X 的第二套整合包：**把 [dsh-tauri 桌面版](https://github.com/dsh
 
 - 推荐包管的是**环境**：配置备份/迁移、记忆、同步、装饰。
 - 这个包管的是**干活**：编辑与 Git、工作树、定时任务、归档、通知，外加浏览器/Electron 自动化技能。
-- 两者装到不同 profile 可以并存；技能同名时后装的覆盖先装的（安装前会备份）。
+- 两者装到不同 profile 可以并存；技能各装各的，互不覆盖。
 
 ## 怎么装
 

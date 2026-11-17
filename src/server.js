@@ -68,7 +68,9 @@ import {
   describeSource,
   exportPack,
   forgetPack,
+  legacyPackSkills,
   localized,
+  migratePackSkills,
   packSummary,
   parsePackArchive,
   parsePackDir,
@@ -78,6 +80,7 @@ import {
   readPackState,
   writePackState,
   rememberPack,
+  replacePack,
   uninstallPack,
 } from './packs.js'
 import {
@@ -2591,8 +2594,12 @@ const SKILL_IMPORT_TTL = 10 * 60 * 1000
 function pruneSkillImports() {
   for (const [token, item] of skillImports) if (item.expires < Date.now()) skillImports.delete(token)
 }
+/** 技能页管的根：当前实例的 skills/ + DSH_HOME + ~/.agents（同步那边仍只认后两层）。 */
+function managedSkillRoots() {
+  return skillRoots(homeDir(), { profileDir: profileDir() })
+}
 function skillsPayload() {
-  const roots = skillRoots(homeDir())
+  const roots = managedSkillRoots()
   return {
     skills: listSkills(roots),
     roots,
@@ -4163,6 +4170,10 @@ function packsPayload() {
       packName: latest ? (latest.displayName || latest.name) : '',
       packVersion: latest?.version || '',
       createdProfile: records.some((record) => record.createdProfile === true),
+      // 老版本把整合包技能装进了 DSH_HOME/skills（所有实例共用）：认出来给页面一个「迁移」入口，不自动挪
+      legacySkills: realRecords
+        .map((record) => ({ name: record.name, displayName: record.displayName || record.name, skills: legacyPackSkills(record, homeDir()).skills }))
+        .filter((item) => item.skills.length),
       template: TEMPLATE_PROFILES.includes(profile),
       // 模板只是可重新初始化的用户环境；只有官方桌面端专用目录需要保留保护。
       removable: !CLI_BLOCKED_PROFILES.has(profile.toLowerCase()),
@@ -7069,6 +7080,32 @@ async function handleApi(req, res, url) {
     }
     return
   }
+  if (req.method === 'POST' && url.pathname === '/api/packs/migrate-skills') {
+    const name = String(body.name || '')
+    const profile = String(body.profile || '')
+    const record = readPackState(packDataDir()).packs.find((item) => item.name === name && item.profile === profile)
+    if (!record) {
+      send(res, 404, { error: `没有「${name} 装在 ${profile}」这条安装记录` })
+      return
+    }
+    if (pluginBusy) {
+      send(res, 400, { error: '正在装插件或整合包，等它结束再试' })
+      return
+    }
+    try {
+      const result = await withIdleProfile(profile, async () => {
+        const migrated = migratePackSkills(record, { home: homeDir(), log: (line) => pushLog(`[整合包] ${line}`) })
+        if (migrated.skills.length) replacePack(packDataDir(), migrated.record)
+        return migrated
+      })
+      send(res, 200, { ok: true, skills: result.skills, moved: result.moved, ...packsPayload() })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      pushLog(`迁移整合包技能失败：${message}`)
+      send(res, 400, { error: message })
+    }
+    return
+  }
   if (req.method === 'POST' && url.pathname === '/api/packs/export') {
     try {
       const profile = safeProfile(String(body.profile || '') || PROFILE_NAME)
@@ -7201,7 +7238,7 @@ async function handleApi(req, res, url) {
       pruneSkillImports()
       const item = skillImports.get(body.token)
       if (!item) throw new Error('技能预览已过期，请重新检查来源')
-      const root = rootDirOf(skillRoots(homeDir()), body.root)
+      const root = rootDirOf(managedSkillRoots(), body.root)
       const result = installSkillPackages(root, item.packages, body.selected)
       skillImports.delete(body.token)
       pushLog(`技能安装完成：${result.installed.join('、')}`)
@@ -7210,13 +7247,13 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/skills/detail') {
-    const root = rootDirOf(skillRoots(homeDir()), url.searchParams.get('root'))
+    const root = rootDirOf(managedSkillRoots(), url.searchParams.get('root'))
     send(res, 200, readSkill(root, url.searchParams.get('path')))
     return
   }
   if (req.method === 'POST' && ['/api/skills/create', '/api/skills/delete'].includes(url.pathname)) {
     try {
-      const root = rootDirOf(skillRoots(homeDir()), body.root)
+      const root = rootDirOf(managedSkillRoots(), body.root)
       const result = url.pathname.endsWith('/create') ? createSkill(root, body) : removeSkill(root, body.path)
       pushLog(`技能 ${body.name || body.path} → ${url.pathname.endsWith('/create') ? '新增' : '删除'}`)
       send(res, 200, { ok: true, ...result, ...skillsPayload(), profile: PROFILE_NAME })
@@ -7230,7 +7267,7 @@ async function handleApi(req, res, url) {
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/skills/toggle') {
-    const root = rootDirOf(skillRoots(homeDir()), body.root)
+    const root = rootDirOf(managedSkillRoots(), body.root)
     setSkillEnabled(root, String(body.path || ''), body.enabled !== false)
     pushLog(`技能 ${body.path} → ${body.enabled !== false ? '启用' : '停用'}`)
     send(res, 200, { ok: true, ...skillsPayload(), profile: PROFILE_NAME })
@@ -7238,7 +7275,7 @@ async function handleApi(req, res, url) {
   }
   if (req.method === 'POST' && url.pathname === '/api/skills/open-folder') {
     // 在资源管理器里打开技能根目录（默认 ~/.dsh/skills）；目录不存在就顺手建好
-    const dir = rootDirOf(skillRoots(homeDir()), body.root || 'dsh')
+    const dir = rootDirOf(managedSkillRoots(), body.root || 'dsh')
     await mkdir(dir, { recursive: true })
     await openDirectory(dir)
     pushLog(`已打开技能目录 ${dir}`)

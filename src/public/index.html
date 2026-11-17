@@ -1103,6 +1103,11 @@
   "认生态里的 .dspack 整合包（PackForge 的 manifest）：本地文件、直链，或 GitHub 的 owner/repo（取它最新 Release 里的包）。": "Works with ecosystem .dspack modpacks (PackForge manifests): a local file, a direct link, or a GitHub owner/repo (it takes the .dspack from the latest release).",
   "社区整合包": "Community modpacks",
   "撤销最近安装": "Undo latest installation",
+  "{name} 的技能 {skills} 还在用户目录里，所有环境都看得到；迁移后只属于这个环境，卸载时一并清理。": "Skills {skills} from {name} still live in your user folder, so every environment sees them. Migrate them to make them belong to this environment only; they are removed with it on uninstall.",
+  "迁移到这个环境": "Move to this environment",
+  "已把 {skills} 迁移到环境「{profile}」，重启环境后生效。": "Moved {skills} into “{profile}”. Restart the environment to apply.",
+  "迁移技能失败": "Skill migration failed",
+  "本环境": "This environment",
   "最近安装：{name} v{version}": "Latest install: {name} v{version}",
   "其他插件": "Other plugins",
   "同时包含于：{names}": "Also included in: {names}",
@@ -8190,7 +8195,12 @@
       const grouped = groups.some((group) => group.key !== 'other')
       packPluginListEl.dataset.profile = item.profile
       packPluginListEl.classList.toggle('is-grouped', grouped)
-      packPluginListEl.innerHTML = groups.length
+      // 老版本装的整合包把技能放在 DSH_HOME/skills（所有环境共用）：给一条迁移入口，不自动挪
+      const legacySkillsHtml = (item.legacySkills || []).map((legacy) => `<div class="pack-legacy-skills" role="note">
+          <span>${escapeHtml(t('{name} 的技能 {skills} 还在用户目录里，所有环境都看得到；迁移后只属于这个环境，卸载时一并清理。', { name: legacy.displayName, skills: legacy.skills.join('、') }))}</span>
+          <button class="ghost" type="button" data-migrate-skills="${escapeHtml(legacy.name)}" ${packBusy || pluginUpdating ? 'disabled' : ''}>${escapeHtml(t('迁移到这个环境'))}</button>
+        </div>`).join('')
+      packPluginListEl.innerHTML = legacySkillsHtml + (groups.length
         ? groups.map((group) => {
           const rows = group.plugins.map(({ plugin, sharedPacks }) => pluginRowHtml(plugin, {
             profile: item.profile, updates: item.profile === packState.profile ? pluginUpdates : {}, sharedPacks,
@@ -8215,8 +8225,11 @@
             <div class="plugin-group-body">${rows}</div>
           </details></div>`
         }).join('')
-        : `<div class="plugin-empty">${escapeHtml(t('这份 profile 里没有已安装的插件。'))}</div>`
+        : `<div class="plugin-empty">${escapeHtml(t('这份 profile 里没有已安装的插件。'))}</div>`)
       bindPluginRowEvents(packPluginListEl, item.profile)
+      packPluginListEl.querySelectorAll('[data-migrate-skills]').forEach((el) => {
+        el.onclick = () => { void migratePackSkills(item.profile, (item.legacySkills || []).find((legacy) => legacy.name === el.dataset.migrateSkills)) }
+      })
       packPluginListEl.querySelectorAll('[data-group-toggle]').forEach((el) => {
         el.onchange = () => { void togglePluginGroup(item, groups.find((group) => group.key === el.dataset.groupToggle), el.checked, el) }
       })
@@ -8687,6 +8700,23 @@
         packBusy = false
         renderPackMarket()
         renderPackInspect()
+        renderPackGrid()
+        renderPackView()
+      }
+    }
+
+    async function migratePackSkills(profile, legacy) {
+      if (packBusy || !legacy) return
+      packBusy = true
+      renderPackView()
+      try {
+        const data = await post('/api/packs/migrate-skills', { name: legacy.name, profile })
+        applyPluginPayload(data)
+        notify(t('已把 {skills} 迁移到环境「{profile}」，重启环境后生效。', { skills: (data.skills || []).join('、'), profile }))
+      } catch (error) {
+        notify(error.message, t('迁移技能失败'))
+      } finally {
+        packBusy = false
         renderPackGrid()
         renderPackView()
       }
@@ -9231,7 +9261,7 @@
       row.innerHTML = `<button type="button" class="plugin-main skill-open" aria-haspopup="dialog">
           <span class="plugin-head">
             <span class="plugin-name">${escapeHtml(displayName)}</span>
-            <span class="plugin-version">${escapeHtml(skill.root === 'agents' ? '.agents' : '.dsh')}</span>
+            <span class="plugin-version">${escapeHtml(skill.root === 'agents' ? '.agents' : skill.root === 'instance' ? t('本环境') : '.dsh')}</span>
             ${status ? `<span class="plugin-status">${escapeHtml(status)}</span>` : ''}
           </span>
           ${truncated ? `<span class="plugin-desc" title="${escapeHtml(full)}">${escapeHtml(truncated)}</span>` : ''}

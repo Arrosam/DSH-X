@@ -98,6 +98,7 @@ dsh 的环境隔离单位。模板名（web / headless / acp / sdk / …）会�
 - `plugins/<包名>/` 是**插件实现的源码与发布源**（npm 包：`dsh-x-memory`、`dsh-x-sync`、`dsh-x-aquarium`），**不随安装包发**：插件都发到 npm，用户从插件页 / 整合包装，装完能看远程版本、能更新。改了这里的代码要 `npm publish`（版本号记得加）。
 - `packs/dsh-x-recommended/` 是**整合包配方**（`manifest.json` + `dspack.json` + README），**不含代码**，随安装包发；依赖一律写 npm 版本号。
 - 没有「内置插件」这条路：预置到当前 profile 的开关、随包发插件的复制逻辑、整合包里的 `"…": "bundled"` 依赖解析都已撤（`planInstall` 见到 `bundled` 会直接报错）。
+- 整合包带的技能（`home/skills/**`）**跟着实例走**：装进 `profiles/<实例>/skills/`，补丁层 `insert` 一行只扫这个目录的 `dsh-skill-filesystem`（id `dsh-x-instance-skills`，路径由 `!!js` 从 `baseUrl` 现算）；导出时再回到 `home/skills/`。dsh 0.2.x 没有 profile 级技能目录，这是唯一不改 dsh 的办法。老版本装进 `DSH_HOME/skills` 的只认不动，插件页给「迁移到这个环境」（`migratePackSkills`）。`.agent-presets/`、`presets/`、`AGENTS.md` 仍进 DSH_HOME。
 - 为什么不能合并：`.dspack` 只认 `overrides/`、`home/`、`profiles/` 与几个根文件，插件源码放进去会被当"不属于整合包"跳过（`packs.js` 的解析）；反过来 `plugins/` 下每个子目录都被当成一个 npm 包。
 
 ### 文件管理：一个接口，三套实现

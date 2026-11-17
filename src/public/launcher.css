@@ -1413,6 +1413,9 @@ section[data-category="advanced"] .set-group + .set-label + .set-group { margin-
 .plugin-group { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
 .plugin-group-card { position: relative; }
 .plugin-group-card + .plugin-group-card { margin-top: 14px; }
+.pack-legacy-skills { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.pack-legacy-skills span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pack-legacy-skills button { flex: none; }
 .plugin-group-tools { position: absolute; z-index: 1; top: 0; right: 17px; height: 62px; display: flex; align-items: center; gap: 7px; }
 .plugin-group-tools .icon-btn { position: relative; width: 28px; min-width: 28px; height: 28px; padding: 6px; border: 0; background: transparent; }
 .plugin-group-tools .icon-btn svg { width: 16px; height: 16px; }
