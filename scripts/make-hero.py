@@ -1,6 +1,7 @@
-"""Render docs/hero.png — the banner at the top of the README.
+"""Render the README banner: docs/hero.png (Chinese) and docs/hero-en.png.
 
-    python scripts/make-hero.py
+    python scripts/make-hero.py        # docs/hero.png
+    python scripts/make-hero.py en     # docs/hero-en.png
 
 Style follows the docs landing page and the launcher: the same pale blue radial
 gradient, the app icon with a soft shadow, and the product name in the accent
@@ -11,10 +12,13 @@ re-running this keeps the banner in sync.
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import importlib.util
 import os
+import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ICON = os.path.join(ROOT, "assets", "icon.png")
-OUT = os.path.join(ROOT, "docs", "hero.png")
+ICON = os.path.join(ROOT, "src", "assets", "icon.png")
+# 英文版走 hero-en.png：README.en.md 的头图，文案与字体跟中文那份不同
+EN = len(sys.argv) > 1 and sys.argv[1].lower().startswith("en")
+OUT = os.path.join(ROOT, "docs", "hero-en.png" if EN else "hero.png")
 
 W, H = 1536, 1024
 # Same stops as the landing page's .backdrop:
@@ -26,10 +30,11 @@ TAGLINE_COLOR = (107, 125, 156)
 SHADOW_COLOR = (86, 122, 180)
 ICON_SIZE = 320
 TITLE = "DSH-X"
-TAGLINE = "官方原版 Web，不是桌面端"
+TAGLINE = "Third-party desktop launcher for DeepSeek Harness" if EN else "DeepSeek Harness 第三方桌面启动器"
 FONT_ROOT = r"C:\Windows\Fonts" if os.name == "nt" else "/mnt/c/Windows/Fonts"
 TITLE_FONT = os.path.join(FONT_ROOT, "segoeuib.ttf")
-TAGLINE_FONT = os.path.join(FONT_ROOT, "MiSans-Regular.otf")
+# 中文用 MiSans（拉丁字形一般），英文那段用 Segoe UI
+TAGLINE_FONT = os.path.join(FONT_ROOT, "segoeui.ttf" if EN else "MiSans-Regular.otf")
 
 
 def rounded_icon(size):
@@ -98,20 +103,22 @@ def main():
 
     draw = ImageDraw.Draw(base)
     title_font = ImageFont.truetype(TITLE_FONT, 132)
-    tag_font = ImageFont.truetype(TAGLINE_FONT, 44)
 
     box = draw.textbbox((0, 0), TITLE, font=title_font)
-    title_y = icon_y + ICON_SIZE + 74 - box[1]
+    # 有小字时标题放偏上一点，没有小字就整体居中（+74 是给标题上方留的呼吸位）
+    title_y = icon_y + ICON_SIZE + (74 if TAGLINE else 118) - box[1]
     draw.text(((W - (box[2] - box[0])) / 2 - box[0], title_y), TITLE, font=title_font, fill=TITLE_COLOR)
 
-    tag_box = draw.textbbox((0, 0), TAGLINE, font=tag_font)
-    tag_y = title_y + box[3] + 42
-    draw.text(
-        ((W - (tag_box[2] - tag_box[0])) / 2 - tag_box[0], tag_y),
-        TAGLINE,
-        font=tag_font,
-        fill=TAGLINE_COLOR,
-    )
+    # 副标题默认不画（TAGLINE 留空即可）；想加就填一行文案，位置会自动跟到标题下面
+    if TAGLINE:
+        tag_font = ImageFont.truetype(TAGLINE_FONT, 44)
+        tag_box = draw.textbbox((0, 0), TAGLINE, font=tag_font)
+        draw.text(
+            ((W - (tag_box[2] - tag_box[0])) / 2 - tag_box[0], title_y + box[3] + 42),
+            TAGLINE,
+            font=tag_font,
+            fill=TAGLINE_COLOR,
+        )
 
     base.save(OUT)
     print("hero", OUT, base.size, os.path.getsize(OUT))

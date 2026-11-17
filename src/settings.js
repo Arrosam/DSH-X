@@ -1,0 +1,902 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { APP_DIR, fileManager } from './filemanager.js'
+import { IS_MAC } from './platform.js'
+import { safeFolderConfig, safePolicy, safeS3Config, safeScopeIds, safeStoreType, safeWebdavConfig, safeZipConfig } from './sync.js'
+import { VERSION_CHANNEL, VERSION_CHANNELS } from './version.js'
+
+const ROOT = dirname(fileURLToPath(import.meta.url))
+const SETTINGS_DIR = APP_DIR
+const SETTINGS_FILE = join(SETTINGS_DIR, 'settings.json')
+
+/** 管理页端口，默认这个；被别的程序占了可以在设置页改。 */
+export const DEFAULT_PORT = 3780
+
+/** 目录不可用时给一句人话，别把 EPERM 原样丢给用户。 */
+function describeDirError(dir, error) {
+  const code = String(error?.code || '')
+  if (code === 'EPERM' || code === 'EACCES') {
+    return IS_MAC
+      ? `没有权限写这个目录：${dir}；请换一个当前用户能写的普通目录（例如 ~/DSH-X），不要用 /Applications、/System 这类系统目录。`
+      : `没有权限写这个目录：${dir}；请换一个当前用户能写的普通目录（例如 D:\\DSH-X），不要用 Program Files、Windows 这类系统目录。`
+  }
+  if (code === 'ENOTDIR' || code === 'EEXIST') {
+    return `这不是一个目录：${dir}`
+  }
+  return `版本目录不可用：${dir}（${error?.message || error}）`
+}
+
+/**
+ * 版本目录得真的能写：先建目录，再写一个探针文件。
+ * 单靠 mkdir 不够——目录已存在时 recursive mkdir 会静默成功，但里面未必能写文件。
+ * 失败在切换目录**之前**抛出，所以 DATA / settings.json 都不会被改坏。
+ */
+export async function ensureWritableDir(dir) {
+  try {
+    await mkdir(dir, { recursive: true })
+  } catch (error) {
+    throw new Error(describeDirError(dir, error))
+  }
+  const probe = join(dir, '.dsh-write-probe')
+  try {
+    await writeFile(probe, '')
+    await rm(probe, { force: true })
+  } catch (error) {
+    throw new Error(describeDirError(dir, error))
+  }
+  return dir
+}
+
+/** dsh 的启动 profile（一个 profile 一套插件和数据），默认 web。 */
+export const DEFAULT_PROFILE = 'web'
+
+/** Web 绑定方式：loopback（回环，默认）/ lan（局域网，不注入 --host，交给配置层决定）。 */
+export const DEFAULT_WEB_BIND = 'loopback'
+/**
+ * 下载源选项：镜像源同步官方有延迟，刚发布的版本会「检查到更新却装不上」，
+ * 想第一时间拿到新版本就切官方源（国内直连可能慢，最好配代理）。
+ */
+export const DOWNLOAD_SOURCES = {
+  mirror: 'https://registry.npmmirror.com',
+  official: 'https://registry.npmjs.org',
+}
+export const DEFAULT_SOURCE = 'mirror'
+
+/**
+ * 启动器自身更新的下载源。GitHub 在国内经常连不上或慢到超时，所以「国内加速」的候选
+ * 列表是「镜像优先、直连兜底」：直连放最后，免得每次更新都先等一次直连超时。
+ * 镜像只做转发，包本身没变——但仍然经过第三方；增量更新的清单带签名，可以校验。
+ */
+export const UPDATE_SOURCES = {
+  direct: [],
+  mirror: [
+    'https://gh-proxy.com/',
+    'https://ghfast.top/',
+  ],
+}
+export const DEFAULT_UPDATE_SOURCE = 'mirror'
+
+/** 更新下载源只认内置选项，脏值回默认（国内加速：镜像优先、直连兜底）。 */
+export function safeUpdateSource(value) {
+  const name = String(value ?? '').trim()
+  return UPDATE_SOURCES[name] ? name : DEFAULT_UPDATE_SOURCE
+}
+
+/** 一个下载源统管 npm 与 GitHub，避免界面选择和实际更新路径互相矛盾。 */
+export function updateSourceForDownload(value) {
+  return safeDownloadSource(value) === 'official' ? 'direct' : 'mirror'
+}
+
+/**
+ * 跑 dsh 用哪个 node：bundled = 启动器自带（打包后是 Electron 内嵌的 Node），
+ * system = 用户机器上装的那个。只影响 dsh 子进程，启动器自己始终跑在 Electron 里。
+ * 换档要重启启动器：platform.js 在加载时就把 RUNTIME_NODE 定成了常量。
+ */
+export const NODE_RUNTIMES = ['bundled', 'system']
+export const DEFAULT_NODE_RUNTIME = 'bundled'
+
+export function safeNodeRuntime(value) {
+  const name = String(value ?? '').trim().toLowerCase()
+  return NODE_RUNTIMES.includes(name) ? name : DEFAULT_NODE_RUNTIME
+}
+
+/** 系统 node 的路径；空 = 从 PATH 自动找。存在性在保存时验证，这里只清空白与粘贴带上的引号。 */
+export function safeSystemNodePath(value) {
+  const text = String(value ?? '').trim().replace(/^"(.*)"$/, '$1').trim()
+  if (!text) return ''
+  if (text.length > 4096) throw new Error('node 路径太长')
+  return text
+}
+
+/**
+ * 网络代理的三种模式：跟随系统（默认，自己探测系统代理）/ 手动填地址 / 不走代理。
+ *
+ * 为什么默认「跟随系统」：Node 的全局 fetch 既不看系统代理、也不看 HTTP_PROXY，于是
+ * 「浏览器能上网、启动器却 fetch failed」——issue #32 的「第一次启动读取版本超时」就是这么
+ * 来的。装了代理软件的用户多半只勾过「系统代理」，所以默认跟着它走，什么都不用填。
+ */
+export const PROXY_MODES = ['off', 'system', 'manual']
+export const DEFAULT_PROXY_MODE = 'system'
+
+export function safeProxyMode(value) {
+  const name = String(value ?? '').trim().toLowerCase()
+  return PROXY_MODES.includes(name) ? name : DEFAULT_PROXY_MODE
+}
+
+/**
+ * 代理地址规范化：认 `http://127.0.0.1:7890`，也认只填 `127.0.0.1:7890` 的简写；路径和
+ * 查询串丢掉（代理地址没有这些）。认不出来返回空串——探测系统代理时用这个版本，探测不该抛错。
+ */
+export function normalizeProxyUrl(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  // 全角/中文之类直接不认：URL 解析会把「不是地址」这种拼成 xn-- 开头的域名，
+  // 那还不如老实说填错了（代理地址本来就是 ASCII 那套东西）
+  if (/[^\x20-\x7e]/.test(text)) return ''
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`
+  let url
+  try {
+    url = new URL(withScheme)
+  } catch {
+    return ''
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return ''
+  if (!url.hostname || !/^[A-Za-z0-9._-]+$/.test(url.hostname)) return ''
+  const auth = url.username ? `${url.username}${url.password ? `:${url.password}` : ''}@` : ''
+  return `${url.protocol}//${auth}${url.host}`
+}
+
+/**
+ * 手动填的代理地址：认得出来就用，认不出来把原因说清楚（页面直接显示给用户）。
+ * socks 单独给一句——代理软件里的 socks 端口填进来是最常见的错，而它必须换成 http（混合）端口。
+ */
+export function safeProxyUrl(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  const normalized = normalizeProxyUrl(text)
+  if (!normalized) {
+    if (/^socks/i.test(text)) {
+      throw new Error('只支持 http 代理：请填代理软件里的 http（混合）端口，socks 端口连不上')
+    }
+    throw new Error('代理地址填得不对，形如 http://127.0.0.1:7890')
+  }
+  return normalized
+}
+
+/**
+ * 打开 dsh 页面的方式：
+ *
+ * - tab：系统默认浏览器的标签页；
+ * - app：用 Chromium 系浏览器的应用窗口打开（Chrome/Edge 的 --app=…，没有地址栏，更像
+ *   一个 App）。找不到 Chrome/Edge 就退回标签页，所以这个选项是「尽量」而不是「必须」；
+ * - window：装进启动器自己的窗口（原生外壳再开一个窗口承载 dsh 界面），完全不
+ *   经过浏览器进程——关窗口、托盘、退出都由启动器自己说了算。它只在原生外壳托管下成立
+ *   （外壳设了 DSH_APP_WINDOW=1，并在 stdout 上收约定标记），源码运行（npm start）时选它
+ *   会安静地退回标签页，不会开出一个没人管的窗口。
+ * - internal（默认）：在启动器主窗口的原生标签页里打开，每个实例保留自己的页面；需要新版外壳
+ *   报告 DSH_INTERNAL_TABS=1，旧外壳与源码运行时退回系统浏览器。
+ */
+// internal 保留在主窗口的标签页中；与另开一个桌面窗口的 window 分开，旧设置仍按原义打开。
+export const OPEN_MODES = ['tab', 'app', 'window', 'internal']
+export const DEFAULT_OPEN_MODE = 'internal'
+
+export function safeOpenMode(value) {
+  const name = String(value ?? '').trim()
+  return OPEN_MODES.includes(name) ? name : DEFAULT_OPEN_MODE
+}
+
+/** 按下载源把发布页地址展开成待试列表：国内加速是镜像优先、直连兜底。 */
+export function updateUrlCandidates(url, source = DEFAULT_UPDATE_SOURCE) {
+  const direct = String(url ?? '').trim()
+  if (!direct) return []
+  const prefixes = UPDATE_SOURCES[safeUpdateSource(source)] || []
+  return [...prefixes.map((prefix) => `${prefix}${direct}`), direct]
+}
+
+/** dsh 用户目录（DSH_HOME）：留空用默认 ~/.dsh；填了必须是绝对路径。 */
+export function safeDshHome(dir) {
+  if (dir === undefined || dir === null) return ''
+  if (typeof dir !== 'string') throw new Error('dsh 用户目录填一个路径，别填别的')
+  const trimmed = dir.trim()
+  if (!trimmed) return ''
+  if (!isAbsolute(trimmed)) throw new Error('请使用绝对路径（例如 D:\\dsh-home）')
+  return resolve(trimmed)
+}
+
+/**
+ * 项目目录：启动项把 `DSH_HOME` 放进 `<项目>/.dsh` 时，它就是用户的项目根（也当新会话的工作目录）。
+ * 和用户目录分开一个校验，报错才说得清该填哪一个；两者的取值规则一样（绝对路径、去掉首尾空白）。
+ */
+export function safeWorkdir(dir) {
+  if (dir === undefined || dir === null) return ''
+  if (typeof dir !== 'string') throw new Error('项目目录填一个路径，别填别的')
+  const trimmed = dir.trim()
+  if (!trimmed) return ''
+  if (!isAbsolute(trimmed)) throw new Error('请使用绝对路径（例如 D:\\projects\\demo）')
+  return resolve(trimmed)
+}
+
+export function safeDshHomes(value) {
+  const homes = new Map()
+  for (const item of Array.isArray(value) ? value : []) {
+    try {
+      const home = safeDshHome(item)
+      if (home) homes.set(fileManager.pathKey(home), home)
+    } catch {}
+  }
+  return [...homes.values()]
+}
+
+/** 目录标题只用于管理界面，实际路径仍作为环境的稳定标识。 */
+export function safeDshHomeNames(value) {
+  const names = {}
+  for (const [path, label] of Object.entries(value && typeof value === 'object' && !Array.isArray(value) ? value : {})) {
+    try {
+      const home = safeDshHome(path)
+      const name = typeof label === 'string' ? label.trim() : ''
+      if (home && name && name.length <= 64 && !/[\x00-\x1f\x7f]/.test(name)) names[home] = name
+    } catch {}
+  }
+  return names
+}
+
+/** dsh 用户目录没配置时的默认位置。 */
+export function defaultDshHome() {
+  return join(homedir(), '.dsh')
+}
+
+export const DEFAULTS = {
+  dataDir: '',
+  port: DEFAULT_PORT,
+  profile: DEFAULT_PROFILE,
+  // 手工钉死的端口优先于自动记忆的端口，见 safeInstancePorts。
+  instancePorts: {},
+  // 额外 DSH_HOME 的固定端口；默认目录仍沿用 instancePorts。
+  environmentPorts: {},
+  // 自动端口按目录与实例记忆，不混进手工设置，避免点击「自动」清掉站点身份。
+  autoPorts: {},
+  // 旧设置没有启动项时，读取侧会补上内置默认项，首次使用无需先填参数。
+  launchPresets: [],
+  // 界面语言：zh / en（安装时选的语言写进安装目录的 lang.txt，启动器读一次落到这里）
+  lang: '',
+  theme: 'system',
+  // 上次新建启动项停在哪个隔离方式档：下次打开「添加启动项」直接落在这里，不用每次重选
+  launchIsolation: 'profile',
+  panelTransparency: 30,
+  reduceMotion: false,
+  hideBackground: false,
+  hideBigFish: false,
+  // ---- 桌面端系统开关（Electron 外壳直接读 settings.json，见 shell/prefs.mjs）----
+  // Chromium 硬件加速：关闭能规避显卡/驱动导致的白屏与闪退，代价是动画更吃 CPU，重启生效
+  hardwareAcceleration: true,
+  // 发现更新就自动下载；没有 dsh 实例在跑时直接装上并重启
+  autoUpdate: false,
+  // dsh 实例启动完成 / 启动失败时发桌面通知（外壳实现）
+  taskNotifications: true,
+  // 通知是否带提示音；关掉只影响启动器自己发的通知
+  notificationSound: true,
+  // 关窗口 = 隐藏到托盘（开着才有后台实例可找回）；关掉就是真退出
+  closeToTray: true,
+  // 阻止系统空闲休眠（跑长任务时用）
+  keepAwake: false,
+  // 内置浏览器不校验 HTTPS 证书（自签名 / 过期证书的站点也能打开），只影响浏览器分区
+  browserIgnoreCertificate: false,
+  downloadSource: DEFAULT_SOURCE,
+  // 启动器更新的下载源：direct（默认）/ mirror（国内加速）
+  updateSource: DEFAULT_UPDATE_SOURCE,
+  // 网络代理：off / system（默认，跟随系统）/ manual；手动模式看下面的 proxyUrl
+  proxyMode: DEFAULT_PROXY_MODE,
+  proxyUrl: '',
+  // tab（默认浏览器）/ app（浏览器应用窗口）/ window（独立桌面窗口）/ internal（主窗口标签页）。
+  openMode: DEFAULT_OPEN_MODE,
+  // dsh 的用户目录（DSH_HOME）。留空 = 默认 ~/.dsh；用户把 .dsh 挪到别的盘时在这里指回去
+  dshHome: '',
+  // 跑 dsh 用哪个 node：bundled（启动器自带，默认）/ system（系统装的那个；路径留空就按 PATH 找）
+  nodeRuntime: DEFAULT_NODE_RUNTIME,
+  systemNodePath: '',
+  // 单独登记的目录不依赖启动项，删掉最后一个 Profile 后仍能回到这里新建。
+  dshHomes: [],
+  dshHomeNames: {},
+  // 额外启动参数（一行文本，空格分词，含空格的值用引号包起来）
+  args: '',
+  // dsh web 的绑定方式：loopback 注入 --host 127.0.0.1（默认）；lan 不注入，
+  // 由配置层（远程访问插件的「局域网访问」开关写的 profile 补丁块）决定 0.0.0.0
+  webBind: DEFAULT_WEB_BIND,
+  autoStart: false,
+  // 官方自定义插件市场的默认索引；已有 Profile 配置优先，不再预装第三方市场。
+  pluginMarketSources: ['https://awesome-dsh-plugin.com/index.json'],
+  // 启动失败时按错误点名自动禁用问题插件（兼容模式），再重试
+  autoDisablePlugins: true,
+  // 装完新版本后自动清理更旧的版本（只留最新的和最近装的一个）。
+  // 关掉就全部留着：回退时想退到哪个版本都在，代价是每个版本好几百 MB
+  autoCleanVersions: true,
+  keepVersions: 2,
+  // 把 dsh 的 shim 目录写进用户 PATH（HKCU\Environment），让系统里也能直接用 dsh
+  systemPath: false,
+  // 用户在更新弹窗里点过「不更新」的版本 { dsh?, self? }：同一个版本不再提示
+  skippedUpdate: {},
+  // S3 同步的存储桶（含密钥，本机明文存这个文件里；字段由 safeS3Config 补齐）
+  s3: {},
+  // WebDAV 同步（地址 + 账号密码，同样是明文存本机）
+  webdav: {},
+  // 本地目录（手动导出 / 导入；就一个路径）
+  folder: {},
+  // 单个 ZIP 文件（导出成一个包 / 从包导入）
+  zip: {},
+  // 同步范围与冲突策略
+  sync: {},
+}
+
+/** 下载源只认内置选项，历史文件里的脏值回默认镜像。 */
+export function safeDownloadSource(value) {
+  const name = String(value ?? '').trim()
+  return DOWNLOAD_SOURCES[name] ? name : DEFAULT_SOURCE
+}
+
+/** 与官方市场一致：索引只接受无账号密码、无片段的 HTTP(S) URL。 */
+export function safePluginMarketSources(value) {
+  if (!Array.isArray(value)) throw new Error('插件源请填写地址列表')
+  if (value.length > 32) throw new Error('插件源最多 32 个')
+  const urls = value.map((item) => {
+    if (typeof item !== 'string' || !item.trim() || item.length > 4096) throw new Error('插件源请填写完整的 HTTP/HTTPS 索引地址')
+    let url
+    try { url = new URL(item.trim()) } catch { throw new Error('插件源请填写完整的 HTTP/HTTPS 索引地址') }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.href.includes('#')) {
+      throw new Error('插件源仅支持无账号密码、无片段的 HTTP/HTTPS 索引地址')
+    }
+    return url.href
+  })
+  return [...new Set(urls)]
+}
+
+/** 端口校验：1-65535 的整数，别的都当成没填（回默认端口）。 */
+export function safePort(value) {
+  const port = Number(value)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('端口要填 1-65535 之间的整数')
+  }
+  return port
+}
+
+/**
+ * 版本号的字符集（registry 里的 tag 名、`data/versions/<版本>` 的目录名都按它收）。
+ * 导出是给 `instancePorts` 的键用——那张表的键是「版本@profile」，两边都不能含 @，
+ * 拼接才不会有歧义（见 server.js 的 instanceKey）。
+ */
+export const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._+-]*$/
+
+/** profile 名会变成 ~/.dsh/profiles 下的目录名，只允许目录安全字符。 */
+export function safeProfile(value) {
+  const name = String(value ?? '').trim()
+  if (!/^[A-Za-z0-9._-]{1,32}$/.test(name) || name === '.' || name === '..') {
+    throw new Error('profile 名只能用字母、数字、点、下划线、连字符（1-32 个字符）')
+  }
+  return name
+}
+
+/**
+ * 每个实例（版本 × profile）手工钉的固定端口，键形如 `0.1.7@web`。
+ *
+ * 自动端口首次由系统挑选，之后尽量复用，保留浏览器权限和站点数据；手工固定的端口
+ * 不会因为占用而换号。两类记录分开保存。
+ *
+ * 脏值直接丢掉（不抛）：这张表是「多几个键也无所谓」的附加信息，为了历史文件里的一条
+ * 烂数据让整个设置读不出来不划算。键的两段分别按 VERSION_RE / safeProfile 的形状收，
+ * 版本与 profile 都不含 @，所以只用认第一个 @。
+ */
+export function safeInstancePorts(value) {
+  const out = {}
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out
+  for (const [rawKey, rawPort] of Object.entries(value)) {
+    const key = String(rawKey)
+    const at = key.indexOf('@')
+    if (at <= 0 || key.indexOf('@', at + 1) !== -1) continue
+    const version = key.slice(0, at)
+    const profile = key.slice(at + 1)
+    if (!VERSION_RE.test(version)) continue
+    if (!/^[A-Za-z0-9._-]{1,32}$/.test(profile) || profile === '.' || profile === '..') continue
+    const port = Number(rawPort)
+    if (!Number.isInteger(port) || port < 1 || port > 65535) continue
+    out[key] = port
+  }
+  return out
+}
+
+/** 按绝对目录隔离固定端口，坏的历史数据直接丢弃。 */
+export function safeEnvironmentPorts(value) {
+  const out = {}
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out
+  for (const [rawHome, ports] of Object.entries(value)) {
+    let home
+    try { home = safeDshHome(rawHome) } catch { continue }
+    if (home) out[home] = safeInstancePorts(ports)
+  }
+  return out
+}
+
+export const DEFAULT_LAUNCH_ID = '0000000000000000'
+export const DEFAULT_LAUNCH = { id: DEFAULT_LAUNCH_ID, name: 'DSH', version: 'auto', profile: 'web', port: 0 }
+
+/** 没选过版本类型的启动项（含所有老设置）按正式版（还没有正式版时由 effectiveChannel 退档）。 */
+export const DEFAULT_UPDATE_CHANNEL = VERSION_CHANNEL.OFFICIAL
+
+/** 启动项的版本类型（自动选版本和更新提醒都按它）；没填回默认，填了认不出的值要报错，别悄悄改成别的类型。 */
+export function safeUpdateChannel(value) {
+  if (value === undefined || value === null || value === '') return DEFAULT_UPDATE_CHANNEL
+  if (!VERSION_CHANNELS.includes(value)) throw new Error('版本类型只能是正式版、RC 或 Alpha')
+  return value
+}
+
+/** 保留数量有下限，填错不能被当成 0 导致历史版本全部被清走。 */
+export function safeKeepVersions(value) {
+  if (value === undefined || value === null) return 2
+  const count = Number(value)
+  if (!Number.isInteger(count) || count < 1 || count > 20) throw new Error('保留版本数量应为 1 到 20')
+  return count
+}
+
+export const LAUNCH_ICONS = ['terminal', 'code', 'globe', 'folder', 'sparkles', 'rocket']
+
+/** 图标只收固定名称或小型位图，避免把任意 SVG/外链放进管理页。 */
+export function safeLaunchIcon(value) {
+  if (value === undefined || value === '' || LAUNCH_ICONS.includes(value)) return value || 'terminal'
+  if (typeof value !== 'string' || value.length > 131072) throw new Error('图标图片过大或格式不支持')
+  const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(value)
+  if (!match) throw new Error('图标只支持 PNG、JPEG 或 WebP 图片')
+  const bytes = Buffer.from(match[2], 'base64')
+  const valid = match[1] === 'png' ? bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+    : match[1] === 'jpeg' ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+      : bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
+  if (!valid) throw new Error('图标图片格式无效')
+  return value
+}
+
+/** 历史设置里的坏启动项直接丢弃；默认入口始终存在，旧用户也无需迁移操作。 */
+export function safeLaunchPresets(value) {
+  const seen = new Set()
+  const presets = (Array.isArray(value) ? value : []).slice(0, 20).flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const id = String(item.id ?? '')
+    const name = String(item.name ?? '').trim()
+    const version = String(item.version ?? '')
+    let profile
+    try { profile = safeProfile(item.profile) } catch { return [] }
+    const port = Number(item.port ?? 0)
+    if (!/^[a-f0-9]{16}$/.test(id) || seen.has(id) || !name || name.length > 32
+      || !VERSION_RE.test(version) || !Number.isInteger(port) || port < 0 || port > 65535) return []
+    seen.add(id)
+    let icon = 'terminal'
+    try { icon = safeLaunchIcon(item.icon) } catch { /* 旧设置里的坏图片退回默认图标，保留启动项。 */ }
+    let dshHome = ''
+    try { dshHome = safeDshHome(item.dshHome) } catch { return [] }
+    // 项目目录跟着启动项走：丢了它就只剩一个平平无奇的独立目录，工作目录也回不到项目根，
+    // 所以和 dshHome 一样，坏值宁可整条丢掉，别留下半截环境。
+    let workdir = ''
+    try { workdir = safeWorkdir(item.workdir) } catch { return [] }
+    // 启动项最近用过的两个版本（当前用/上一次用）：清理旧版本时按启动项保留，给回退用。
+    const usedVersion = String(item.usedVersion ?? '')
+    const prevVersion = String(item.prevVersion ?? '')
+    // 坏的通道值退回默认而不是丢掉启动项：通道只管提醒，不值得为它让用户的入口消失。
+    let updateChannel = DEFAULT_UPDATE_CHANNEL
+    try { updateChannel = safeUpdateChannel(item.updateChannel) } catch { /* 保留默认 */ }
+    return [{ id, name, version, profile, port,
+      ...(item.autoLaunch === true ? { autoLaunch: true } : {}),
+      ...(updateChannel !== DEFAULT_UPDATE_CHANNEL ? { updateChannel } : {}),
+      ...(VERSION_RE.test(usedVersion) ? { usedVersion } : {}),
+      ...(VERSION_RE.test(prevVersion) ? { prevVersion } : {}),
+      ...(workdir ? { workdir } : {}), ...(dshHome ? { dshHome } : {}), ...(icon !== 'terminal' ? { icon } : {}) }]
+  })
+  const builtin = presets.find((item) => item.id === DEFAULT_LAUNCH_ID) || { ...DEFAULT_LAUNCH }
+  if (builtin.name === '默认启动') builtin.name = 'DSH'
+  // 内置项只保证存在，不强制置顶；用户拖动后的顺序也要穿过保存和重启。
+  return (presets.some((item) => item.id === DEFAULT_LAUNCH_ID) ? presets : [builtin, ...presets]).slice(0, 20)
+}
+
+/**
+ * 把「额外启动参数」那行文本切成 argv：空白分词，单双引号里的内容原样保留
+ * （`--msg "hello world"` → ['--msg', 'hello world']）。未闭合的引号按到行尾处理。
+ */
+export function parseArgs(text) {
+  const out = []
+  let current = ''
+  let quote = ''
+  let quoted = false
+  for (const ch of String(text ?? '')) {
+    if (quote) {
+      if (ch === quote) quote = ''
+      else current += ch
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      quoted = true
+      continue
+    }
+    if (/\s/.test(ch)) {
+      if (current || quoted) out.push(current)
+      current = ''
+      quoted = false
+      continue
+    }
+    current += ch
+  }
+  if (current || quoted) out.push(current)
+  return out
+}
+
+/** 额外启动参数：只留文本，长度收个口（解析在 server.js 里做）。 */
+export function safeArgs(value) {
+  const text = String(value ?? '').trim()
+  if (text.length > 2000) throw new Error('额外启动参数太长了（上限 2000 字符）')
+  return text
+}
+
+/** 启动 profile：环境变量 DSH_PROFILE 优先（开发和测试用），其次 settings.json。 */
+export function resolveProfile() {
+  if (process.env.DSH_PROFILE) {
+    try {
+      return safeProfile(process.env.DSH_PROFILE)
+    } catch { /* 环境变量不合法就退回设置 */ }
+  }
+  try {
+    return safeProfile(loadSettingsSync().profile)
+  } catch {
+    return DEFAULT_PROFILE
+  }
+}
+
+/** 界面语言：只认 zh / en，其余当没设。 */
+export function safeLang(value) {
+  const lang = String(value ?? '').trim().toLowerCase()
+  return lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : ''
+}
+
+/** 页面外观：跟随系统、浅色或深色；历史脏值回到跟随系统。 */
+export function safeTheme(value) {
+  return value === 'light' || value === 'dark' ? value : 'system'
+}
+
+/** 上次新建启动项选的隔离方式：只认三档，其余回到 Profile 隔离。 */
+export function safeLaunchIsolation(value) {
+  return value === 'home' || value === 'custom' ? value : 'profile'
+}
+
+/** 悬浮窗背景透明度，百分比；历史脏值回到默认值。 */
+export function safePanelTransparency(value) {
+  if (value === null || value === undefined || value === '') return DEFAULTS.panelTransparency
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number))) : DEFAULTS.panelTransparency
+}
+
+/**
+ * Web 绑定方式：只认 loopback / lan（顺手收下 127.0.0.1 / 0.0.0.0 两种写法），
+ * 别的值一律抛错——和端口、profile 一样，显式填错要让用户知道。
+ */
+export function safeWebBind(value) {
+  const mode = String(value ?? '').trim().toLowerCase()
+  if (mode === 'loopback' || mode === '127.0.0.1') return 'loopback'
+  if (mode === 'lan' || mode === '0.0.0.0') return 'lan'
+  throw new Error('Web 绑定只能选 回环(loopback) 或 局域网(lan)')
+}
+
+/**
+ * 远程访问插件（@linxin666/dsh-remote-web-ui）的「局域网访问」开关有没有开。
+ *
+ * 插件把开关存在 dsh 的设置文件里（`<dsh home>/settings.yaml` 的
+ * `remote-web-ui.lanBind`）。启动器读它只为了一件事：开关开着时启动 web 不再
+ * 注入 `--host 127.0.0.1`——命令行显式 --host 在 dsh 里优先于配置层，注入了
+ * 回环地址，插件的开关和补丁块就永远赢不了，手机/其他电脑也就连不上。
+ *
+ * 没有 YAML 依赖，只在这一个文件里找这一个键：定位顶层 `remote-web-ui:` 段，
+ * 在它的子行里找 `lanBind:`。读不到、格式不认识、插件没装，都当没开——
+ * 启动器不依赖任何第三方插件存在。
+ */
+export function lanBindToggleOn(home, profile = '') {
+  // 0.1.7-rc.1 起 dsh 把设置搬到「当前 profile 的 Cordis 配置」里（旧 settings.yaml 只导入一次），
+  // 所以要两处都看：新位置有明确取值就以它为准，没有（还没迁移、或旧版本）再回落到旧文件。
+  if (profile) {
+    for (const name of ['cordis.yml', 'cordis.yaml']) {
+      const value = lanBindFromYaml(readTextIfExists(join(home, 'profiles', profile, name)))
+      if (value !== undefined) return value
+    }
+  }
+  return lanBindFromYaml(readTextIfExists(join(home, 'settings.yaml'))) === true
+}
+
+/** 读文件，读不到给空串（配置缺失是常态，不该抛）。 */
+function readTextIfExists(file) {
+  try {
+    return readFileSync(file, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 在 YAML 文本里找「提到 remote-web-ui 的那一段」里的 lanBind。
+ * 段可以在顶层（旧 settings.yaml 的形状），也可以是嵌套的插件条目（新 profile 配置的形状）；
+ * 段内允许隔着别的键。找不到返回 undefined（＝这份文件没说），false 才是明确说「关」。
+ */
+export function lanBindFromYaml(text) {
+  const lines = String(text ?? '').split(/\r?\n/)
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (!line.trim() || /^\s*#/.test(line)) continue
+    if (!/remote-web-ui/i.test(line)) continue
+    if (!/:\s*(?:\{.*)?$/.test(line)) continue
+    // 同一行写成流式映射的情况：{ lanBind: true }
+    const inline = /lanBind\s*:\s*([^,}\s]+)/.exec(line)
+    if (inline) return /^(?:true|yes|on|1)$/i.test(inline[1].replace(/^['"]|['"]$/g, ''))
+    const indent = line.length - line.trimStart().length
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const next = lines[j]
+      if (!next.trim() || /^\s*#/.test(next)) continue
+      const nextIndent = next.length - next.trimStart().length
+      // 缩进回落到这一段之外（或更浅）说明段结束了；数组项不算出段
+      if (nextIndent <= indent && !/^\s*-\s/.test(next)) break
+      const match = /^\s*lanBind\s*:\s*(.+?)\s*$/.exec(next)
+      if (match) return /^(?:true|yes|on|1)$/i.test(match[1].replace(/^['"]|['"]$/g, ''))
+    }
+  }
+  return undefined
+}
+
+/** 管理页端口：环境变量 PORT（开发和测试用）优先，其次 settings.json。 */
+export function resolvePort() {
+  const fromEnv = Number(process.env.PORT || 0)
+  if (Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv
+  try {
+    return safePort(loadSettingsSync().port)
+  } catch {
+    return DEFAULT_PORT
+  }
+}
+
+/** Web 绑定方式：设置文件里的脏值退回默认（回环），和端口、profile 一个口径。 */
+export function resolveWebBind() {
+  try {
+    return safeWebBind(loadSettingsSync().webBind)
+  } catch {
+    return DEFAULT_WEB_BIND
+  }
+}
+
+function hasInstall(dir) {
+  return existsSync(join(dir, 'config.json')) || existsSync(join(dir, 'versions'))
+}
+
+export function safeDataDir(dir) {
+  if (typeof dir !== 'string' || !dir.trim()) throw new Error('版本目录不能为空')
+  const trimmed = dir.trim()
+  // 先判再 resolve：resolve 会把相对路径按当前工作目录补齐，补完就永远是绝对路径，
+  // 倒过来判等于没有这条校验——用户在设置页填个 dsh-data 会安静地落到启动器所在目录
+  if (!isAbsolute(trimmed)) throw new Error('请使用绝对路径')
+  return resolve(trimmed)
+}
+
+export function fallbackDataDir() {
+  const local = join(ROOT, 'data')
+  if (hasInstall(local)) return local
+  const userDir = fileManager.userAppDir()
+  if (userDir) {
+    const roaming = join(userDir, 'data')
+    if (hasInstall(roaming)) return roaming
+    // 装好的启动器（有原生外壳）一律放每用户目录；macOS 的安装目录在 .app 包里，更是写不得
+    if (fileManager.launcherExecutable()) return roaming
+  }
+  return local
+}
+
+function mergeStoredSettings(stored) {
+  const merged = { ...DEFAULTS, ...stored }
+  if (!('hideBackground' in stored) && 'disableBackgroundAnimation' in stored) {
+    merged.hideBackground = stored.disableBackgroundAnimation === true
+  }
+  delete merged.disableBackgroundAnimation
+  // 更新通道开关已撤：通道跟着当前版本走，旧文件里的键顺手清掉
+  delete merged.acceptPrerelease
+  // 内置插件的预置开关已撤（插件改由整合包分发），旧文件里的键顺手清掉
+  delete merged.seedBundled
+  delete merged.seedMarket
+  try { merged.pluginMarketSources = safePluginMarketSources(merged.pluginMarketSources) } catch { merged.pluginMarketSources = [] }
+  delete merged.seedMemory
+  try { merged.keepVersions = safeKeepVersions(merged.keepVersions) } catch { merged.keepVersions = 2 }
+  merged.nodeRuntime = safeNodeRuntime(merged.nodeRuntime)
+  try { merged.systemNodePath = safeSystemNodePath(merged.systemNodePath) } catch { merged.systemNodePath = '' }
+  return merged
+}
+
+/** Windows 上设置文件正被 rename 覆盖时，读会短暂撞上共享冲突，这不是“文件坏了”。 */
+function settingsReadContention(error) {
+  return Boolean(error) && ['EPERM', 'EACCES', 'EBUSY'].includes(error.code)
+}
+
+function sleepSyncMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+export function loadSettingsSync() {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return mergeStoredSettings(JSON.parse(readFileSync(SETTINGS_FILE, 'utf8')))
+    } catch (error) {
+      // 读失败但文件其实没坏（另一个进程正在替换）时重试；真坏了（没有错误码的 JSON 解析错、
+      // 文件不存在）才回默认值。否则并行保存时随便一次读都会把设置“清空”。
+      if (!settingsReadContention(error) || attempt >= 10) return { ...DEFAULTS }
+      sleepSyncMs(10 * Math.min(attempt + 1, 5))
+    }
+  }
+}
+
+export async function loadSettings() {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return mergeStoredSettings(JSON.parse(await readFile(SETTINGS_FILE, 'utf8')))
+    } catch (error) {
+      if (!settingsReadContention(error) || attempt >= 10) return { ...DEFAULTS }
+      await new Promise((resolve) => setTimeout(resolve, 10 * Math.min(attempt + 1, 5)))
+    }
+  }
+}
+
+/** 跳过记录只留非空版本号，别让历史文件里的脏值影响更新提示。 */
+function normalizeSkippedUpdate(value) {
+  const out = {}
+  for (const key of ['dsh', 'self']) {
+    const version = value && typeof value === 'object' ? value[key] : ''
+    if (typeof version === 'string' && version.trim()) out[key] = version.trim()
+  }
+  return out
+}
+
+/** S3 存储桶 + 同步范围：字段补全、脏值回默认；显式填错（桶名、端点）时抛给调用方。 */
+export function safeSyncSettings(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    // 用哪种远端：s3（默认，老配置里没这个字段就是它）/ webdav
+    store: safeStoreType(source.store),
+    scopes: safeScopeIds(source.scopes),
+    policy: safePolicy(source.policy),
+  }
+}
+
+// 并行启动会同时保存端口、历史和界面设置，读改写必须串行，避免不同字段相互覆盖。
+let settingsWrites = Promise.resolve()
+export function saveSettings(patch) {
+  const result = settingsWrites.then(() => saveSettingsNow(patch))
+  settingsWrites = result.catch(() => {})
+  return result
+}
+
+async function saveSettingsNow(patch) {
+  const current = await loadSettings()
+  // 目录列表的增删也在同一读改写队列里，连续操作不会覆盖彼此。
+  if (typeof patch === 'function') patch = patch(current)
+  const merged = { ...current, ...patch }
+  if (merged.dataDir) merged.dataDir = safeDataDir(merged.dataDir)
+  // 历史文件里的脏端口值顺手修回默认；显式改端口时才把错误抛给调用方
+  try {
+    merged.port = safePort(merged.port)
+  } catch {
+    merged.port = DEFAULT_PORT
+  }
+  if ('port' in patch) merged.port = safePort(patch.port)
+  // 同端口：脏值顺手修回默认，显式改 profile 时才把错误抛给调用方
+  try {
+    merged.profile = safeProfile(merged.profile)
+  } catch {
+    merged.profile = DEFAULT_PROFILE
+  }
+  if ('profile' in patch) merged.profile = safeProfile(patch.profile)
+  merged.args = 'args' in patch ? safeArgs(patch.args) : safeArgs(merged.args)
+  merged.instancePorts = safeInstancePorts('instancePorts' in patch ? patch.instancePorts : merged.instancePorts)
+  merged.environmentPorts = safeEnvironmentPorts(merged.environmentPorts)
+  merged.autoPorts = safeEnvironmentPorts(merged.autoPorts)
+  merged.launchPresets = safeLaunchPresets(merged.launchPresets)
+  merged.dshHomes = safeDshHomes(merged.dshHomes)
+  merged.dshHomeNames = safeDshHomeNames(merged.dshHomeNames)
+  merged.lang = 'lang' in patch ? safeLang(patch.lang) : safeLang(merged.lang)
+  merged.theme = safeTheme(merged.theme)
+  merged.nodeRuntime = 'nodeRuntime' in patch ? safeNodeRuntime(patch.nodeRuntime) : safeNodeRuntime(merged.nodeRuntime)
+  merged.systemNodePath = 'systemNodePath' in patch ? safeSystemNodePath(patch.systemNodePath) : safeSystemNodePath(merged.systemNodePath)
+  merged.launchIsolation = safeLaunchIsolation(merged.launchIsolation)
+  merged.panelTransparency = safePanelTransparency(merged.panelTransparency)
+  merged.reduceMotion = merged.reduceMotion === true
+  merged.hideBackground = merged.hideBackground === true
+  merged.hideBigFish = merged.hideBigFish === true
+  // 桌面端系统开关：只认布尔，脏值回默认（true 的两个用 !== false，其余 === true）
+  merged.hardwareAcceleration = merged.hardwareAcceleration !== false
+  merged.autoUpdate = merged.autoUpdate === true
+  merged.taskNotifications = merged.taskNotifications !== false
+  merged.notificationSound = merged.notificationSound !== false
+  merged.closeToTray = merged.closeToTray !== false
+  merged.keepAwake = merged.keepAwake === true
+  // 内置浏览器开关与证书校验：和上面一组同一套布尔语义
+  merged.browserIgnoreCertificate = merged.browserIgnoreCertificate === true
+  // 同 webBind：脏值顺手修回默认（回环），显式改绑定方式时才把错误抛给调用方
+  try {
+    merged.webBind = safeWebBind(merged.webBind)
+  } catch {
+    merged.webBind = DEFAULT_WEB_BIND
+  }
+  if ('webBind' in patch) merged.webBind = safeWebBind(patch.webBind)
+  merged.downloadSource = safeDownloadSource(merged.downloadSource)
+  merged.updateSource = updateSourceForDownload(merged.downloadSource)
+  merged.updateSourceMigrated = true
+  merged.openMode = safeOpenMode(merged.openMode)
+  if ('openMode' in patch) merged.openMode = safeOpenMode(patch.openMode)
+  merged.proxyMode = safeProxyMode(merged.proxyMode)
+  if ('proxyMode' in patch) merged.proxyMode = safeProxyMode(patch.proxyMode)
+  // 代理地址和端口/profile 同规矩：脏值顺手修回空（当没填），显式填错才把错误抛给页面
+  try {
+    merged.proxyUrl = safeProxyUrl(merged.proxyUrl)
+  } catch {
+    merged.proxyUrl = ''
+  }
+  if ('proxyUrl' in patch) merged.proxyUrl = safeProxyUrl(patch.proxyUrl)
+  merged.autoStart = Boolean(merged.autoStart)
+  merged.pluginMarketSources = safePluginMarketSources(merged.pluginMarketSources)
+  delete merged.seedMarket
+  merged.autoDisablePlugins = merged.autoDisablePlugins !== false
+  merged.autoCleanVersions = merged.autoCleanVersions !== false
+  if ('keepVersions' in patch) merged.keepVersions = safeKeepVersions(patch.keepVersions)
+  else { try { merged.keepVersions = safeKeepVersions(merged.keepVersions) } catch { merged.keepVersions = 2 } }
+  merged.skippedUpdate = normalizeSkippedUpdate(merged.skippedUpdate)
+  // S3 同步：脏值顺手补全（密钥缺失只是「没配好」，不该让保存失败），显式填错才抛
+  merged.s3 = safeS3Config('s3' in patch ? patch.s3 : merged.s3)
+  merged.webdav = safeWebdavConfig('webdav' in patch ? patch.webdav : merged.webdav)
+  merged.folder = safeFolderConfig('folder' in patch ? patch.folder : merged.folder)
+  merged.zip = safeZipConfig('zip' in patch ? patch.zip : merged.zip)
+  merged.sync = safeSyncSettings('sync' in patch ? patch.sync : merged.sync)
+  // 已废弃的 AI 修复配置：清掉历史文件里的残留字段
+  for (const key of ['aiRepair', 'aiModel', 'aiBaseURL', 'aiApiKey', 'aiMaxRounds', 'aiAllowDestructive']) {
+    delete merged[key]
+  }
+  await mkdir(SETTINGS_DIR, { recursive: true })
+  // 读者包括同步的启动配置查询；用替换文件避免它读到写入一半的 JSON 后退回默认值。
+  const temporary = `${SETTINGS_FILE}.${process.pid}.tmp`
+  try {
+    await writeFile(temporary, JSON.stringify(merged, null, 2))
+    // Windows 的短暂读句柄可能拒绝替换，等读者放手再试；始终保留原文件供读取。
+    // 全量测试并行跑（几十个服务同时起落）时这种争用会持续更久，所以多留几轮退避。
+    for (let attempt = 0; ; attempt++) {
+      try { await rename(temporary, SETTINGS_FILE); break }
+      catch (error) {
+        if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 10) throw error
+        await new Promise((resolve) => setTimeout(resolve, 15 * Math.min(attempt + 1, 6)))
+      }
+    }
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {})
+  }
+  return merged
+}
+
+export function inferDataDir() {
+  if (process.env.DSH_VERSIONS_DATA) return process.env.DSH_VERSIONS_DATA
+  return fallbackDataDir()
+}
+
+export function resolveDataDir() {
+  const settings = loadSettingsSync()
+  if (settings.dataDir) return safeDataDir(settings.dataDir)
+  return inferDataDir()
+}
+
+export async function ensureSettings() {
+  const stored = await loadSettings()
+  const dataDir = stored.dataDir ? safeDataDir(stored.dataDir) : inferDataDir()
+  const patch = {}
+  if (stored.dataDir !== dataDir) patch.dataDir = dataDir
+  // 保留既有的下载源选择，旧更新源字段只作为兼容副本。
+  const updateSource = updateSourceForDownload(stored.downloadSource)
+  if (stored.updateSource !== updateSource || stored.updateSourceMigrated !== true) {
+    Object.assign(patch, { updateSource, updateSourceMigrated: true })
+  }
+  if (!Object.keys(patch).length) return stored
+  return saveSettings(patch)
+}
+

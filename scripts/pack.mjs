@@ -1,213 +1,174 @@
+// Windows/macOS/Linux 打包：electron-builder 出安装包（NSIS / dmg / AppImage），
+// 外壳自更新交给 electron-updater。
+//
+// 安装包拆成两层：
+// - release/shell-stage → resources/app：Electron 外壳（main/tray/updater/preload/tabs/model/pages）
+//   + electron-updater 依赖。外壳版本读 shell/package.json，只有 Electron/主进程/托盘/更新器
+//   变化时才需要发新安装包。
+// - release/core-stage → resources/core：基线核心（server.js、public、compat/perf/packs、node 包装）。
+//   核心另有 npm 通道（dsh-x-core-*），UI/服务端改动只发约 12MB 的 npm 包。
+//
+// electron-builder 直接打包 shell-stage，并把 core-stage 作为 extraResources 放进 resources/core。
+
 import { spawnSync } from 'node:child_process'
-import { createWriteStream, existsSync, readFileSync, rmSync } from 'node:fs'
-import { copyFile, cp, mkdir, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
-import { pipeline } from 'node:stream/promises'
-import { fileURLToPath } from 'node:url'
+import { existsSync, readFileSync } from 'node:fs'
+import { chmod, cp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import {
+  NODE_VERSION,
+  PKG,
+  ROOT,
+  VENDOR,
+  copyAppFiles,
+  copyNpmModules,
+  copyPnpm as copyPnpmModule,
+  downloadNodeFile,
+  run,
+} from './pack-common.mjs'
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-const NODE_VERSION = process.env.DSH_NODE_VERSION || '22.19.0'
-// dsh 的 profile 用 pnpm 8（lockfile 6.0），便携目录带同主版本
-const PNPM_VERSION = process.env.DSH_PNPM_VERSION || '8.15.9'
-const DIST = `node-v${NODE_VERSION}-win-x64`
-const ZIP = `${DIST}.zip`
-const VENDOR = join(ROOT, 'vendor')
-const ZIP_PATH = join(VENDOR, ZIP)
+const IS_MAC = process.platform === 'darwin'
+const IS_WINDOWS = process.platform === 'win32'
+const IS_LINUX = process.platform === 'linux'
+const ARCH = process.arch === 'arm64' ? 'arm64' : 'x64'
+const DIST = `node-v${NODE_VERSION}-${IS_MAC ? 'darwin' : IS_WINDOWS ? 'win' : 'linux'}-${ARCH}`
+const ARCHIVE = IS_WINDOWS ? `${DIST}.zip` : `${DIST}.tar.gz`
 const EXTRACTED = join(VENDOR, DIST)
-const OUT = join(ROOT, 'release', 'DSH')
-const INNO_DIR = join(VENDOR, 'inno')
-const INNO_SETUP = join(VENDOR, 'innosetup.exe')
-const ISCC = join(INNO_DIR, 'ISCC.exe')
-const SETUP_ISS = join(ROOT, 'scripts', 'dsh-setup.iss')
-const SETUP_NAME = 'DSH-Setup'
-// Windows 按路径缓存快捷方式图标：同名文件覆盖后，Explorer 仍会显示缓存里的旧位图，
-// 升级用户会以为图标没更新。图标文件名带上版本号，路径一变缓存就失效，不用指望用户
-// 去清图标缓存。
-const ICON_NAME = `dsh-${PKG.version}.ico`
-const DESKTOP = join(process.env.USERPROFILE || ROOT, 'Desktop')
+const SHELL_STAGE = join(ROOT, 'release', 'shell-stage')
+const CORE_STAGE = join(ROOT, 'release', 'core-stage')
+const SHELL_DIR = join(ROOT, 'shell')
+const ELECTRON_BUILDER = join(ROOT, 'node_modules', 'electron-builder', 'cli.js')
+const SHELL_PKG = JSON.parse(readFileSync(join(SHELL_DIR, 'package.json'), 'utf8'))
+const ELECTRON_VERSION = JSON.parse(readFileSync(join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
 
-function run(command, args, cwd = ROOT) {
-  const result = spawnSync(command, args, { cwd, stdio: 'inherit', windowsHide: false })
-  if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed`)
-}
-
-async function download(url, dest) {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`下载失败 HTTP ${res.status} ${url}`)
-  await pipeline(res.body, createWriteStream(dest))
-}
-
-async function downloadNode() {
+async function ensureNode() {
   await mkdir(VENDOR, { recursive: true })
-  if (existsSync(join(EXTRACTED, 'node.exe'))) return
-  const urls = [
-    `https://npmmirror.com/mirrors/node/v${NODE_VERSION}/${ZIP}`,
-    `https://nodejs.org/dist/v${NODE_VERSION}/${ZIP}`,
-  ]
-  let last
-  for (const url of urls) {
-    try {
-      console.log(`下载 ${url}`)
-      await download(url, ZIP_PATH)
-      last = null
-      break
-    } catch (error) {
-      last = error
-    }
-  }
-  if (last) throw last
-  run('powershell', ['-NoProfile', '-Command', `Expand-Archive -Force '${ZIP_PATH}' '${VENDOR}'`])
-}
-
-async function copyNodeRuntime() {
-  await mkdir(join(OUT, 'node'), { recursive: true })
-  await copyFile(join(EXTRACTED, 'node.exe'), join(OUT, 'node', 'node.exe'))
-  for (const name of ['npm', 'npm.cmd', 'npm.ps1', 'npx', 'npx.cmd', 'npx.ps1', 'corepack', 'corepack.cmd']) {
-    const src = join(EXTRACTED, name)
-    if (existsSync(src)) await copyFile(src, join(OUT, 'node', name))
-  }
-  await mkdir(join(OUT, 'node', 'node_modules'), { recursive: true })
-  await cp(join(EXTRACTED, 'node_modules', 'npm'), join(OUT, 'node', 'node_modules', 'npm'), { recursive: true })
-  const corepack = join(EXTRACTED, 'node_modules', 'corepack')
-  if (existsSync(corepack)) {
-    await cp(corepack, join(OUT, 'node', 'node_modules', 'corepack'), { recursive: true })
-  }
-  await copyPnpm()
+  if (existsSync(join(EXTRACTED, IS_WINDOWS ? 'node.exe' : 'bin/node'))) return
+  const archive = join(VENDOR, ARCHIVE)
+  await downloadNodeFile(ARCHIVE, archive)
+  if (IS_WINDOWS) run('powershell', ['-NoProfile', '-Command', `Expand-Archive -Force '${archive}' '${VENDOR}'`])
+  else run('tar', ['-xzf', archive, '-C', VENDOR])
 }
 
 /**
- * `dsh plugin` 是 pnpm 的透传器，PATH 上没有 pnpm 就完全装不了插件（含开机预装
- * dshmarket）。机器上有没有全局 pnpm 全看运气，所以便携目录自带一个，启动器再
- * 把它加进子进程 PATH。
+ * 核心的 node/ 目录：只有 npm/pnpm 的 JS 和包装脚本；node 本体由 Electron/外壳提供。
+ * 核心包跨平台，所以两套包装都写：Windows 用 node.cmd / pnpm.cmd，mac 用 sh 脚本；
+ * 同一个目录在两边都能用，PATH 按平台挑到对应的那个。
  */
-async function copyPnpm() {
-  const target = join(OUT, 'node', 'node_modules', 'pnpm')
-  if (existsSync(join(target, 'bin', 'pnpm.cjs'))) return
-  const staging = join(VENDOR, 'pnpm')
-  if (!existsSync(join(staging, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'))) {
-    console.log(`下载 pnpm@${PNPM_VERSION}`)
-    await mkdir(staging, { recursive: true })
-    await writeFile(join(staging, 'package.json'), JSON.stringify({
-      name: 'pnpm-bootstrap',
-      private: true,
-      dependencies: { pnpm: PNPM_VERSION },
-    }, null, 2))
-    run(process.execPath, [join(EXTRACTED, 'node_modules', 'npm', 'bin', 'npm-cli.js'), 'install',
-      '--registry=https://registry.npmmirror.com', '--no-audit', '--no-fund'], staging)
+async function copyNodeRuntime(nodeDir) {
+  await mkdir(nodeDir, { recursive: true })
+  const modules = join(EXTRACTED, IS_WINDOWS ? '' : 'lib', 'node_modules')
+  await copyNpmModules(modules, nodeDir)
+  await copyPnpmModule(nodeDir, join(modules, 'npm', 'bin', 'npm-cli.js'))
+
+  // POSIX：DSH_ELECTRON_BIN 由外壳/CLI 设置；没有时依次试安装版的 Windows / mac / Linux 布局
+  const nodeShim = join(nodeDir, 'node')
+  await writeFile(nodeShim, [
+    '#!/bin/sh',
+    'if [ -n "$DSH_ELECTRON_BIN" ]; then ELECTRON_RUN_AS_NODE=1 exec "$DSH_ELECTRON_BIN" "$@"; fi',
+    'dir="$(cd "$(dirname "$0")" && pwd)"',
+    'if [ -x "$dir/../../../DSH.exe" ]; then ELECTRON_RUN_AS_NODE=1 exec "$dir/../../../DSH.exe" "$@"; fi',
+    'if [ -x "$dir/../../../MacOS/DSH" ]; then ELECTRON_RUN_AS_NODE=1 exec "$dir/../../../MacOS/DSH" "$@"; fi',
+    'ELECTRON_RUN_AS_NODE=1 exec "$dir/../../../DSH" "$@"',
+    '',
+  ].join('\n'))
+  await chmod(nodeShim, 0o755)
+  const shims = { npm: 'npm/bin/npm-cli.js', npx: 'npm/bin/npx-cli.js', pnpm: 'pnpm/bin/pnpm.cjs', pnpx: 'pnpm/bin/pnpx.cjs' }
+  for (const [name, cli] of Object.entries(shims)) {
+    const file = join(nodeDir, name)
+    await writeFile(file, [
+      '#!/bin/sh',
+      'dir="$(cd "$(dirname "$0")" && pwd)"',
+      `exec "$dir/node" "$dir/node_modules/${cli}" "$@"`,
+      '',
+    ].join('\n'))
+    await chmod(file, 0o755)
   }
-  await cp(join(staging, 'node_modules', 'pnpm'), target, { recursive: true })
-  await writeFile(join(OUT, 'node', 'pnpm.cmd'), [
+
+  // Windows
+  await writeFile(join(nodeDir, 'node.cmd'), [
+    '@ECHO off',
+    'SETLOCAL',
+    'SET "ELECTRON_RUN_AS_NODE=1"',
+    'IF DEFINED DSH_ELECTRON_BIN (',
+    '  "%DSH_ELECTRON_BIN%" %*',
+    ') ELSE (',
+    '  "%~dp0..\\..\\..\\DSH.exe" %*',
+    ')',
+    '',
+  ].join('\r\n'))
+  await writeFile(join(nodeDir, 'pnpm.cmd'), [
     '@ECHO off',
     'SETLOCAL',
     'SET "PNPM_JS=%~dp0node_modules\\pnpm\\bin\\pnpm.cjs"',
-    '"%~dp0node.exe" "%PNPM_JS%" %*',
+    'call "%~dp0node.cmd" "%PNPM_JS%" %*',
     '',
   ].join('\r\n'))
-  await writeFile(join(OUT, 'node', 'pnpm'), [
-    '#!/bin/sh',
-    'exec "$(dirname "$0")/node.exe" "$(dirname "$0")/node_modules/pnpm/bin/pnpm.cjs" "$@"',
-    '',
-  ].join('\n'))
-  const pnpx = 'pnpx'
-  await writeFile(join(OUT, 'node', `${pnpx}.cmd`), [
+  await writeFile(join(nodeDir, 'pnpx.cmd'), [
     '@ECHO off',
     'SETLOCAL',
-    '"%~dp0node.exe" "%~dp0node_modules\\pnpm\\bin\\pnpx.cjs" %*',
+    'call "%~dp0node.cmd" "%~dp0node_modules\\pnpm\\bin\\pnpx.cjs" %*',
     '',
   ].join('\r\n'))
 }
 
-async function buildLauncher() {
-  run('cargo', ['build', '--release'], join(ROOT, 'launcher'))
+/** 基线核心：安装包里的 resources/core，也是 npm 核心包的来源。 */
+async function buildCoreStage() {
+  await rm(CORE_STAGE, { recursive: true, force: true })
+  await mkdir(CORE_STAGE, { recursive: true })
+  await copyAppFiles(CORE_STAGE)
+  await copyNodeRuntime(join(CORE_STAGE, 'node'))
+  await writeFile(join(CORE_STAGE, 'package.json'), `${JSON.stringify({
+    // 核心包跨平台：同一个 dsh-x-core 在 Windows / mac / Linux 上都能用，只有外壳按平台分开
+    name: 'dsh-x-core',
+    productName: 'DSH',
+    version: PKG.version,
+    private: true,
+    type: 'module',
+    main: 'server.js',
+    // 核心按哪个 Electron 版本构建；外壳发现不一致就让用户更新外壳
+    dshX: { electron: ELECTRON_VERSION },
+  }, null, 2)}\n`)
+  console.log(`核心层：${CORE_STAGE}（${PKG.version}）`)
 }
 
-async function assemble() {
-  rmSync(OUT, { recursive: true, force: true })
-  await mkdir(join(OUT, 'public'), { recursive: true })
-  await mkdir(join(OUT, 'assets'), { recursive: true })
-  for (const file of [
-    'start.js',
-    'server.js',
-    'registry.js',
-    'settings.js',
-    'plugins.js',
-    'plugin-tool.js',
-    'stdio-unblock.cjs',
-    'package.json',
-  ]) {
-    await copyFile(join(ROOT, file), join(OUT, file))
-  }
-  // 分层版看板娘的素材暂时不装进包（文件留在仓库里；以后切回分层版就把名字从这份名单去掉）
-  const skipAssets = new Set(['head-v2.png', 'accessories-v2.png', 'ear.png'])
-  await cp(join(ROOT, 'public'), join(OUT, 'public'), {
-    recursive: true,
-    filter: (src) => !skipAssets.has(basename(src)),
-  })
-  await cp(join(ROOT, 'assets'), join(OUT, 'assets'), { recursive: true })
-  await copyFile(join(ROOT, 'assets', 'dsh.ico'), join(OUT, 'assets', ICON_NAME))
-  await cp(join(ROOT, 'perf'), join(OUT, 'perf'), { recursive: true })
-  await cp(join(ROOT, 'compat'), join(OUT, 'compat'), { recursive: true })
-  await copyNodeRuntime()
-  // 这里原本要拷 node_modules（装着 systray2）。托盘搬进 DSH.exe 之后启动器不再依赖任何
-  // npm 包，只剩 node 内置模块和同目录的自己人，整份拷贝都省了。
-  await copyFile(join(ROOT, 'launcher', 'target', 'release', 'DSH.exe'), join(OUT, 'DSH.exe'))
-  console.log(`已打包到 ${OUT}`)
+/** 外壳：安装包的 resources/app；版本来自 shell/package.json，和核心版本分开。 */
+async function buildShellStage() {
+  await rm(SHELL_STAGE, { recursive: true, force: true })
+  await mkdir(SHELL_STAGE, { recursive: true })
+  await cp(SHELL_DIR, join(SHELL_STAGE, 'shell'), { recursive: true })
+  // 托盘 / 窗口图标（shell/main.mjs 的 ICON_FILE 指向 app 根目录的 assets）
+  await cp(join(ROOT, 'src', 'assets'), join(SHELL_STAGE, 'assets'), { recursive: true })
+  await writeFile(join(SHELL_STAGE, 'package.json'), `${JSON.stringify({
+    // 这个 name 就是 deb 的包名——electron-builder 读的是 app 目录这份 package.json，
+    // 不是仓库根那个，所以 apt remove 后面的名字由这里决定。
+    name: 'dsh-x',
+    productName: 'DSH-X',
+    version: SHELL_PKG.version,
+    private: true,
+    type: 'module',
+    description: 'DSH-X desktop shell',
+    author: 'yyh',
+    license: 'MIT',
+    main: 'shell/main.mjs',
+    dependencies: { 'electron-updater': '^6.8.11' },
+  }, null, 2)}\n`)
+  // 外壳自更新依赖装进 app 层
+  const npm = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: SHELL_STAGE, stdio: 'inherit', windowsHide: false, shell: process.platform === 'win32' })
+  if (npm.status !== 0) throw new Error('npm install (shell stage) failed')
+  console.log(`外壳层：${SHELL_STAGE}（${SHELL_PKG.version}）`)
 }
 
-function findIscc() {
-  const candidates = [
-    ISCC,
-    join(process.env.LOCALAPPDATA || '', 'Programs', 'Inno Setup 6', 'ISCC.exe'),
-    join(process.env['ProgramFiles(x86)'] || '', 'Inno Setup 6', 'ISCC.exe'),
-    join(process.env.ProgramFiles || '', 'Inno Setup 6', 'ISCC.exe'),
-  ]
-  return candidates.find((path) => path && existsSync(path)) || ''
+function buildInstaller() {
+  if (!existsSync(ELECTRON_BUILDER)) throw new Error('缺少 electron-builder，先 npm install')
+  const args = [ELECTRON_BUILDER, '--config', join(ROOT, 'electron-builder.config.mjs'), '--publish', 'never']
+  if (IS_MAC) args.push('--mac', process.arch === 'arm64' ? '--arm64' : '--x64')
+  else if (IS_LINUX) args.push('--linux')
+  else args.push('--win')
+  run(process.execPath, args)
+  console.log(`安装包输出：${join(ROOT, 'release', 'eb')}`)
 }
 
-async function ensureInno() {
-  const existing = findIscc()
-  if (existing) return existing
-  await mkdir(VENDOR, { recursive: true })
-  const url = 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe'
-  console.log(`下载 Inno Setup ${url}`)
-  await download(url, INNO_SETUP)
-  if (!existsSync(INNO_SETUP) || readFileSync(INNO_SETUP).length < 1_000_000) {
-    throw new Error('Inno Setup 下载失败')
-  }
-  await mkdir(INNO_DIR, { recursive: true })
-  console.log(`安装 Inno Setup 到 ${INNO_DIR}`)
-  run(INNO_SETUP, [
-    '/VERYSILENT',
-    '/SUPPRESSMSGBOXES',
-    '/NORESTART',
-    '/SP-',
-    `/DIR=${INNO_DIR}`,
-  ])
-  const installed = findIscc()
-  if (!installed) throw new Error('Inno Setup 安装后找不到 ISCC.exe')
-  return installed
-}
-
-async function buildInstaller() {
-  const iscc = await ensureInno()
-  console.log('编译安装包')
-  run(iscc, [
-    SETUP_ISS,
-    `/DMyAppVersion=${PKG.version}`,
-    `/DMyAppIcon=${ICON_NAME}`,
-    `/O${join(ROOT, 'release')}`,
-    `/F${SETUP_NAME}`,
-  ])
-  const setup = join(ROOT, 'release', `${SETUP_NAME}.exe`)
-  if (!existsSync(setup)) throw new Error(`没有生成 ${setup}`)
-  const desktop = join(DESKTOP, `${SETUP_NAME}.exe`)
-  await copyFile(setup, desktop)
-  console.log(`安装包: ${setup}`)
-  console.log(`已复制到桌面: ${desktop}`)
-}
-
-await downloadNode()
-await buildLauncher()
-await assemble()
-await buildInstaller()
+await ensureNode()
+await buildCoreStage()
+await buildShellStage()
+buildInstaller()

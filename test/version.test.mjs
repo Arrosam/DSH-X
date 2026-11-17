@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import { cmpVer, parseVer } from '../registry.js'
+import { cmpVer, parseVer } from '../src/registry.js'
 
 /** 只留符号，方便和 semver 的预期结果对照。 */
 const sign = (value) => (value > 0 ? 1 : value < 0 ? -1 : 0)
@@ -67,7 +67,7 @@ test('版本列表按从新到旧排序（目录里给定顺序会被排好）',
  * 免得只改了 registry.js、页面上还是旧口径。
  */
 function pageCompareVersion() {
-  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../src/public/index.html', import.meta.url), 'utf8')
   const start = html.indexOf('function compareVersion(a, b) {')
   assert.notEqual(start, -1, 'index.html 里找不到 compareVersion')
   let depth = 0

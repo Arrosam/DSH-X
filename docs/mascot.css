@@ -1,7 +1,7 @@
 /* Layered character rig. The UI cards stay above the character. */
 .backdrop-character { display: none; }
 .mascot {
-  position: fixed; left: -2vh; bottom: -8vh;
+  position: fixed; left: -7vh; bottom: -13vh;
   width: min(70vh, 48vw); aspect-ratio: 1;
   z-index: 2; pointer-events: none;
   animation: mascot-arrive 900ms cubic-bezier(.16, 1, .3, 1) backwards;
@@ -14,10 +14,10 @@
 }
 .mascot-puppet {
   display: block; width: 100%; height: 100%; padding: 0; border: 0;
-  background: none; color: inherit; pointer-events: auto; cursor: grab;
+  background: none; color: inherit; pointer-events: auto; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.mascot-puppet:active { cursor: grabbing; }
+.mascot-puppet:active { cursor: pointer; }
 .mascot-puppet:focus-visible { outline: 2px solid #3b6fe0; outline-offset: -14px; border-radius: 45%; }
 .mascot svg { display: block; width: 100%; height: 100%; overflow: visible; opacity: .78; }
 .mascot [data-part] { will-change: transform; }
